@@ -1,0 +1,29 @@
+# 후속 단계용 인프라 — 프론트 mock 단계에서는 기동하지 않습니다.
+# 백엔드 구현 시작 시: `docker compose up -d`
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: orbit
+      POSTGRES_DB: orbit
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  qdrant:
+    image: qdrant/qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrantdata:/qdrant/storage
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
+  qdrantdata:

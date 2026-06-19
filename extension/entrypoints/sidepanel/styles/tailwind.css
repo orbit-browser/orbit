@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Orbit 디자인 토큰 (목업 기준 근사치 — 실제 브랜드 에셋이 있으면 교체) */
+@theme {
+  --color-orbit-primary: #f2660a;
+  --color-orbit-primary-soft: #fff1e8;
+  --color-orbit-surface: #ffffff;
+  --color-orbit-bg: #f7f8fa;
+  --color-orbit-text: #1a1a1a;
+  --color-orbit-muted: #6b7280;
+  --color-orbit-border: #e5e7eb;
+
+  --font-sans: "Pretendard", system-ui, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--color-orbit-bg);
+  color: var(--color-orbit-text);
+}
