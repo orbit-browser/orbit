@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AlignLeft, ArrowLeft, Pencil } from 'lucide-react';
-import { useSession } from '../hooks/useSessions';
+import { useSession, useRenameSession } from '../hooks/useSessions';
 import { useUIStore } from '../store/ui';
 import { TabListItem } from '../components/TabListItem';
 import { StatePlaceholder } from '../components/StatePlaceholder';
@@ -12,6 +12,7 @@ export function SessionDetailView() {
   const setView = useUIStore((s) => s.setView);
   const showToast = useUIStore((s) => s.showToast);
   const { data: session, isLoading, isError } = useSession(selectedId);
+  const { mutate: renameSession } = useRenameSession();
 
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
@@ -22,7 +23,11 @@ export function SessionDetailView() {
 
   function commitTitle() {
     setEditing(false);
-    showToast('세션 이름을 변경했어요 (mock)');
+    if (!selectedId || !title.trim() || title === session?.title) return;
+    renameSession(
+      { id: selectedId, title: title.trim() },
+      { onSuccess: () => showToast('세션 이름을 변경했어요') },
+    );
   }
 
   return (
@@ -86,7 +91,7 @@ export function SessionDetailView() {
                 type="button"
                 onClick={() => {
                   void openTabs(session.tabs.map((t) => t.url));
-                  showToast('세션을 복원했어요 (mock)');
+                  showToast('세션을 복원했어요');
                 }}
                 className="flex items-center gap-1.5 rounded-lg bg-orbit-primary px-3 py-1.5 text-xs font-semibold text-white hover:brightness-95"
               >

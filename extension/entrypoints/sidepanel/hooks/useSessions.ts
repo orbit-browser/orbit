@@ -1,5 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchSession, fetchSessions } from '../../../lib/api';
+import { upsertSession, updateSessionTitle, deleteSession } from '../../../lib/storage';
+import type { Session } from '../../../lib/types';
 
 export function useSessions() {
   return useQuery({ queryKey: ['sessions'], queryFn: fetchSessions });
@@ -10,5 +12,33 @@ export function useSession(id: string | null) {
     queryKey: ['session', id],
     queryFn: () => fetchSession(id as string),
     enabled: !!id,
+  });
+}
+
+export function useSaveSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (session: Session) => upsertSession(session),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sessions'] }),
+  });
+}
+
+export function useRenameSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) =>
+      updateSessionTitle(id, title),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['session', id] });
+    },
+  });
+}
+
+export function useDeleteSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteSession(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sessions'] }),
   });
 }

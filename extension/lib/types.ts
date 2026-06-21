@@ -1,7 +1,19 @@
 // Orbit 도메인 타입 — 프론트/백엔드 간 계약의 기준이 됩니다.
 // (백엔드 구현 시 Pydantic 스키마와 정합을 맞춥니다.)
 
+export interface PageContent {
+  title: string;
+  /** Readability가 추출한 순수 텍스트 (임베딩 입력용, 최대 8000자) */
+  textContent: string;
+  /** 짧은 발췌문 (UI 미리보기 / LLM 요약용) */
+  excerpt: string;
+  byline?: string;
+  siteName?: string;
+  length: number;
+}
+
 export interface TabItem {
+  /** chrome.tabs.Tab.id (항상 실제 탭 ID — parseInt 가능) */
   id: string;
   title: string;
   url: string;

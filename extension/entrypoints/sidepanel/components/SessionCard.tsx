@@ -1,11 +1,14 @@
 import { FileText } from 'lucide-react';
 import type { Session } from '../../../lib/types';
 import { useUIStore } from '../store/ui';
+import { useDeleteSession } from '../hooks/useSessions';
+import { openTabs } from '../../../lib/chrome-bridge';
 import { OverflowMenu } from './OverflowMenu';
 
 export function SessionCard({ session }: { session: Session }) {
   const openSession = useUIStore((s) => s.openSession);
   const showToast = useUIStore((s) => s.showToast);
+  const { mutate: deleteSession } = useDeleteSession();
 
   return (
     <div
@@ -28,9 +31,22 @@ export function SessionCard({ session }: { session: Session }) {
       </div>
       <OverflowMenu
         actions={[
-          { label: '세션 열기', onClick: () => showToast('세션 복원 (mock)') },
-          { label: '요약 보기', onClick: () => openSession(session.id) },
-          { label: '삭제', onClick: () => showToast('삭제 (mock)'), danger: true },
+          {
+            label: '세션 복원',
+            onClick: () => {
+              void openTabs(session.tabs.map((t) => t.url));
+              showToast('세션을 복원했어요');
+            },
+          },
+          { label: '상세 보기', onClick: () => openSession(session.id) },
+          {
+            label: '삭제',
+            danger: true,
+            onClick: () =>
+              deleteSession(session.id, {
+                onSuccess: () => showToast('세션을 삭제했어요'),
+              }),
+          },
         ]}
       />
     </div>
