@@ -46,6 +46,8 @@ async def chat_completion(
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        if not resp.choices:
+            raise ValueError("A.X-K1 응답에 choices가 없습니다")
         return resp.choices[0].message.content or ""
     except RateLimitError:
         logger.warning("A.X-K1 RPS 초과 — 1초 후 solar-pro3 fallback")

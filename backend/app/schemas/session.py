@@ -8,6 +8,8 @@ class TabItemRequest(BaseModel):
     url: str
     title: str
     text_content: str
+    tab_id: str = ""          # Chrome tab ID (복원 시 React key 용)
+    fav_icon_url: str | None = None
     excerpt: str | None = None
     site_name: str | None = None
 

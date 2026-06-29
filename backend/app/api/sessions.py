@@ -1,11 +1,14 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..ai.embedding import embed
 from ..db.models import Session as SessionModel
 from ..db.session import get_db
+from ..db.vector import delete_point, upsert_point
 from ..schemas.session import (
     PatchSessionRequest,
     SaveSessionRequest,
@@ -16,16 +19,18 @@ from ..schemas.session import (
 )
 from ..services.summarizer import generate_summary
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
 def _to_detail(session: SessionModel) -> SessionDetail:
     tabs = [
         TabItemResponse(
-            id=str(t.get("id", "")),
+            id=t.get("tab_id", ""),
             title=t.get("title", ""),
             url=t.get("url", ""),
-            fav_icon_url=t.get("favIconUrl"),
+            fav_icon_url=t.get("fav_icon_url"),
         )
         for t in (session.tabs or [])
     ]
@@ -63,6 +68,23 @@ async def create_session(
     db.add(session)
     await db.commit()
     await db.refresh(session)
+
+    # 임베딩 생성 + Qdrant 저장 (best-effort: 실패해도 세션은 정상 저장)
+    embed_text = f"{summary.overview} {summary.purpose} {' '.join(summary.highlights)}"
+    try:
+        vector = await embed(embed_text)
+        await upsert_point(
+            session.id,
+            vector,
+            {
+                "session_id": session.id,
+                "title": session.title,
+                "overview": summary.overview,
+                "purpose": summary.purpose,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Qdrant upsert 실패 (session_id=%s): %s", session.id, exc)
 
     return SaveSessionResponse(
         session_id=session.id,
@@ -120,3 +142,4 @@ async def delete_session(
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
     await db.delete(session)
     await db.commit()
+    await delete_point(session_id)  # Qdrant에서도 제거

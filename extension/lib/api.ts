@@ -99,6 +99,8 @@ export async function saveSession(tabs: TabItem[]): Promise<Session> {
         url: tab.url,
         title: tab.title,
         text_content: content?.textContent ?? '',
+        tab_id: tab.id,
+        fav_icon_url: tab.favIconUrl ?? null,
         excerpt: content?.excerpt ?? null,
         site_name: content?.siteName ?? null,
       };
@@ -126,13 +128,21 @@ export async function deleteSession(id: string): Promise<void> {
 }
 
 export async function searchSessions(query: string): Promise<Session[]> {
-  const sessions = await fetchSessions();
-  const q = query.trim().toLowerCase();
-  if (!q) return sessions;
-  return sessions.filter(
-    (s) =>
-      s.title.toLowerCase().includes(q) ||
-      s.summary.overview.toLowerCase().includes(q) ||
-      s.tabs.some((t) => t.title.toLowerCase().includes(q)),
-  );
+  const q = query.trim();
+  if (!q) return [];
+  try {
+    const params = new URLSearchParams({ q });
+    const data = await request<BackendSession[]>(`/search?${params}`);
+    return data.map(mapSession);
+  } catch {
+    // Qdrant 미실행 등의 경우 클라이언트 필터링으로 fallback
+    const sessions = await fetchSessions();
+    const lower = q.toLowerCase();
+    return sessions.filter(
+      (s) =>
+        s.title.toLowerCase().includes(lower) ||
+        s.summary.overview.toLowerCase().includes(lower) ||
+        s.tabs.some((t) => t.title.toLowerCase().includes(lower)),
+    );
+  }
 }
