@@ -1,12 +1,28 @@
-"""Orbit backend (스켈레톤).
-
-후속 단계에서 세션 분석/요약/검색 및 Agent Action 엔드포인트를 구현합니다.
-현재는 헬스체크만 제공합니다.
-"""
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Orbit API", version="0.0.1")
+from .api.sessions import router as sessions_router
+from .db.session import init_db
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+
+app = FastAPI(title="Orbit API", version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(sessions_router)
 
 
 @app.get("/health")
