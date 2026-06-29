@@ -68,7 +68,7 @@ async def generate_summary(
         raw = await chat_completion(_SYSTEM_PROMPT, prompt, max_tokens=600)
         data = _extract_json(raw)
 
-        title = str(data.get("title") or "").strip()[:20] or _rule_based_title(tabs)
+        title = str(data.get("title") or "").strip()[:20] or rule_based_title(tabs)
         summary = SessionSummary(
             overview=str(data.get("overview") or ""),
             purpose=str(data.get("purpose") or ""),

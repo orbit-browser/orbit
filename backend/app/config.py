@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     upstage_api_key: str = ""
     upstage_base_url: str = "https://api.upstage.ai/v1"
     solar_model: str = "solar-pro3"
+    solar_mini_model: str = "solar-mini"
     embedding_model: str = "embedding-query"
 
     # 데이터스토어

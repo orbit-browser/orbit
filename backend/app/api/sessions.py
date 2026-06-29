@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..ai.clusterer import cluster_tabs
 from ..ai.embedding import embed
 from ..db.models import Session as SessionModel
 from ..db.session import AsyncSessionLocal, get_db
@@ -107,6 +108,42 @@ async def create_session(
     background_tasks.add_task(_ai_update, session.id, [t.model_dump() for t in body.tabs])
 
     return _to_detail(session)
+
+
+@router.post("/cluster", response_model=list[SessionDetail], status_code=201)
+async def create_sessions_clustered(
+    body: SaveSessionRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> list[SessionDetail]:
+    """탭을 주제별로 클러스터링 후 세션 N개 생성. 클러스터링 실패 시 단일 세션 fallback."""
+    groups = await cluster_tabs(body.tabs)
+
+    session_groups: list[tuple[SessionModel, list[TabItemRequest]]] = []
+    for group in groups:
+        title = rule_based_title(group)
+        summary = SessionSummary(
+            overview=f"{len(group)}개 탭 세션",
+            highlights=[t.title for t in group[:3]],
+        )
+        session = SessionModel(
+            title=title,
+            tabs=[t.model_dump() for t in group],
+            summary=summary.model_dump(),
+            tab_count=len(group),
+        )
+        db.add(session)
+        session_groups.append((session, group))
+
+    await db.commit()
+
+    results: list[SessionDetail] = []
+    for session, group in session_groups:
+        await db.refresh(session)
+        results.append(_to_detail(session))
+        background_tasks.add_task(_ai_update, session.id, [t.model_dump() for t in group])
+
+    return results
 
 
 @router.get("", response_model=list[SessionDetail])

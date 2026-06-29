@@ -90,9 +90,8 @@ export async function fetchSession(id: string): Promise<Session | undefined> {
   }
 }
 
-export async function saveSession(tabs: TabItem[]): Promise<Session> {
-  // 각 탭의 페이지 콘텐츠를 병렬로 수집
-  const enriched = await Promise.all(
+async function enrichTabs(tabs: TabItem[]) {
+  return Promise.all(
     tabs.map(async (tab) => {
       const content = await getTabPageContent(parseInt(tab.id, 10));
       return {
@@ -106,13 +105,26 @@ export async function saveSession(tabs: TabItem[]): Promise<Session> {
       };
     }),
   );
+}
 
+export async function saveSession(tabs: TabItem[]): Promise<Session> {
+  const enriched = await enrichTabs(tabs);
   const data = await request<BackendSession>('/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tabs: enriched, saved_at: new Date().toISOString() }),
   });
   return mapSession(data);
+}
+
+export async function saveSessionsClustered(tabs: TabItem[]): Promise<Session[]> {
+  const enriched = await enrichTabs(tabs);
+  const data = await request<BackendSession[]>('/sessions/cluster', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tabs: enriched, saved_at: new Date().toISOString() }),
+  });
+  return data.map(mapSession);
 }
 
 export async function renameSession(id: string, title: string): Promise<void> {
@@ -136,11 +148,12 @@ export async function checkHealth(): Promise<boolean> {
   }
 }
 
-export async function searchSessions(query: string): Promise<Session[]> {
+export async function searchSessions(query: string, rerank = false): Promise<Session[]> {
   const q = query.trim();
   if (!q) return [];
   try {
     const params = new URLSearchParams({ q });
+    if (rerank) params.set('rerank', 'true');
     const data = await request<BackendSession[]>(`/search?${params}`);
     return data.map(mapSession);
   } catch {

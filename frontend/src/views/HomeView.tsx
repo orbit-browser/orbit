@@ -91,7 +91,7 @@ export function HomeView() {
             <div className="flex shrink-0 gap-1">
               <button
                 type="button"
-                onClick={() => setMode('sessions')}
+                onClick={() => { setMode('sessions'); setQuery(''); }}
                 className={[
                   'rounded-lg px-3 py-1 text-xs font-medium transition',
                   mode === 'sessions'
@@ -124,7 +124,7 @@ export function HomeView() {
           <div className="flex gap-0.5 rounded-xl bg-black/[0.06] p-1">
             <button
               type="button"
-              onClick={() => setMode('sessions')}
+              onClick={() => { setMode('sessions'); setQuery(''); }}
               className={[
                 'rounded-[8px] px-3.5 py-1.5 text-[13px] transition',
                 mode === 'sessions'

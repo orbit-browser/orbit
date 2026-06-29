@@ -4,6 +4,7 @@ import {
   fetchSession,
   fetchSessions,
   saveSession,
+  saveSessionsClustered,
   renameSession,
   deleteSession,
 } from '../../../lib/api';
@@ -33,6 +34,18 @@ export function useSaveSession() {
     mutationFn: (tabs: TabItem[]) => saveSession(tabs),
     onSuccess: (session) => {
       addPending(session.id);
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    },
+  });
+}
+
+export function useSaveSessionsClustered() {
+  const queryClient = useQueryClient();
+  const addPending = useUIStore((s) => s.addPendingSession);
+  return useMutation({
+    mutationFn: (tabs: TabItem[]) => saveSessionsClustered(tabs),
+    onSuccess: (sessions) => {
+      sessions.forEach((s) => addPending(s.id));
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
     },
   });

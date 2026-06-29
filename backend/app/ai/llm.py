@@ -25,6 +25,42 @@ def _solar_client() -> AsyncOpenAI:
     )
 
 
+async def chat_completion_light(
+    system: str,
+    user: str,
+    *,
+    temperature: float = 0.1,
+    max_tokens: int = 500,
+) -> str:
+    """Solar Mini로 단순 분류/변환 태스크 처리. 실패 시 solar-pro3 fallback."""
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+    client = _solar_client()
+    try:
+        resp = await client.chat.completions.create(
+            model=settings.solar_mini_model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        if not resp.choices:
+            raise ValueError("solar-mini 응답에 choices가 없습니다")
+        return resp.choices[0].message.content or ""
+    except Exception as exc:
+        logger.warning("solar-mini 실패 (%s) — solar-pro3 fallback", exc)
+        resp = await client.chat.completions.create(
+            model=settings.solar_model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        if not resp.choices:
+            raise ValueError("solar-pro3 fallback 응답에 choices가 없습니다")
+        return resp.choices[0].message.content or ""
+
+
 async def chat_completion(
     system: str,
     user: str,
