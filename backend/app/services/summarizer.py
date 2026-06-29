@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 
 from ..ai.llm import chat_completion
 from ..schemas.session import SessionSummary, TabItemRequest
@@ -45,16 +46,15 @@ def _rule_based_title(tabs: list[TabItemRequest]) -> str:
     return f"{tabs[0].title[:15]} 외 {len(tabs) - 1}개"
 
 
+_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+
+
 def _extract_json(raw: str) -> dict:
-    """JSON 블록 추출 — ```json ... ``` 래핑 대응."""
+    """JSON 블록 추출 — ```json ... ``` 래핑 및 앞뒤 텍스트 대응."""
     raw = raw.strip()
-    if raw.startswith("```"):
-        parts = raw.split("```")
-        # parts[1]이 "json\n{...}" 또는 "{...}" 형태
-        inner = parts[1]
-        if inner.startswith("json"):
-            inner = inner[4:]
-        raw = inner.strip()
+    match = _FENCE_RE.search(raw)
+    if match:
+        raw = match.group(1).strip()
     return json.loads(raw)
 
 

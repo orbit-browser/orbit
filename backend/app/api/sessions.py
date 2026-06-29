@@ -1,4 +1,4 @@
-from datetime import timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -11,7 +11,6 @@ from ..schemas.session import (
     SaveSessionRequest,
     SaveSessionResponse,
     SessionDetail,
-    SessionListItem,
     SessionSummary,
     TabItemResponse,
 )
@@ -73,24 +72,14 @@ async def create_session(
     )
 
 
-@router.get("", response_model=list[SessionListItem])
+@router.get("", response_model=list[SessionDetail])
 async def list_sessions(
     db: AsyncSession = Depends(get_db),
-) -> list[SessionListItem]:
+) -> list[SessionDetail]:
     result = await db.execute(
         select(SessionModel).order_by(SessionModel.created_at.desc())
     )
-    sessions = result.scalars().all()
-    return [
-        SessionListItem(
-            session_id=s.id,
-            title=s.title,
-            overview=(s.summary or {}).get("overview", ""),
-            tab_count=s.tab_count,
-            created_at=s.created_at.isoformat(),
-        )
-        for s in sessions
-    ]
+    return [_to_detail(s) for s in result.scalars().all()]
 
 
 @router.get("/{session_id}", response_model=SessionDetail)
@@ -113,8 +102,6 @@ async def patch_session(
     session = await db.get(SessionModel, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
-
-    from datetime import datetime
 
     session.title = body.title
     session.updated_at = datetime.now(timezone.utc)

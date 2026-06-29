@@ -6,11 +6,14 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
+_TIMEOUT = 60.0  # LLM 응답 최대 대기 시간 (초)
+
 
 def _axk1_client() -> AsyncOpenAI:
     return AsyncOpenAI(
         api_key=settings.axk1_api_key,
         base_url=settings.axk1_base_url,
+        timeout=_TIMEOUT,
     )
 
 
@@ -18,6 +21,7 @@ def _solar_client() -> AsyncOpenAI:
     return AsyncOpenAI(
         api_key=settings.upstage_api_key,
         base_url=settings.upstage_base_url,
+        timeout=_TIMEOUT,
     )
 
 

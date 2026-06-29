@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── 요청 ──────────────────────────────────────────────
@@ -13,12 +13,12 @@ class TabItemRequest(BaseModel):
 
 
 class SaveSessionRequest(BaseModel):
-    tabs: list[TabItemRequest]
+    tabs: list[TabItemRequest] = Field(min_length=1)
     saved_at: str  # ISO 8601
 
 
 class PatchSessionRequest(BaseModel):
-    title: str
+    title: str = Field(min_length=1)
 
 
 # ── 공통 ──────────────────────────────────────────────
