@@ -127,6 +127,15 @@ export async function deleteSession(id: string): Promise<void> {
   await request(`/sessions/${id}`, { method: 'DELETE' });
 }
 
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(3000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function searchSessions(query: string): Promise<Session[]> {
   const q = query.trim();
   if (!q) return [];

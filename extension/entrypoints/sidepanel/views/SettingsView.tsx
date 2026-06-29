@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { checkHealth } from '../../../lib/api';
 import { useUIStore } from '../store/ui';
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -35,13 +37,25 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 export function SettingsView() {
   const [excludeSensitive, setExcludeSensitive] = useState(true);
   const showToast = useUIStore((s) => s.showToast);
+  const { data: isConnected, isLoading } = useQuery({
+    queryKey: ['health'],
+    queryFn: checkHealth,
+    refetchInterval: 10_000,
+    retry: false,
+  });
+
+  const connectionLabel = isLoading
+    ? '확인 중…'
+    : isConnected
+      ? '연결됨'
+      : '미연결';
 
   return (
     <div className="space-y-4">
       <p className="text-xs font-semibold text-orbit-muted">설정</p>
 
       <div className="divide-y divide-orbit-border rounded-xl border border-orbit-border bg-orbit-surface">
-        <InfoRow label="백엔드 연결" value="mock 모드 (미연결)" />
+        <InfoRow label="백엔드 연결" value={connectionLabel} />
 
         <div className="flex items-center justify-between gap-3 px-3 py-2.5">
           <div className="min-w-0">

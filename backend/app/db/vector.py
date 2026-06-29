@@ -58,9 +58,9 @@ async def delete_point(session_id: str) -> None:
 
 async def search_similar(query_vector: list[float], limit: int = 5) -> list[str]:
     client = get_qdrant()
-    results = await client.search(
+    result = await client.query_points(
         collection_name=COLLECTION,
-        query_vector=query_vector,
+        query=query_vector,
         limit=limit,
     )
-    return [str(r.id) for r in results]
+    return [str(p.id) for p in result.points]

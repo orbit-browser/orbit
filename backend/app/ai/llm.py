@@ -53,7 +53,7 @@ async def chat_completion(
         logger.warning("A.X-K1 RPS 초과 — 1초 후 solar-pro3 fallback")
         await asyncio.sleep(1)
     except APIStatusError as e:
-        if e.status_code >= 500:
+        if e.status_code in (404, 503) or e.status_code >= 500:
             logger.warning("A.X-K1 %s 오류 — solar-pro3 fallback", e.status_code)
         else:
             raise

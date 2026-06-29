@@ -1,5 +1,5 @@
 import { Sparkles } from 'lucide-react';
-import { useSessions } from '../hooks/useSessions';
+import { useSessions, usePendingSessionPoller } from '../hooks/useSessions';
 import { useUIStore } from '../store/ui';
 import { CurrentSessionCard } from '../components/CurrentSessionCard';
 import { SaveSessionButton } from '../components/SaveSessionButton';
@@ -7,6 +7,7 @@ import { SessionCard } from '../components/SessionCard';
 import { StatePlaceholder } from '../components/StatePlaceholder';
 
 export function SessionListView() {
+  usePendingSessionPoller();
   const { data: sessions, isLoading, isError } = useSessions();
   const setView = useUIStore((s) => s.setView);
 

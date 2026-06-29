@@ -38,7 +38,7 @@ def _build_tabs_text(tabs: list[TabItemRequest]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def _rule_based_title(tabs: list[TabItemRequest]) -> str:
+def rule_based_title(tabs: list[TabItemRequest]) -> str:
     if not tabs:
         return "새 세션"
     if len(tabs) == 1:
@@ -80,7 +80,7 @@ async def generate_summary(
 
     except Exception as exc:
         logger.warning("LLM 요약 실패 (%s) — 규칙 기반 fallback 적용", exc)
-        return _rule_based_title(tabs), SessionSummary(
+        return rule_based_title(tabs), SessionSummary(
             overview=f"{len(tabs)}개 탭 세션",
             highlights=[t.title for t in tabs[:3]],
         )
