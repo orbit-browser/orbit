@@ -1,4 +1,4 @@
-import { FileText } from 'lucide-react';
+import { FileText, Loader2 } from 'lucide-react';
 import type { Session } from '../../../lib/types';
 import { useUIStore } from '../store/ui';
 import { useDeleteSession } from '../hooks/useSessions';
@@ -9,6 +9,7 @@ export function SessionCard({ session }: { session: Session }) {
   const openSession = useUIStore((s) => s.openSession);
   const showToast = useUIStore((s) => s.showToast);
   const { mutate: deleteSession } = useDeleteSession();
+  const isPending = useUIStore((s) => s.pendingSessionIds.includes(session.id));
 
   return (
     <div
@@ -21,10 +22,12 @@ export function SessionCard({ session }: { session: Session }) {
       className="flex cursor-pointer items-center gap-3 rounded-xl border border-orbit-border bg-orbit-surface p-3 transition hover:border-orbit-primary/40 hover:shadow-sm"
     >
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orbit-bg text-orbit-muted">
-        <FileText size={18} />
+        {isPending ? <Loader2 size={18} className="animate-spin text-orbit-primary" /> : <FileText size={18} />}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{session.title}</p>
+        <p className="truncate text-sm font-medium">
+          {isPending ? 'AI 요약 중…' : session.title}
+        </p>
         <p className="text-xs text-orbit-muted">
           {session.tabs.length}개 탭 · {session.timeLabel}
         </p>

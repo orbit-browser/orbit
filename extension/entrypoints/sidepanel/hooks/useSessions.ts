@@ -1,10 +1,22 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchSession, fetchSessions } from '../../../lib/api';
-import { upsertSession, updateSessionTitle, deleteSession } from '../../../lib/storage';
-import type { Session } from '../../../lib/types';
+import {
+  fetchSession,
+  fetchSessions,
+  saveSession,
+  saveSessionsClustered,
+  renameSession,
+  deleteSession,
+} from '../../../lib/api';
+import type { TabItem } from '../../../lib/types';
+import { useUIStore } from '../store/ui';
 
 export function useSessions() {
-  return useQuery({ queryKey: ['sessions'], queryFn: fetchSessions });
+  return useQuery({
+    queryKey: ['sessions'],
+    queryFn: fetchSessions,
+    refetchInterval: 15_000,
+  });
 }
 
 export function useSession(id: string | null) {
@@ -17,17 +29,60 @@ export function useSession(id: string | null) {
 
 export function useSaveSession() {
   const queryClient = useQueryClient();
+  const addPending = useUIStore((s) => s.addPendingSession);
   return useMutation({
-    mutationFn: (session: Session) => upsertSession(session),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sessions'] }),
+    mutationFn: (tabs: TabItem[]) => saveSession(tabs),
+    onSuccess: (session) => {
+      addPending(session.id);
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    },
   });
+}
+
+export function useSaveSessionsClustered() {
+  const queryClient = useQueryClient();
+  const addPending = useUIStore((s) => s.addPendingSession);
+  return useMutation({
+    mutationFn: (tabs: TabItem[]) => saveSessionsClustered(tabs),
+    onSuccess: (sessions) => {
+      sessions.forEach((s) => addPending(s.id));
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    },
+  });
+}
+
+/** AI 요약이 완료될 때까지 pending 세션을 3초마다 폴링. */
+export function usePendingSessionPoller() {
+  const pendingIds = useUIStore((s) => s.pendingSessionIds);
+  const removePending = useUIStore((s) => s.removePendingSession);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!pendingIds.length) return;
+
+    const timer = setInterval(async () => {
+      for (const id of pendingIds) {
+        try {
+          const session = await fetchSession(id);
+          if (!session || session.updatedAt !== session.createdAt) {
+            removePending(id);
+            queryClient.invalidateQueries({ queryKey: ['sessions'] });
+          }
+        } catch {
+          removePending(id);
+        }
+      }
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [pendingIds, removePending, queryClient]);
 }
 
 export function useRenameSession() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, title }: { id: string; title: string }) =>
-      updateSessionTitle(id, title),
+      renameSession(id, title),
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       queryClient.invalidateQueries({ queryKey: ['session', id] });

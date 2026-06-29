@@ -11,6 +11,7 @@ export default defineConfig({
     name: 'Orbit',
     description: '탐색의 흐름을 기억하고, 원하는 순간에 복원하는 AI Browser Agent',
     permissions: ['tabs', 'storage', 'sidePanel', 'bookmarks'],
+    host_permissions: ['http://localhost/*', 'http://127.0.0.1/*'],
     icons: {
       '128': '/orbit_icon.png',
     },

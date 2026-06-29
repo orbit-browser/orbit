@@ -6,16 +6,24 @@ interface UIState {
   activeView: View;
   selectedSessionId: string | null;
   toast: string | null;
+  pendingSessionIds: string[];
+  isClustering: boolean;
   setView: (view: View) => void;
   openSession: (id: string) => void;
   goBackToSessions: () => void;
   showToast: (message: string) => void;
+  addPendingSession: (id: string) => void;
+  removePendingSession: (id: string) => void;
+  startClustering: () => void;
+  stopClustering: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
   activeView: 'sessions',
   selectedSessionId: null,
   toast: null,
+  pendingSessionIds: [],
+  isClustering: false,
   setView: (view) => set({ activeView: view }),
   openSession: (id) => set({ selectedSessionId: id, activeView: 'detail' }),
   goBackToSessions: () => set({ activeView: 'sessions' }),
@@ -23,4 +31,10 @@ export const useUIStore = create<UIState>((set) => ({
     set({ toast: message });
     setTimeout(() => set({ toast: null }), 1800);
   },
+  addPendingSession: (id) =>
+    set((s) => ({ pendingSessionIds: [...s.pendingSessionIds, id] })),
+  removePendingSession: (id) =>
+    set((s) => ({ pendingSessionIds: s.pendingSessionIds.filter((x) => x !== id) })),
+  startClustering: () => set({ isClustering: true }),
+  stopClustering: () => set({ isClustering: false }),
 }));

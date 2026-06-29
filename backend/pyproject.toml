@@ -1,9 +1,8 @@
 [project]
 name = "orbit-backend"
-version = "0.0.1"
-description = "Orbit AI Browser Agent — backend (스켈레톤, 미구현)"
-requires-python = ">=3.12"
-# 의존성 목록만 명시합니다. 실제 설치는 백엔드 구현 단계에서 진행합니다.
+version = "0.1.0"
+description = "Orbit AI Browser Agent — backend"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -14,13 +13,8 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.14",
     "qdrant-client>=1.12",
-    "redis>=5.2",
-    "openai>=1.55",          # Upstage / A.X K1 (OpenAI 호환) 호출용
+    "openai>=1.55",
     "beautifulsoup4>=4.12",
-    "trafilatura>=1.12",
-    "hdbscan>=0.8.40",
-    "scikit-learn>=1.5",
-    "numpy>=2.1",
 ]
 
 [build-system]

@@ -1,9 +1,8 @@
-import { getTabPageContent } from './chrome-bridge';
-import type { Session, SessionSummary, TabItem } from './types';
+import type { Session, SessionSummary } from './types';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
-// ── 백엔드 응답 타입 (snake_case) ─────────────────────
+// ── 백엔드 응답 타입 (snake_case) ──────────────────────
 
 interface BackendSummary {
   overview: string;
@@ -29,7 +28,7 @@ interface BackendSession {
   updated_at: string;
 }
 
-// ── 타입 변환 ────────────────────────────────────────
+// ── 타입 변환 ──────────────────────────────────────────
 
 function formatTimeLabel(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -73,7 +72,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// ── 공개 API ─────────────────────────────────────────
+// ── 공개 API ──────────────────────────────────────────
 
 export async function fetchSessions(): Promise<Session[]> {
   const data = await request<BackendSession[]>('/sessions');
@@ -90,43 +89,6 @@ export async function fetchSession(id: string): Promise<Session | undefined> {
   }
 }
 
-async function enrichTabs(tabs: TabItem[]) {
-  return Promise.all(
-    tabs.map(async (tab) => {
-      const content = await getTabPageContent(parseInt(tab.id, 10));
-      return {
-        url: tab.url,
-        title: tab.title,
-        text_content: content?.textContent ?? '',
-        tab_id: tab.id,
-        fav_icon_url: tab.favIconUrl ?? null,
-        excerpt: content?.excerpt ?? null,
-        site_name: content?.siteName ?? null,
-      };
-    }),
-  );
-}
-
-export async function saveSession(tabs: TabItem[]): Promise<Session> {
-  const enriched = await enrichTabs(tabs);
-  const data = await request<BackendSession>('/sessions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tabs: enriched, saved_at: new Date().toISOString() }),
-  });
-  return mapSession(data);
-}
-
-export async function saveSessionsClustered(tabs: TabItem[]): Promise<Session[]> {
-  const enriched = await enrichTabs(tabs);
-  const data = await request<BackendSession[]>('/sessions/cluster', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tabs: enriched, saved_at: new Date().toISOString() }),
-  });
-  return data.map(mapSession);
-}
-
 export async function renameSession(id: string, title: string): Promise<void> {
   await request(`/sessions/${id}`, {
     method: 'PATCH',
@@ -139,25 +101,14 @@ export async function deleteSession(id: string): Promise<void> {
   await request(`/sessions/${id}`, { method: 'DELETE' });
 }
 
-export async function checkHealth(): Promise<boolean> {
-  try {
-    const res = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(3000) });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-export async function searchSessions(query: string, rerank = false): Promise<Session[]> {
+export async function searchSessions(query: string): Promise<Session[]> {
   const q = query.trim();
   if (!q) return [];
   try {
     const params = new URLSearchParams({ q });
-    if (rerank) params.set('rerank', 'true');
     const data = await request<BackendSession[]>(`/search?${params}`);
     return data.map(mapSession);
   } catch {
-    // Qdrant 미실행 등의 경우 클라이언트 필터링으로 fallback
     const sessions = await fetchSessions();
     const lower = q.toLowerCase();
     return sessions.filter(
@@ -166,5 +117,14 @@ export async function searchSessions(query: string, rerank = false): Promise<Ses
         s.summary.overview.toLowerCase().includes(lower) ||
         s.tabs.some((t) => t.title.toLowerCase().includes(lower)),
     );
+  }
+}
+
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(3000) });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
