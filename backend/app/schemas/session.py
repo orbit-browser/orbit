@@ -1,5 +1,8 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
+SummaryStatus = Literal["pending", "done", "failed"]
 
 # ── 요청 ──────────────────────────────────────────────
 
@@ -16,7 +19,6 @@ class TabItemRequest(BaseModel):
 
 class SaveSessionRequest(BaseModel):
     tabs: list[TabItemRequest] = Field(min_length=1)
-    saved_at: str  # ISO 8601
 
 
 class PatchSessionRequest(BaseModel):
@@ -44,25 +46,11 @@ class TabItemResponse(BaseModel):
     fav_icon_url: str | None = None
 
 
-class SaveSessionResponse(BaseModel):
-    session_id: str
-    title: str
-    summary: SessionSummary
-    created_at: str
-
-
-class SessionListItem(BaseModel):
-    session_id: str
-    title: str
-    overview: str
-    tab_count: int
-    created_at: str
-
-
 class SessionDetail(BaseModel):
     session_id: str
     title: str
     summary: SessionSummary
+    summary_status: SummaryStatus
     tabs: list[TabItemResponse]
     created_at: str
     updated_at: str

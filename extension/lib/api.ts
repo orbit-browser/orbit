@@ -1,4 +1,6 @@
 import { getTabPageContent } from './chrome-bridge';
+import { isSensitiveUrl } from './sensitive-domains';
+import { useSettingsStore } from '../entrypoints/sidepanel/store/settings';
 import type { Session, SessionSummary, TabItem } from './types';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
@@ -24,6 +26,7 @@ interface BackendSession {
   session_id: string;
   title: string;
   summary: BackendSummary;
+  summary_status: 'pending' | 'done' | 'failed';
   tabs: BackendTab[];
   created_at: string;
   updated_at: string;
@@ -60,6 +63,7 @@ function mapSession(b: BackendSession): Session {
     updatedAt: b.updated_at,
     timeLabel: formatTimeLabel(new Date(b.created_at)),
     summary: mapSummary(b.summary),
+    summaryStatus: b.summary_status,
   };
 }
 
@@ -91,8 +95,23 @@ export async function fetchSession(id: string): Promise<Session | undefined> {
 }
 
 async function enrichTabs(tabs: TabItem[]) {
+  const excludeSensitive = useSettingsStore.getState().excludeSensitive;
+
   return Promise.all(
     tabs.map(async (tab) => {
+      // 민감 도메인/경로는 본문만 제외 — 탭 자체(제목·URL)는 유지해 세션 복원은 가능하게 함
+      if (excludeSensitive && isSensitiveUrl(tab.url)) {
+        return {
+          url: tab.url,
+          title: tab.title,
+          text_content: '',
+          tab_id: tab.id,
+          fav_icon_url: tab.favIconUrl ?? null,
+          excerpt: null,
+          site_name: null,
+        };
+      }
+
       const content = await getTabPageContent(parseInt(tab.id, 10));
       return {
         url: tab.url,
@@ -107,24 +126,21 @@ async function enrichTabs(tabs: TabItem[]) {
   );
 }
 
-export async function saveSession(tabs: TabItem[]): Promise<Session> {
-  const enriched = await enrichTabs(tabs);
-  const data = await request<BackendSession>('/sessions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tabs: enriched, saved_at: new Date().toISOString() }),
-  });
-  return mapSession(data);
-}
-
 export async function saveSessionsClustered(tabs: TabItem[]): Promise<Session[]> {
   const enriched = await enrichTabs(tabs);
   const data = await request<BackendSession[]>('/sessions/cluster', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tabs: enriched, saved_at: new Date().toISOString() }),
+    body: JSON.stringify({ tabs: enriched }),
   });
   return data.map(mapSession);
+}
+
+export async function retrySummary(id: string): Promise<Session> {
+  const data = await request<BackendSession>(`/sessions/${id}/retry-summary`, {
+    method: 'POST',
+  });
+  return mapSession(data);
 }
 
 export async function renameSession(id: string, title: string): Promise<void> {
@@ -148,23 +164,30 @@ export async function checkHealth(): Promise<boolean> {
   }
 }
 
-export async function searchSessions(query: string, rerank = false): Promise<Session[]> {
+export interface SearchResult {
+  sessions: Session[];
+  /** true면 백엔드/Qdrant 미연결로 로컬 substring 검색으로 대체된 결과 (AI 정렬 라벨 억제용) */
+  degraded: boolean;
+}
+
+export async function searchSessions(query: string, rerank = false): Promise<SearchResult> {
   const q = query.trim();
-  if (!q) return [];
+  if (!q) return { sessions: [], degraded: false };
   try {
     const params = new URLSearchParams({ q });
     if (rerank) params.set('rerank', 'true');
     const data = await request<BackendSession[]>(`/search?${params}`);
-    return data.map(mapSession);
+    return { sessions: data.map(mapSession), degraded: false };
   } catch {
-    // Qdrant 미실행 등의 경우 클라이언트 필터링으로 fallback
+    // 백엔드/Qdrant 미연결 등의 경우 클라이언트 substring 필터링으로 fallback
     const sessions = await fetchSessions();
     const lower = q.toLowerCase();
-    return sessions.filter(
+    const filtered = sessions.filter(
       (s) =>
         s.title.toLowerCase().includes(lower) ||
         s.summary.overview.toLowerCase().includes(lower) ||
         s.tabs.some((t) => t.title.toLowerCase().includes(lower)),
     );
+    return { sessions: filtered, degraded: true };
   }
 }

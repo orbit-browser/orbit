@@ -1,7 +1,6 @@
-import json
 import logging
-import re
 
+from ..ai.json_utils import extract_json
 from ..ai.llm import chat_completion
 from ..schemas.session import SessionSummary, TabItemRequest
 
@@ -46,18 +45,6 @@ def rule_based_title(tabs: list[TabItemRequest]) -> str:
     return f"{tabs[0].title[:15]} 외 {len(tabs) - 1}개"
 
 
-_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
-
-
-def _extract_json(raw: str) -> dict:
-    """JSON 블록 추출 — ```json ... ``` 래핑 및 앞뒤 텍스트 대응."""
-    raw = raw.strip()
-    match = _FENCE_RE.search(raw)
-    if match:
-        raw = match.group(1).strip()
-    return json.loads(raw)
-
-
 async def generate_summary(
     tabs: list[TabItemRequest],
 ) -> tuple[str, SessionSummary]:
@@ -66,7 +53,7 @@ async def generate_summary(
 
     try:
         raw = await chat_completion(_SYSTEM_PROMPT, prompt, max_tokens=600)
-        data = _extract_json(raw)
+        data = extract_json(raw)
 
         title = str(data.get("title") or "").strip()[:20] or rule_based_title(tabs)
         summary = SessionSummary(

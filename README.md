@@ -10,8 +10,8 @@ Orbit은 브라우저에 열린 탭들을 AI가 의미별로 분류해 **작업 
 - ✅ **Backend (FastAPI)** — 세션 CRUD, 탭 클러스터링, AI 요약(A.X-K1 → Solar Pro 3 fallback),
   임베딩 + Qdrant 벡터 검색, LLM 기반 검색 리랭킹까지 구현
 - ✅ **웹 대시보드 (`frontend/`)** — 세션 목록/상세를 보여주는 별도 웹앱
-- ⬜ **민감 도메인 자동 제외** — 설정 화면에 토글은 있으나 실제 필터링 로직은 미구현 (`extension/lib/chrome-bridge.ts`는 `chrome://`, `chrome-extension://`만 제외)
-- ⬜ **Redis 큐** — `docker-compose.yml`에만 정의, 코드에서는 아직 사용하지 않음 (현재는 순차 처리로 충분)
+- ✅ **민감 도메인 자동 제외** — `extension/lib/sensitive-domains.ts`로 은행·증권·정부·결제 도메인 및 로그인/결제 경로 판정, 매칭 시 본문만 제외하고 탭 자체는 유지
+- ✅ **AI 실패 상태 추적** — `summary_status`/`embedding_status`로 요약·임베딩 성공 여부를 각각 추적, 실패 시 재시도 UI 제공, 서버 재시작 시 미완료 작업 자동 복구
 
 세부 구현 이력과 최초 계획 대비 달라진 점은 [`IMPLEMENTATION.md`](./IMPLEMENTATION.md)를 참고하세요.
 
@@ -20,9 +20,9 @@ Orbit은 브라우저에 열린 탭들을 AI가 의미별로 분류해 **작업 
 ```
 orbit/
 ├─ extension/      # WXT + React + TypeScript + Tailwind (Chrome MV3 사이드패널)
-├─ backend/        # FastAPI — 세션 API + AI 파이프라인 (A.X-K1 / Solar Pro 3 / embedding-query, Qdrant)
+├─ backend/        # FastAPI — 세션 API + AI 파이프라인 (A.X-K1 / Solar Pro 3 / embedding-query·embedding-passage, Qdrant)
 ├─ frontend/       # 웹 대시보드 (React + Vite)
-└─ docker-compose.yml  # postgres + qdrant + redis
+└─ docker-compose.yml  # postgres + qdrant
 ```
 
 ## 실행
@@ -65,4 +65,4 @@ pnpm dev
 | 웹 대시보드 | React 19, Vite, TypeScript, Tailwind v4, TanStack Query, Zustand |
 | Backend | FastAPI, SQLAlchemy (async) + PostgreSQL, Pydantic v2 |
 | 벡터 검색 | Qdrant |
-| AI | SKT A.X-K1(primary) → Upstage Solar Pro 3(fallback), Solar Mini(경량 작업), Upstage embedding-query |
+| AI | SKT A.X-K1(primary) → Upstage Solar Pro 3(fallback), Solar Mini(경량 작업), Upstage embedding-query(검색)/embedding-passage(저장) |

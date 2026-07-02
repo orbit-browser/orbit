@@ -19,7 +19,8 @@ class Settings(BaseSettings):
     upstage_base_url: str = "https://api.upstage.ai/v1"
     solar_model: str = "solar-pro3"
     solar_mini_model: str = "solar-mini"
-    embedding_model: str = "embedding-query"
+    embedding_model: str = "embedding-query"       # 검색 쿼리 임베딩
+    embedding_passage_model: str = "embedding-passage"  # 저장 문서(요약) 임베딩
 
     # 데이터스토어
     database_url: str = "postgresql+asyncpg://orbit:orbit@localhost:5432/orbit"

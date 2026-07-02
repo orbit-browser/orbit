@@ -1,7 +1,6 @@
-import json
 import logging
-import re
 
+from .json_utils import extract_json
 from .llm import chat_completion_light
 from ..schemas.session import TabItemRequest
 
@@ -29,16 +28,6 @@ _USER_TEMPLATE = """\
   ]
 }}"""
 
-_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
-
-
-def _extract_json(raw: str) -> dict:
-    raw = raw.strip()
-    match = _FENCE_RE.search(raw)
-    if match:
-        raw = match.group(1).strip()
-    return json.loads(raw)
-
 
 def _build_prompt(tabs: list[TabItemRequest]) -> str:
     lines = [
@@ -55,7 +44,7 @@ async def cluster_tabs(tabs: list[TabItemRequest]) -> list[list[TabItemRequest]]
 
     try:
         raw = await chat_completion_light(_SYSTEM, _build_prompt(tabs), max_tokens=400)
-        data = _extract_json(raw)
+        data = extract_json(raw)
         if not isinstance(data, dict):
             raise ValueError(f"클러스터링 응답이 dict가 아닙니다: {type(data)}")
         clusters = data.get("clusters", [])

@@ -1,12 +1,19 @@
 import asyncio
 import logging
-from openai import AsyncOpenAI, RateLimitError, APIStatusError
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    RateLimitError,
+)
 
 from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT = 60.0  # LLM 응답 최대 대기 시간 (초)
+# 폴링 UX 파이프라인이라 60초는 과함 — 짧게 잡아 fallback 진입을 앞당긴다
+_TIMEOUT = 25.0  # LLM 응답 최대 대기 시간 (초)
 
 
 def _axk1_client() -> AsyncOpenAI:
@@ -93,6 +100,9 @@ async def chat_completion(
             logger.warning("A.X-K1 %s 오류 — solar-pro3 fallback", e.status_code)
         else:
             raise
+    except (APIConnectionError, APITimeoutError) as exc:
+        # 상태 코드조차 못 받는 네트워크 레벨 장애 (DNS 실패, 연결 거부, 타임아웃) — 가장 흔한 장애 유형
+        logger.warning("A.X-K1 연결 실패 (%s) — solar-pro3 fallback", exc)
 
     client = _solar_client()
     resp = await client.chat.completions.create(

@@ -27,7 +27,8 @@ export function SearchView() {
 
   const rerankEnabled = useSettingsStore((s) => s.rerankEnabled);
   const { data: results, isFetching } = useSearch(query);
-  const topResults = results?.slice(0, TOP_N) ?? [];
+  const topResults = results?.sessions.slice(0, TOP_N) ?? [];
+  const degraded = results?.degraded ?? false;
 
   // Claude-style rolling placeholder text
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
@@ -102,9 +103,13 @@ export function SearchView() {
               <span>
                 {isFetching
                   ? rerankEnabled ? 'AI가 결과를 정렬 중…' : '유사한 세션 검색 중…'
-                  : topResults.length > 0
-                    ? `유사한 세션 ${topResults.length}개${rerankEnabled ? ' (AI 정렬 완료)' : ''}`
-                    : '관련 세션을 찾지 못했어요'}
+                  : degraded
+                    ? topResults.length > 0
+                      ? `간단 검색 결과 ${topResults.length}개 (백엔드 미연결)`
+                      : '백엔드에 연결할 수 없어요 — 간단 검색으로도 찾지 못했어요'
+                    : topResults.length > 0
+                      ? `유사한 세션 ${topResults.length}개${rerankEnabled ? ' (AI 정렬 완료)' : ''}`
+                      : '관련 세션을 찾지 못했어요'}
               </span>
             </div>
             <StatePlaceholder

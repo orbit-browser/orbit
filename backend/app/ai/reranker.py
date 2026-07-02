@@ -1,13 +1,9 @@
-import json
 import logging
-import re
 
+from .json_utils import extract_json
 from .llm import chat_completion_light
 
 logger = logging.getLogger(__name__)
-
-_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
-_JSON_RE = re.compile(r"\{[\s\S]*\}", re.DOTALL)
 
 _SYSTEM = """\
 당신은 검색 결과 관련성 전문가입니다.
@@ -34,23 +30,22 @@ async def rerank(query: str, sessions: list) -> list:
         title = s.title if hasattr(s, "title") else s.get("title", "")
         if hasattr(s, "summary") and s.summary:
             overview = (s.summary.overview or "")[:60]
+            purpose = (s.summary.purpose or "")[:60]
             tab_list = s.tabs[:3] if s.tabs else []
             tab_titles = ", ".join(t.title for t in tab_list)
         else:
-            overview = (s.get("summary") or {}).get("overview", "")[:60]
+            summary = s.get("summary") or {}
+            overview = (summary.get("overview") or "")[:60]
+            purpose = (summary.get("purpose") or "")[:60]
             tab_list = (s.get("tabs") or [])[:3]
             tab_titles = ", ".join(t.get("title", "") for t in tab_list)
-        lines.append(f"[{i}] {title} | {overview} | 탭: {tab_titles}")
+        lines.append(f"[{i}] {title} | {overview} | 목적: {purpose} | 탭: {tab_titles}")
 
     user_msg = _USER_TEMPLATE.format(query=query, lines="\n".join(lines))
 
     try:
         raw = await chat_completion_light(_SYSTEM, user_msg, max_tokens=80)
-        raw = raw.strip()
-
-        m = _FENCE_RE.search(raw) or _JSON_RE.search(raw)
-        text = m.group(1).strip() if hasattr(m, "group") and m.lastindex else (m.group() if m else raw)
-        data = json.loads(text)
+        data = extract_json(raw)
 
         ranked: list[int] = [
             i for i in data.get("ranked", [])

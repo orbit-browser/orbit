@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.search import router as search_router
+from .api.sessions import recover_pending_sessions
 from .api.sessions import router as sessions_router
 from .db.session import init_db
 from .db.vector import init_collection
@@ -19,6 +20,7 @@ from .db.vector import init_collection
 async def lifespan(app: FastAPI):
     await init_db()
     await init_collection()
+    await recover_pending_sessions()
     yield
 
 

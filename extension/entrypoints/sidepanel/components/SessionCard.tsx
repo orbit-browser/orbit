@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Calendar, Plus, ExternalLink } from 'lucide-react';
+import { Loader2, Calendar, Plus, ExternalLink, RotateCw } from 'lucide-react';
 import type { Session } from '../../../lib/types';
 import { useUIStore } from '../store/ui';
-import { useDeleteSession } from '../hooks/useSessions';
+import { useDeleteSession, useRetrySummary } from '../hooks/useSessions';
 import { restoreInNewWindow, restoreInCurrentWindow } from '../../../lib/chrome-bridge';
 import { OverflowMenu } from './OverflowMenu';
 import { Favicon } from './Favicon';
@@ -17,6 +17,7 @@ export function SessionCard({
   const openSession = useUIStore((s) => s.openSession);
   const showToast = useUIStore((s) => s.showToast);
   const { mutate: deleteSession } = useDeleteSession();
+  const { mutate: retrySummary, isPending: isRetrying } = useRetrySummary();
   const isPending = useUIStore((s) => s.pendingSessionIds.includes(session.id));
 
   // 복원 세부 옵션(새 창 / 이어서)을 토글하는 로컬 상태
@@ -28,9 +29,8 @@ export function SessionCard({
     return () => clearTimeout(timer);
   }, [showOptions]);
 
-  // "X개 탭 세션" 형식인 임시 overview 문구인지 체크하여 요약 중 상태로 간주
-  const isTempOverview = /^\d+개 탭 세션$/.test(session.summary?.overview ?? '');
-  const isSummarizing = isPending || isTempOverview;
+  const isSummarizing = isPending || session.summaryStatus === 'pending';
+  const isFailed = !isSummarizing && session.summaryStatus === 'failed';
 
   return (
     <div
@@ -55,6 +55,20 @@ export function SessionCard({
           </h3>
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          {isFailed && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                retrySummary(session.id);
+              }}
+              disabled={isRetrying}
+              className="flex items-center gap-1 rounded-md bg-orbit-bg px-2 py-1 text-[11px] font-bold text-red-500 transition hover:bg-red-50 disabled:opacity-50 cursor-pointer shrink-0 mr-1"
+            >
+              <RotateCw size={10} className={isRetrying ? 'animate-spin' : ''} />
+              다시 시도
+            </button>
+          )}
           {!isSummarizing && showRestoreButton && (
             <div
               className={`relative flex h-[26px] items-center justify-end overflow-hidden rounded-lg transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
@@ -143,10 +157,17 @@ export function SessionCard({
       </div>
 
       {/* Middle Row: Overview Summary */}
-      {!isSummarizing && session.summary?.overview && (
-        <p className="line-clamp-2 text-xs text-orbit-muted leading-relaxed">
-          {session.summary.overview}
+      {isFailed ? (
+        <p className="line-clamp-2 text-xs text-red-500 leading-relaxed">
+          AI 요약 생성에 실패했어요. 다시 시도해 주세요.
         </p>
+      ) : (
+        !isSummarizing &&
+        session.summary?.overview && (
+          <p className="line-clamp-2 text-xs text-orbit-muted leading-relaxed">
+            {session.summary.overview}
+          </p>
+        )
       )}
 
       {/* Bottom Row: Tab Icons & Metadata */}

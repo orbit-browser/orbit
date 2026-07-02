@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.clusterer import cluster_tabs
 from ..ai.embedding import embed
+from ..config import settings
 from ..db.models import Session as SessionModel
 from ..db.session import AsyncSessionLocal, get_db
 from ..db.vector import delete_point, upsert_point
@@ -47,14 +49,40 @@ def _to_detail(session: SessionModel) -> SessionDetail:
         session_id=session.id,
         title=session.title,
         summary=summary,
+        summary_status=session.summary_status,  # type: ignore[arg-type]
         tabs=tabs,
         created_at=session.created_at.isoformat(),
         updated_at=session.updated_at.isoformat(),
     )
 
 
+async def _embed_and_upsert(session_id: str, title: str, summary: SessionSummary) -> None:
+    """요약 텍스트를 embedding-passage로 임베딩해 Qdrant에 반영. 요약 성공 여부와 독립적으로 상태를 추적."""
+    try:
+        embed_text = f"{summary.overview} {summary.purpose} {' '.join(summary.highlights)}"
+        vector = await embed(embed_text, model=settings.embedding_passage_model)
+        await upsert_point(session_id, vector, {
+            "session_id": session_id,
+            "title": title,
+            "overview": summary.overview,
+            "purpose": summary.purpose,
+        })
+        async with AsyncSessionLocal() as db:
+            session = await db.get(SessionModel, session_id)
+            if session:
+                session.embedding_status = "done"
+                await db.commit()
+    except Exception as exc:
+        logger.warning("임베딩/Qdrant upsert 실패 (session_id=%s): %s", session_id, exc)
+        async with AsyncSessionLocal() as db:
+            session = await db.get(SessionModel, session_id)
+            if session:
+                session.embedding_status = "failed"
+                await db.commit()
+
+
 async def _ai_update(session_id: str, tabs_raw: list[dict]) -> None:
-    """AI 요약 + Qdrant 임베딩을 백그라운드에서 처리."""
+    """AI 요약 + Qdrant 임베딩을 백그라운드에서 처리. 두 단계의 실패를 각각 별도 상태로 기록한다."""
     try:
         tabs = [TabItemRequest(**t) for t in tabs_raw]
         title, summary = await generate_summary(tabs)
@@ -65,20 +93,20 @@ async def _ai_update(session_id: str, tabs_raw: list[dict]) -> None:
                 return
             session.title = title
             session.summary = summary.model_dump()
+            session.summary_status = "done"
             session.updated_at = datetime.now(timezone.utc)
             await db.commit()
-
-        embed_text = f"{summary.overview} {summary.purpose} {' '.join(summary.highlights)}"
-        vector = await embed(embed_text)
-        await upsert_point(session_id, vector, {
-            "session_id": session_id,
-            "title": title,
-            "overview": summary.overview,
-            "purpose": summary.purpose,
-        })
         logger.info("AI 요약 완료 (session_id=%s): %s", session_id, title)
     except Exception as exc:
         logger.warning("AI 백그라운드 요약 실패 (session_id=%s): %s", session_id, exc)
+        async with AsyncSessionLocal() as db:
+            session = await db.get(SessionModel, session_id)
+            if session:
+                session.summary_status = "failed"
+                await db.commit()
+        return
+
+    await _embed_and_upsert(session_id, title, summary)
 
 
 @router.post("", response_model=SessionDetail, status_code=201)
@@ -195,3 +223,49 @@ async def delete_session(
     await db.delete(session)
     await db.commit()
     await delete_point(session_id)  # Qdrant에서도 제거
+
+
+@router.post("/{session_id}/retry-summary", response_model=SessionDetail)
+async def retry_summary(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> SessionDetail:
+    """AI 요약 실패 세션을 다시 시도 (A1 — 실패 상태 UI의 재시도 버튼용)."""
+    session = await db.get(SessionModel, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+
+    session.summary_status = "pending"
+    await db.commit()
+    await db.refresh(session)
+
+    background_tasks.add_task(_ai_update, session.id, session.tabs or [])
+    return _to_detail(session)
+
+
+async def recover_pending_sessions() -> None:
+    """서버 기동 시 재시작으로 유실된 백그라운드 작업(BackgroundTasks는 프로세스 종료 시 소멸)을 복구."""
+    async with AsyncSessionLocal() as db:
+        pending_summary = (
+            await db.execute(
+                select(SessionModel).where(SessionModel.summary_status == "pending")
+            )
+        ).scalars().all()
+        pending_embed = (
+            await db.execute(
+                select(SessionModel).where(
+                    SessionModel.summary_status == "done",
+                    SessionModel.embedding_status.in_(["pending", "failed"]),
+                )
+            )
+        ).scalars().all()
+
+    for session in pending_summary:
+        logger.info("기동 시 요약 미완료 세션 재처리 (session_id=%s)", session.id)
+        asyncio.create_task(_ai_update(session.id, session.tabs or []))
+
+    for session in pending_embed:
+        logger.info("기동 시 임베딩 미완료 세션 재처리 (session_id=%s)", session.id)
+        summary = SessionSummary(**(session.summary or {}))
+        asyncio.create_task(_embed_and_upsert(session.id, session.title, summary))

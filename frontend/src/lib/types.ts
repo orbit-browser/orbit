@@ -21,4 +21,6 @@ export interface Session {
   updatedAt: string;
   timeLabel: string;
   summary: SessionSummary;
+  /** AI 요약 진행 상태 — pending/failed일 때 UI가 로딩·재시도 상태를 노출 */
+  summaryStatus: 'pending' | 'done' | 'failed';
 }

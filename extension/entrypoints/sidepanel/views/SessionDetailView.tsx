@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Pencil, Loader2, Plus, ExternalLink } from 'lucide-react';
-import { useSession, useRenameSession } from '../hooks/useSessions';
+import { ArrowLeft, Pencil, Loader2, Plus, ExternalLink, RotateCw } from 'lucide-react';
+import { useSession, useRenameSession, useRetrySummary } from '../hooks/useSessions';
 import { useUIStore } from '../store/ui';
 import { TabListItem } from '../components/TabListItem';
 import { SummaryPanel } from '../components/SummaryPanel';
@@ -14,6 +14,7 @@ export function SessionDetailView() {
   const pendingSessionIds = useUIStore((s) => s.pendingSessionIds);
   const { data: session, isLoading, isError } = useSession(selectedId);
   const { mutate: renameSession } = useRenameSession();
+  const { mutate: retrySummary, isPending: isRetrying } = useRetrySummary();
 
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
@@ -28,8 +29,9 @@ export function SessionDetailView() {
     return () => clearTimeout(timer);
   }, [showOptions]);
 
-  const isTempOverview = /^\d+개 탭 세션$/.test(session?.summary?.overview ?? '');
-  const isPending = (!!selectedId && pendingSessionIds.includes(selectedId)) || isTempOverview;
+  const isPending =
+    (!!selectedId && pendingSessionIds.includes(selectedId)) || session?.summaryStatus === 'pending';
+  const isFailed = !isPending && session?.summaryStatus === 'failed';
 
   useEffect(() => {
     if (session) setTitle(session.title);
@@ -180,6 +182,22 @@ export function SessionDetailView() {
                   {session.tabs.map((tab) => (
                     <TabListItem key={tab.id} tab={tab} />
                   ))}
+                </div>
+              ) : isFailed ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-12 rounded-xl border border-orbit-border bg-orbit-surface text-orbit-muted select-none">
+                  <p className="text-xs font-semibold text-red-500">AI 요약 생성 실패</p>
+                  <p className="text-[10px] text-orbit-muted/80">
+                    요약을 만드는 중 문제가 발생했어요. 다시 시도해 주세요.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => selectedId && retrySummary(selectedId)}
+                    disabled={isRetrying}
+                    className="mt-1 flex items-center gap-1.5 rounded-lg bg-orbit-primary px-3 py-1.5 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50 cursor-pointer"
+                  >
+                    <RotateCw size={12} className={isRetrying ? 'animate-spin' : ''} />
+                    다시 시도
+                  </button>
                 </div>
               ) : isPending || !session.summary || !session.summary.overview ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-12 rounded-xl border border-orbit-border bg-orbit-surface text-orbit-muted select-none">

@@ -10,6 +10,7 @@ export const mockSessions: Session[] = [
     createdAt: '2025-05-22T14:30:00+09:00',
     updatedAt: '2025-05-22T14:30:00+09:00',
     timeLabel: '방금',
+    summaryStatus: 'done',
     tabs: [
       {
         id: 't1',
@@ -78,6 +79,7 @@ export const mockSessions: Session[] = [
     createdAt: '2025-05-22T13:10:00+09:00',
     updatedAt: '2025-05-22T13:10:00+09:00',
     timeLabel: '1시간 전',
+    summaryStatus: 'done',
     tabs: [
       { id: 'j1', title: '도쿄 항공권 비교 – 스카이스캐너', url: 'https://www.skyscanner.co.kr' },
       { id: 'j2', title: '신주쿠 호텔 추천', url: 'https://www.booking.com' },
@@ -95,6 +97,7 @@ export const mockSessions: Session[] = [
     createdAt: '2025-05-21T10:00:00+09:00',
     updatedAt: '2025-05-21T10:00:00+09:00',
     timeLabel: '어제',
+    summaryStatus: 'done',
     tabs: [
       { id: 'p1', title: 'Notion', url: 'https://www.notion.so' },
       { id: 'p2', title: 'Obsidian', url: 'https://obsidian.md' },
@@ -111,6 +114,7 @@ export const mockSessions: Session[] = [
     createdAt: '2025-05-20T09:00:00+09:00',
     updatedAt: '2025-05-20T09:00:00+09:00',
     timeLabel: '2일 전',
+    summaryStatus: 'done',
     tabs: [
       { id: 'd1', title: 'Dribbble', url: 'https://dribbble.com' },
       { id: 'd2', title: 'Mobbin', url: 'https://mobbin.com' },

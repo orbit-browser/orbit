@@ -1,12 +1,16 @@
-import { Trash2 } from 'lucide-react';
+import { Loader2, RotateCw, Trash2 } from 'lucide-react';
 import type { Session } from '../lib/types';
 import { useUIStore } from '../store/ui';
-import { useDeleteSession } from '../hooks/useSessions';
+import { useDeleteSession, useRetrySummary } from '../hooks/useSessions';
 
 export function SessionCard({ session }: { session: Session }) {
   const openSession = useUIStore((s) => s.openSession);
   const showToast = useUIStore((s) => s.showToast);
   const { mutate: deleteSession } = useDeleteSession();
+  const { mutate: retrySummary, isPending: isRetrying } = useRetrySummary();
+
+  const isSummarizing = session.summaryStatus === 'pending';
+  const isFailed = session.summaryStatus === 'failed';
 
   function handleDelete(e: React.MouseEvent) {
     e.stopPropagation();
@@ -14,6 +18,11 @@ export function SessionCard({ session }: { session: Session }) {
     deleteSession(session.id, {
       onSuccess: () => showToast('세션을 삭제했어요'),
     });
+  }
+
+  function handleRetry(e: React.MouseEvent) {
+    e.stopPropagation();
+    retrySummary(session.id);
   }
 
   return (
@@ -36,14 +45,33 @@ export function SessionCard({ session }: { session: Session }) {
       </button>
 
       <p className="mb-1.5 text-xs text-orbit-muted">{session.timeLabel}</p>
-      <p className="mb-2 pr-6 font-semibold leading-snug text-orbit-text line-clamp-2">
-        {session.title}
-      </p>
-      <p className="flex-1 text-[13px] leading-relaxed text-orbit-muted line-clamp-3">
-        {session.summary.overview}
+      <p className="mb-2 pr-6 font-semibold leading-snug text-orbit-text line-clamp-2 flex items-center gap-1.5">
+        {isSummarizing && <Loader2 size={13} className="animate-spin text-orbit-primary shrink-0" />}
+        {isSummarizing ? 'AI가 요약 중…' : session.title}
       </p>
 
-      {session.summary.highlights?.length > 0 && (
+      {isFailed ? (
+        <div className="flex flex-1 items-center justify-between gap-2 text-[13px] text-red-500">
+          <span>AI 요약 생성에 실패했어요.</span>
+          <button
+            type="button"
+            onClick={handleRetry}
+            disabled={isRetrying}
+            className="flex shrink-0 items-center gap-1 rounded-md bg-orbit-bg px-2 py-1 text-xs font-bold text-red-500 transition hover:bg-red-50 disabled:opacity-50"
+          >
+            <RotateCw size={11} className={isRetrying ? 'animate-spin' : ''} />
+            다시 시도
+          </button>
+        </div>
+      ) : (
+        !isSummarizing && (
+          <p className="flex-1 text-[13px] leading-relaxed text-orbit-muted line-clamp-3">
+            {session.summary.overview}
+          </p>
+        )
+      )}
+
+      {!isSummarizing && !isFailed && session.summary.highlights?.length > 0 && (
         <ul className="mt-3 space-y-1.5">
           {session.summary.highlights.slice(0, 2).map((h, i) => (
             <li key={i} className="flex items-start gap-1.5 text-xs text-orbit-muted">

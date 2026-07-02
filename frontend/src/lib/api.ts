@@ -23,6 +23,7 @@ interface BackendSession {
   session_id: string;
   title: string;
   summary: BackendSummary;
+  summary_status: 'pending' | 'done' | 'failed';
   tabs: BackendTab[];
   created_at: string;
   updated_at: string;
@@ -59,6 +60,7 @@ function mapSession(b: BackendSession): Session {
     updatedAt: b.updated_at,
     timeLabel: formatTimeLabel(new Date(b.created_at)),
     summary: mapSummary(b.summary),
+    summaryStatus: b.summary_status,
   };
 }
 
@@ -99,6 +101,13 @@ export async function renameSession(id: string, title: string): Promise<void> {
 
 export async function deleteSession(id: string): Promise<void> {
   await request(`/sessions/${id}`, { method: 'DELETE' });
+}
+
+export async function retrySummary(id: string): Promise<Session> {
+  const data = await request<BackendSession>(`/sessions/${id}/retry-summary`, {
+    method: 'POST',
+  });
+  return mapSession(data);
 }
 
 export async function searchSessions(query: string): Promise<Session[]> {

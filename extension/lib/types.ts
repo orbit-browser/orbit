@@ -44,4 +44,6 @@ export interface Session {
   /** 목록에 표시할 상대 시간 라벨 (mock 표시용) */
   timeLabel: string;
   summary: SessionSummary;
+  /** AI 요약 진행 상태 — pending/failed일 때 UI가 스피너·재시도 버튼을 노출 */
+  summaryStatus: 'pending' | 'done' | 'failed';
 }

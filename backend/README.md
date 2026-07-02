@@ -1,17 +1,17 @@
 # Orbit Backend
 
 FastAPI 기반 세션 API + AI 파이프라인. Extension이 보낸 탭 목록을 저장하고,
-A.X-K1 / Solar Pro 3로 요약을 생성하고, embedding-query + Qdrant로 자연어 검색을 제공합니다.
+A.X-K1 / Solar Pro 3로 요약을 생성하고, embedding-passage/embedding-query + Qdrant로 자연어 검색을 제공합니다.
 
 ## 구조
 
 ```
 backend/
 └─ app/
-   ├─ main.py            # FastAPI 진입점, 라우터 등록, lifespan에서 DB/Qdrant 초기화
+   ├─ main.py            # FastAPI 진입점, 라우터 등록, lifespan에서 DB/Qdrant 초기화 + 미완료 세션 복구
    ├─ config.py           # 환경변수 (.env) 로드
    ├─ api/
-   │  ├─ sessions.py      # POST /sessions, /sessions/cluster, GET/PATCH/DELETE /sessions/{id}
+   │  ├─ sessions.py      # POST /sessions, /sessions/cluster, GET/PATCH/DELETE /sessions/{id}, POST /sessions/{id}/retry-summary
    │  └─ search.py        # GET /search (임베딩 검색 + 선택적 LLM 리랭킹)
    ├─ schemas/
    │  └─ session.py       # Pydantic v2 요청/응답 스키마
@@ -19,13 +19,15 @@ backend/
    │  └─ summarizer.py    # 탭 목록 → LLM 요약 JSON, 실패 시 규칙 기반 fallback
    ├─ ai/
    │  ├─ llm.py           # A.X-K1 / Solar Pro 3 / Solar Mini 클라이언트 + fallback 로직
-   │  ├─ embedding.py     # embedding-query 클라이언트 (4096차원)
+   │  ├─ embedding.py     # embedding-query/embedding-passage 클라이언트 (4096차원, 비대칭 임베딩)
    │  ├─ clusterer.py     # 탭을 주제별로 그루핑 (Solar Mini)
-   │  └─ reranker.py      # 검색 결과를 쿼리 관련성 순으로 재정렬 (Solar Mini)
+   │  ├─ reranker.py      # 검색 결과를 쿼리 관련성 순으로 재정렬 (Solar Mini)
+   │  └─ json_utils.py    # LLM 응답에서 JSON 추출 (펜스/잡담/순수 JSON 공통 처리)
    └─ db/
-      ├─ models.py        # SQLAlchemy Session 모델 (PostgreSQL, JSONB)
+      ├─ models.py        # SQLAlchemy Session 모델 (PostgreSQL, JSONB) — summary_status/embedding_status 포함
       ├─ session.py        # 비동기 DB 세션 팩토리
       └─ vector.py         # Qdrant 클라이언트, 컬렉션 초기화, upsert/search/delete
+tests/                     # pytest 단위 테스트 (json_utils, clusterer, reranker, summarizer)
 ```
 
 ## 실행
@@ -33,12 +35,16 @@ backend/
 ```bash
 docker compose up -d postgres qdrant   # 루트에서
 cd backend
-pip install -e .                       # 또는 uv sync
+pip install -e ".[dev]"                # 또는 uv sync
 cp .env.example .env                   # UPSTAGE_API_KEY, AXK1_API_KEY 채우기
 uvicorn app.main:app --reload
 ```
 
-`GET /health`로 기동 확인.
+`GET /health`로 기동 확인. 테스트는 `pytest` (backend 디렉터리에서 실행).
+
+> `summary_status`/`embedding_status` 컬럼이 추가되었습니다. `create_all`은 기존 테이블에
+> 컬럼을 자동으로 추가하지 않으므로, 기존 로컬 DB가 있다면 `docker compose down -v` 후
+> 다시 올려야 합니다.
 
 ## 엔드포인트
 
@@ -49,6 +55,7 @@ uvicorn app.main:app --reload
 | GET | `/sessions` | 세션 목록 (최신순) |
 | GET | `/sessions/{id}` | 세션 상세 |
 | PATCH | `/sessions/{id}` | 제목 수정 |
+| POST | `/sessions/{id}/retry-summary` | AI 요약 실패(`summary_status=failed`) 세션 재시도 |
 | DELETE | `/sessions/{id}` | 세션 삭제 (Qdrant 포인트도 함께 삭제) |
 | GET | `/search?q=&rerank=` | 자연어 검색. `rerank=true`면 후보를 더 넓게 가져와 LLM으로 재정렬 |
 
@@ -56,17 +63,19 @@ uvicorn app.main:app --reload
 
 | 역할 | 모델 | 비고 |
 |---|---|---|
-| 세션 요약 (primary) | `A.X-K1` | 429/5xx 시 `solar-pro3`로 자동 fallback |
+| 세션 요약 (primary) | `A.X-K1` | 429/5xx/연결 실패/타임아웃 시 `solar-pro3`로 자동 fallback |
 | 탭 클러스터링 / 검색 리랭킹 (경량) | `solar-mini` | 실패 시 `solar-pro3`로 fallback |
-| 임베딩 | `embedding-query` | 4096차원, Qdrant cosine 검색 |
+| 검색 쿼리 임베딩 | `embedding-query` | 4096차원, Qdrant cosine 검색 |
+| 저장 문서(요약) 임베딩 | `embedding-passage` | 비대칭 임베딩 — 쿼리/문서에 서로 다른 모델 사용 |
 
-세션 저장 흐름: 저장 요청 → 규칙 기반 제목으로 즉시 DB 저장 및 응답 →
-백그라운드에서 LLM 요약 생성 → 요약 텍스트 임베딩 → PostgreSQL/Qdrant 갱신.
-Extension은 `usePendingSessionPoller`로 AI 요약 완료를 폴링해 반영한다.
+세션 저장 흐름: 저장 요청 → 규칙 기반 제목으로 즉시 DB 저장(`summary_status=pending`) 및 응답 →
+백그라운드에서 LLM 요약 생성(`summary_status=done|failed`) → 요약 텍스트를 embedding-passage로
+임베딩(`embedding_status=done|failed`) → PostgreSQL/Qdrant 갱신.
+Extension은 `usePendingSessionPoller`로 `summary_status`를 폴링해 반영하고, `failed`면
+재시도 버튼을 노출한다. 서버가 재시작되면 `lifespan`에서 미완료(`pending`) 세션과
+임베딩 미완료 세션을 자동으로 재처리한다.
 
 ## 알려진 미완성 항목
 
-- 민감 도메인(금융·의료 등) 텍스트 필터링 — Extension 설정 화면에 토글(`excludeSensitive`)만 있고
-  실제 차단 로직은 없음. 현재 `chrome-bridge.ts`는 `chrome://`, `chrome-extension://`만 제외한다.
-- Redis 기반 요청 큐 — `docker-compose.yml`에 정의만 되어 있고 코드에서 미사용.
-  현재 세션 저장은 순차 처리로 충분해 별도 큐 없이 동작한다.
+- Structured Output(`response_format`) 미적용 — 현재는 프롬프트 지시 + JSON 추출(`json_utils`) +
+  실패 시 규칙 기반 fallback으로 안정성을 확보하고 있다. solar-pro3의 JSON 모드 지원 여부는 별도 확인 필요.

@@ -3,10 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchSession,
   fetchSessions,
-  saveSession,
   saveSessionsClustered,
   renameSession,
   deleteSession,
+  retrySummary,
 } from '../../../lib/api';
 import type { TabItem } from '../../../lib/types';
 import { useUIStore } from '../store/ui';
@@ -27,18 +27,6 @@ export function useSession(id: string | null) {
   });
 }
 
-export function useSaveSession() {
-  const queryClient = useQueryClient();
-  const addPending = useUIStore((s) => s.addPendingSession);
-  return useMutation({
-    mutationFn: (tabs: TabItem[]) => saveSession(tabs),
-    onSuccess: (session) => {
-      addPending(session.id);
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
-    },
-  });
-}
-
 export function useSaveSessionsClustered() {
   const queryClient = useQueryClient();
   const addPending = useUIStore((s) => s.addPendingSession);
@@ -51,7 +39,7 @@ export function useSaveSessionsClustered() {
   });
 }
 
-/** AI 요약이 완료될 때까지 pending 세션을 3초마다 폴링. */
+/** AI 요약이 끝날 때까지(done 또는 failed) pending 세션을 3초마다 폴링. */
 export function usePendingSessionPoller() {
   const pendingIds = useUIStore((s) => s.pendingSessionIds);
   const removePending = useUIStore((s) => s.removePendingSession);
@@ -64,23 +52,7 @@ export function usePendingSessionPoller() {
       for (const id of pendingIds) {
         try {
           const session = await fetchSession(id);
-          if (!session) {
-            removePending(id);
-            queryClient.invalidateQueries({ queryKey: ['sessions'] });
-            continue;
-          }
-
-          const created = new Date(session.createdAt).getTime();
-          const updated = new Date(session.updatedAt).getTime();
-          const overview = session.summary?.overview ?? '';
-          
-          // "X개 탭 세션" 형식인 임시 overview 문구인지 체크
-          const isTempOverview = /^\d+개 탭 세션$/.test(overview);
-          
-          // 임시 overview가 아니고, 갱신 시각이 생성 시각보다 최소 1초 이상 늦거나 문구가 완전히 변했을 때
-          const isAiSummaryReady = !isTempOverview && (updated - created > 1000 || !overview.includes('개 탭 세션'));
-
-          if (isAiSummaryReady) {
+          if (!session || session.summaryStatus !== 'pending') {
             removePending(id);
             queryClient.invalidateQueries({ queryKey: ['sessions'] });
           }
@@ -92,6 +64,20 @@ export function usePendingSessionPoller() {
 
     return () => clearInterval(timer);
   }, [pendingIds, removePending, queryClient]);
+}
+
+/** 요약 생성 실패(summaryStatus === 'failed') 세션을 재시도. */
+export function useRetrySummary() {
+  const queryClient = useQueryClient();
+  const addPending = useUIStore((s) => s.addPendingSession);
+  return useMutation({
+    mutationFn: (id: string) => retrySummary(id),
+    onSuccess: (session) => {
+      addPending(session.id);
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['session', session.id] });
+    },
+  });
 }
 
 export function useRenameSession() {

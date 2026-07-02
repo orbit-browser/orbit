@@ -1,10 +1,11 @@
-import { ArrowLeft, ExternalLink } from 'lucide-react';
-import { useSession } from '../hooks/useSessions';
+import { ArrowLeft, ExternalLink, Loader2, RotateCw } from 'lucide-react';
+import { useSession, useRetrySummary } from '../hooks/useSessions';
 import { useUIStore } from '../store/ui';
 
 export function SessionDetailPanel({ sessionId }: { sessionId: string }) {
   const { data: session, isLoading } = useSession(sessionId);
   const closeSession = useUIStore((s) => s.closeSession);
+  const { mutate: retrySummary, isPending: isRetrying } = useRetrySummary();
 
   if (isLoading) {
     return (
@@ -21,6 +22,9 @@ export function SessionDetailPanel({ sessionId }: { sessionId: string }) {
       </div>
     );
   }
+
+  const isSummarizing = session.summaryStatus === 'pending';
+  const isFailed = session.summaryStatus === 'failed';
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -41,15 +45,35 @@ export function SessionDetailPanel({ sessionId }: { sessionId: string }) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-        <section>
-          <p className="text-xs font-semibold text-orbit-muted mb-2">개요</p>
-          <p className="text-sm leading-relaxed">{session.summary.overview}</p>
-          {session.summary.purpose && (
-            <p className="mt-1 text-sm text-orbit-muted">{session.summary.purpose}</p>
-          )}
-        </section>
+        {isSummarizing ? (
+          <section className="flex flex-col items-center justify-center gap-2 rounded-xl border border-orbit-border bg-orbit-bg py-10 text-orbit-muted">
+            <Loader2 size={20} className="animate-spin text-orbit-primary" />
+            <p className="text-xs font-semibold text-orbit-primary">AI 요약 중…</p>
+          </section>
+        ) : isFailed ? (
+          <section className="flex flex-col items-center justify-center gap-2 rounded-xl border border-orbit-border bg-orbit-bg py-10 text-orbit-muted">
+            <p className="text-xs font-semibold text-red-500">AI 요약 생성 실패</p>
+            <button
+              type="button"
+              onClick={() => retrySummary(session.id)}
+              disabled={isRetrying}
+              className="mt-1 flex items-center gap-1.5 rounded-lg bg-orbit-primary px-3 py-1.5 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
+            >
+              <RotateCw size={12} className={isRetrying ? 'animate-spin' : ''} />
+              다시 시도
+            </button>
+          </section>
+        ) : (
+          <section>
+            <p className="text-xs font-semibold text-orbit-muted mb-2">개요</p>
+            <p className="text-sm leading-relaxed">{session.summary.overview}</p>
+            {session.summary.purpose && (
+              <p className="mt-1 text-sm text-orbit-muted">{session.summary.purpose}</p>
+            )}
+          </section>
+        )}
 
-        {session.summary.highlights.length > 0 && (
+        {!isSummarizing && !isFailed && session.summary.highlights.length > 0 && (
           <section>
             <p className="text-xs font-semibold text-orbit-muted mb-2">핵심 정보</p>
             <ul className="space-y-1">
