@@ -1,21 +1,35 @@
 import { useEffect, useState } from 'react';
-import { AlignLeft, ArrowLeft, Pencil } from 'lucide-react';
+import { ArrowLeft, Pencil, Loader2, Plus, ExternalLink } from 'lucide-react';
 import { useSession, useRenameSession } from '../hooks/useSessions';
 import { useUIStore } from '../store/ui';
 import { TabListItem } from '../components/TabListItem';
+import { SummaryPanel } from '../components/SummaryPanel';
 import { StatePlaceholder } from '../components/StatePlaceholder';
-import { openTabs } from '../../../lib/chrome-bridge';
+import { restoreInNewWindow, restoreInCurrentWindow } from '../../../lib/chrome-bridge';
 
 export function SessionDetailView() {
   const selectedId = useUIStore((s) => s.selectedSessionId);
   const goBack = useUIStore((s) => s.goBackToSessions);
-  const setView = useUIStore((s) => s.setView);
   const showToast = useUIStore((s) => s.showToast);
+  const pendingSessionIds = useUIStore((s) => s.pendingSessionIds);
   const { data: session, isLoading, isError } = useSession(selectedId);
   const { mutate: renameSession } = useRenameSession();
 
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
+  const [activeSubTab, setActiveSubTab] = useState<'tabs' | 'summary'>('tabs');
+
+  // 복원 세부 옵션(새 창 / 이어서)을 토글하는 로컬 상태
+  const [showOptions, setShowOptions] = useState(false);
+
+  useEffect(() => {
+    if (!showOptions) return;
+    const timer = setTimeout(() => setShowOptions(false), 4000);
+    return () => clearTimeout(timer);
+  }, [showOptions]);
+
+  const isTempOverview = /^\d+개 탭 세션$/.test(session?.summary?.overview ?? '');
+  const isPending = (!!selectedId && pendingSessionIds.includes(selectedId)) || isTempOverview;
 
   useEffect(() => {
     if (session) setTitle(session.title);
@@ -31,7 +45,7 @@ export function SessionDetailView() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 p-4 overflow-y-auto h-full">
       <button
         type="button"
         onClick={goBack}
@@ -78,31 +92,106 @@ export function SessionDetailView() {
               {session.tabs.length}개 탭 · {session.timeLabel} 저장
             </p>
 
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setView('summary')}
-                className="flex items-center gap-1.5 rounded-lg border border-orbit-border px-3 py-1.5 text-xs font-medium hover:bg-orbit-bg"
-              >
-                <AlignLeft size={14} />
-                세션 요약
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void openTabs(session.tabs.map((t) => t.url));
-                  showToast('세션을 복원했어요');
-                }}
-                className="flex items-center gap-1.5 rounded-lg bg-orbit-primary px-3 py-1.5 text-xs font-semibold text-white hover:brightness-95"
-              >
-                모든 탭 열기
-              </button>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex rounded-lg bg-orbit-bg p-0.5 border border-orbit-border/50">
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab('tabs')}
+                  className={
+                    'rounded-md px-3 py-1.5 text-xs font-medium transition ' +
+                    (activeSubTab === 'tabs'
+                      ? 'bg-orbit-surface text-orbit-text shadow-xs'
+                      : 'text-orbit-muted hover:text-orbit-text')
+                  }
+                >
+                  탭 목록 ({session.tabs.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab('summary')}
+                  className={
+                    'rounded-md px-3 py-1.5 text-xs font-medium transition ' +
+                    (activeSubTab === 'summary'
+                      ? 'bg-orbit-surface text-orbit-text shadow-xs'
+                      : 'text-orbit-muted hover:text-orbit-text')
+                  }
+                >
+                  AI 요약
+                </button>
+              </div>
+
+              <div className="relative flex items-center justify-end shrink-0 select-none">
+                <div
+                  className={`relative flex h-[30px] items-center justify-end overflow-hidden rounded-xl transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                    showOptions
+                      ? 'w-[162px] border border-orbit-border/60 bg-orbit-bg p-0.5 shadow-2xs'
+                      : 'w-[90px] border border-transparent bg-transparent p-0'
+                  }`}
+                >
+                  {/* 복원 트리거 버튼 (평소 상태) */}
+                  <button
+                    type="button"
+                    onClick={() => setShowOptions(true)}
+                    className={`absolute inset-0 flex items-center justify-center rounded-lg bg-orbit-primary text-xs font-semibold text-white hover:brightness-95 transition-all duration-300 active:scale-95 cursor-pointer ${
+                      showOptions ? 'opacity-0 pointer-events-none scale-90' : 'opacity-100 scale-100'
+                    }`}
+                  >
+                    모든 탭 열기
+                  </button>
+
+                  {/* 세부 옵션들 (토글 후 팝업 상태) */}
+                  <div
+                    className={`flex h-full items-center gap-1 transition-all duration-300 ${
+                      showOptions ? 'opacity-100 scale-100' : 'opacity-0 pointer-events-none scale-90'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void restoreInNewWindow(session.tabs.map((t) => t.url));
+                        showToast('새 창에 복원했어요');
+                        setShowOptions(false);
+                      }}
+                      className="flex h-full items-center justify-center gap-1 rounded-lg bg-orbit-primary px-2 text-xs font-bold text-white transition hover:brightness-95 active:scale-95 cursor-pointer shrink-0"
+                    >
+                      <ExternalLink size={10} strokeWidth={2.5} />
+                      새 창으로
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void restoreInCurrentWindow(session.tabs.map((t) => t.url));
+                        showToast('현재 창에 복원했어요');
+                        setShowOptions(false);
+                      }}
+                      className="flex h-full items-center justify-center gap-1 rounded-lg px-2 text-xs font-bold text-orbit-muted hover:text-orbit-text transition active:scale-95 cursor-pointer shrink-0"
+                    >
+                      <Plus size={10} strokeWidth={2.5} />
+                      이어서
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-0.5 pt-1">
-              {session.tabs.map((tab) => (
-                <TabListItem key={tab.id} tab={tab} />
-              ))}
+            <div className="pt-1">
+              {activeSubTab === 'tabs' ? (
+                <div className="space-y-0.5">
+                  {session.tabs.map((tab) => (
+                    <TabListItem key={tab.id} tab={tab} />
+                  ))}
+                </div>
+              ) : isPending || !session.summary || !session.summary.overview ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-12 rounded-xl border border-orbit-border bg-orbit-surface text-orbit-muted select-none">
+                  <Loader2 size={20} className="animate-spin text-orbit-primary" />
+                  <p className="text-xs font-semibold text-orbit-primary">AI 요약 중…</p>
+                  <p className="text-[10px] text-orbit-muted/80">
+                    AI가 이 세션의 탭 내용을 분석하고 요약 중이에요.
+                  </p>
+                </div>
+              ) : (
+                <SummaryPanel summary={session.summary} />
+              )}
             </div>
           </>
         )}

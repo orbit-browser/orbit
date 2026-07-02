@@ -33,9 +33,19 @@ export async function getTabPageContent(tabId: number): Promise<PageContent | nu
   }
 }
 
-export async function openTabs(urls: string[]): Promise<void> {
+export async function restoreInCurrentWindow(urls: string[]): Promise<void> {
   if (typeof chrome === 'undefined' || !chrome.tabs?.create) return;
   for (const url of urls) {
     await chrome.tabs.create({ url, active: false });
   }
+}
+
+export async function restoreInNewWindow(urls: string[]): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.windows?.create) return;
+  if (urls.length === 0) return;
+  await chrome.windows.create({ url: urls });
+}
+
+export async function openTabs(urls: string[]): Promise<void> {
+  await restoreInNewWindow(urls);
 }

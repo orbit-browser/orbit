@@ -71,7 +71,7 @@ export function SettingsView() {
   const connectionLabel = isLoading ? '확인 중…' : isConnected ? '연결됨' : '미연결';
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 p-4 overflow-y-auto h-full">
       <p className="text-xs font-semibold text-orbit-muted">설정</p>
 
       <div className="divide-y divide-orbit-border rounded-xl border border-orbit-border bg-orbit-surface">
