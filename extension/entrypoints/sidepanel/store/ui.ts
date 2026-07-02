@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type View = 'sessions' | 'search' | 'summary' | 'settings' | 'detail';
+export type View = 'sessions' | 'search' | 'settings' | 'detail';
 
 interface UIState {
   activeView: View;
@@ -8,6 +8,7 @@ interface UIState {
   toast: string | null;
   pendingSessionIds: string[];
   isClustering: boolean;
+  searchQuery: string;
   setView: (view: View) => void;
   openSession: (id: string) => void;
   goBackToSessions: () => void;
@@ -16,6 +17,7 @@ interface UIState {
   removePendingSession: (id: string) => void;
   startClustering: () => void;
   stopClustering: () => void;
+  setSearchQuery: (q: string) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -24,6 +26,7 @@ export const useUIStore = create<UIState>((set) => ({
   toast: null,
   pendingSessionIds: [],
   isClustering: false,
+  searchQuery: '',
   setView: (view) => set({ activeView: view }),
   openSession: (id) => set({ selectedSessionId: id, activeView: 'detail' }),
   goBackToSessions: () => set({ activeView: 'sessions' }),
@@ -37,4 +40,5 @@ export const useUIStore = create<UIState>((set) => ({
     set((s) => ({ pendingSessionIds: s.pendingSessionIds.filter((x) => x !== id) })),
   startClustering: () => set({ isClustering: true }),
   stopClustering: () => set({ isClustering: false }),
+  setSearchQuery: (q) => set({ searchQuery: q }),
 }));

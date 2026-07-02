@@ -64,7 +64,23 @@ export function usePendingSessionPoller() {
       for (const id of pendingIds) {
         try {
           const session = await fetchSession(id);
-          if (!session || session.updatedAt !== session.createdAt) {
+          if (!session) {
+            removePending(id);
+            queryClient.invalidateQueries({ queryKey: ['sessions'] });
+            continue;
+          }
+
+          const created = new Date(session.createdAt).getTime();
+          const updated = new Date(session.updatedAt).getTime();
+          const overview = session.summary?.overview ?? '';
+          
+          // "X개 탭 세션" 형식인 임시 overview 문구인지 체크
+          const isTempOverview = /^\d+개 탭 세션$/.test(overview);
+          
+          // 임시 overview가 아니고, 갱신 시각이 생성 시각보다 최소 1초 이상 늦거나 문구가 완전히 변했을 때
+          const isAiSummaryReady = !isTempOverview && (updated - created > 1000 || !overview.includes('개 탭 세션'));
+
+          if (isAiSummaryReady) {
             removePending(id);
             queryClient.invalidateQueries({ queryKey: ['sessions'] });
           }
