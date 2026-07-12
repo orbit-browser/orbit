@@ -62,5 +62,6 @@ async def search_similar(query_vector: list[float], limit: int = 5) -> list[str]
         collection_name=COLLECTION,
         query=query_vector,
         limit=limit,
+        score_threshold=settings.search_score_threshold,
     )
     return [str(p.id) for p in result.points]

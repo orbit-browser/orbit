@@ -64,3 +64,31 @@
 - `pnpm.cmd build` (`frontend/`): 통과.
 - 대표 민감 URL 5개와 일반 URL 2개의 `isSensitiveUrl` 판정: 통과.
 - `git diff --check`: 최종 변경 후 통과.
+
+## 2026-07-12 — P2 검색 정확도 및 오류 계약
+
+### 요청
+
+1차 안정화를 커밋하고 P2 검색 정확도 개선을 진행한다.
+
+### 변경
+
+- 1차 안정화 변경을 `930a5ce`로 커밋했다.
+- Qdrant 검색에 설정 가능한 score threshold를 추가하고 기본값을 `0.35`로 정했다.
+- 저장 임베딩 입력에 세션 제목을 포함했다.
+- 검색 임베딩 timeout, 연결, upstream 상태, 응답 형식 오류를 504/503/502로 구분했다.
+- Qdrant 검색 장애를 내부 상세가 없는 503 응답으로 변환했다.
+- threshold 전달, 제목 임베딩 텍스트, 검색 오류 매핑 테스트를 추가했다.
+
+### 제한과 후속 작업
+
+- `0.35`는 초기 기본값이며 실제 골든셋 실측 후 조정해야 한다.
+- 기존 Qdrant 포인트는 자동 재색인되지 않아 신규·재처리 세션부터 제목 임베딩이 적용된다.
+
+### 검증
+
+- `python -m pytest -p no:asyncio`: 28 passed.
+- `pnpm.cmd compile` (`extension/`): 통과.
+- `pnpm.cmd build` (`extension/`): 통과.
+- `pnpm.cmd build` (`frontend/`): 통과.
+- `git diff --check`: 최종 변경 후 통과.

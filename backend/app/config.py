@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # uvicorn 실행 위치에 무관하게 backend/.env 를 로드한다
@@ -25,6 +26,7 @@ class Settings(BaseSettings):
     # 데이터스토어
     database_url: str = "postgresql+asyncpg://orbit:orbit@localhost:5432/orbit"
     qdrant_url: str = "http://localhost:6333"
+    search_score_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
 
 
 settings = Settings()

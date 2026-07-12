@@ -65,10 +65,15 @@ def _to_detail(session: SessionModel) -> SessionDetail:
     )
 
 
+def _build_embedding_text(title: str, summary: SessionSummary) -> str:
+    parts = [title, summary.overview, summary.purpose, *summary.highlights]
+    return " ".join(part.strip() for part in parts if part.strip())
+
+
 async def _embed_and_upsert(session_id: str, title: str, summary: SessionSummary) -> None:
     """요약 텍스트를 embedding-passage로 임베딩해 Qdrant에 반영. 요약 성공 여부와 독립적으로 상태를 추적."""
     try:
-        embed_text = f"{summary.overview} {summary.purpose} {' '.join(summary.highlights)}"
+        embed_text = _build_embedding_text(title, summary)
         vector = await embed(embed_text, model=settings.embedding_passage_model)
         await upsert_point(session_id, vector, {
             "session_id": session_id,

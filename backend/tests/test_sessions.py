@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.api import sessions
-from app.schemas.session import PatchSessionRequest
+from app.schemas.session import PatchSessionRequest, SessionSummary
 
 
 def test_patch_session_title_length_boundary():
@@ -13,6 +13,18 @@ def test_patch_session_title_length_boundary():
 
     with pytest.raises(ValidationError):
         PatchSessionRequest(title="a" * 101)
+
+
+def test_embedding_text_includes_title_and_summary_fields():
+    summary = SessionSummary(
+        overview="overview",
+        purpose="purpose",
+        highlights=["first", "second"],
+    )
+
+    assert sessions._build_embedding_text("session title", summary) == (
+        "session title overview purpose first second"
+    )
 
 
 def test_pending_recovery_runs_sequentially(monkeypatch):
