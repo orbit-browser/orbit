@@ -3,16 +3,19 @@
 
 const SENSITIVE_DOMAIN_PATTERNS: RegExp[] = [
   // 은행/금융
-  /(^|\.)((kbstar|shinhan|wooribank|hana|ibk|nonghyup|nhbank|citibank|scbank|kdbbank)\.com)$/i,
+  /(^|\.)(kbstar|shinhan|wooribank|nonghyup|nhbank|scbank)\.com$/i,
+  /(^|\.)(kebhana|kakaobank|kbanknow|tossbank)\.com$/i,
+  /(^|\.)(ibk|citibank|kdb)\.co\.kr$/i,
   /(^|\.)(kftc|kfcc|suhyup-bank)\.(or\.kr|co\.kr)$/i,
   // 증권/카드/보험
   /(^|\.)(mirae(asset)?|samsungfund|kbfg|nhqv|kiwoom|ebestsec|shinhaninvest)\.com$/i,
   /(^|\.)(kbcard|shinhancard|samsungcard|hyundaicard|lottecard)\.com$/i,
   // 정부/공공
   /\.go\.kr$/i,
-  /\.or\.kr$/i,
   // 결제
-  /(^|\.)(paypal|stripe|toss(payments)?|inicis|kcp)\.com$/i,
+  /(^|\.)(paypal|stripe|tosspayments|inicis|kakaopay|payco)\.com$/i,
+  /(^|\.)toss\.im$/i,
+  /(^|\.)kcp\.co\.kr$/i,
   // 의료/건강
   /(^|\.)(nhis|hira)\.or\.kr$/i,
 ];

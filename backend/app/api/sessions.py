@@ -25,6 +25,15 @@ from ..services.summarizer import generate_summary, rule_based_title
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+_recovery_tasks: set[asyncio.Task[None]] = set()
+
+
+def _finish_recovery_task(task: asyncio.Task[None]) -> None:
+    _recovery_tasks.discard(task)
+    if task.cancelled():
+        return
+    if exc := task.exception():
+        logger.error("기동 복구 작업 실패: %s", exc)
 
 
 def _to_detail(session: SessionModel) -> SessionDetail:
@@ -244,8 +253,23 @@ async def retry_summary(
     return _to_detail(session)
 
 
+async def _run_pending_recovery(
+    pending_summary: list[SessionModel],
+    pending_embed: list[SessionModel],
+) -> None:
+    """외부 API 제한을 넘지 않도록 기동 복구 작업을 순차 실행한다."""
+    for session in pending_summary:
+        logger.info("기동 시 요약 미완료 세션 재처리 (session_id=%s)", session.id)
+        await _ai_update(session.id, session.tabs or [])
+
+    for session in pending_embed:
+        logger.info("기동 시 임베딩 미완료 세션 재처리 (session_id=%s)", session.id)
+        summary = SessionSummary(**(session.summary or {}))
+        await _embed_and_upsert(session.id, session.title, summary)
+
+
 async def recover_pending_sessions() -> None:
-    """서버 기동 시 재시작으로 유실된 백그라운드 작업(BackgroundTasks는 프로세스 종료 시 소멸)을 복구."""
+    """서버 기동 시 유실된 작업을 단일 background task로 복구한다."""
     async with AsyncSessionLocal() as db:
         pending_summary = (
             await db.execute(
@@ -261,11 +285,9 @@ async def recover_pending_sessions() -> None:
             )
         ).scalars().all()
 
-    for session in pending_summary:
-        logger.info("기동 시 요약 미완료 세션 재처리 (session_id=%s)", session.id)
-        asyncio.create_task(_ai_update(session.id, session.tabs or []))
+    if not pending_summary and not pending_embed:
+        return
 
-    for session in pending_embed:
-        logger.info("기동 시 임베딩 미완료 세션 재처리 (session_id=%s)", session.id)
-        summary = SessionSummary(**(session.summary or {}))
-        asyncio.create_task(_embed_and_upsert(session.id, session.title, summary))
+    task = asyncio.create_task(_run_pending_recovery(pending_summary, pending_embed))
+    _recovery_tasks.add(task)
+    task.add_done_callback(_finish_recovery_task)
