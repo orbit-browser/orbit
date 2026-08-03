@@ -22,7 +22,7 @@ CREATE TABLE exploration_events (
     active_duration_ms  INTEGER,
     tab_id              INTEGER,
     window_id           INTEGER,
-    previous_event_id   UUID REFERENCES exploration_events(id),
+    previous_event_id   UUID,   -- 소프트 참조(FK 없음): 대상이 필터 제외/미동기화일 수 있어 FK 시 배치 인제스트가 깨짐
     referrer_url        TEXT,
     event_type          VARCHAR(20)  NOT NULL DEFAULT 'visit',  -- visit | spa_nav (§4 확장 설계)
     content_excerpt      VARCHAR(5000),

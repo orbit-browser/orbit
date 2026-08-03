@@ -1,6 +1,5 @@
 import { getTabPageContent } from './chrome-bridge';
 import { isSensitiveUrl } from './sensitive-domains';
-import { useSettingsStore } from '../entrypoints/sidepanel/store/settings';
 import type { Session, SessionSummary, TabItem } from './types';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
@@ -94,8 +93,8 @@ export async function fetchSession(id: string): Promise<Session | undefined> {
   }
 }
 
-async function enrichTabs(tabs: TabItem[]) {
-  const excludeSensitive = useSettingsStore.getState().excludeSensitive;
+async function enrichTabs(tabs: TabItem[], opts: { excludeSensitive: boolean }) {
+  const { excludeSensitive } = opts;
 
   return Promise.all(
     tabs.map(async (tab) => {
@@ -126,8 +125,11 @@ async function enrichTabs(tabs: TabItem[]) {
   );
 }
 
-export async function saveSessionsClustered(tabs: TabItem[]): Promise<Session[]> {
-  const enriched = await enrichTabs(tabs);
+export async function saveSessionsClustered(
+  tabs: TabItem[],
+  opts: { excludeSensitive: boolean },
+): Promise<Session[]> {
+  const enriched = await enrichTabs(tabs, opts);
   const data = await request<BackendSession[]>('/sessions/cluster', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

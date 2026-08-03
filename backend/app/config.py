@@ -28,5 +28,10 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     search_score_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
 
+    # Auto Session 동기화 (M3 sync_pipeline에서 사용 — docs/implementation-roadmap.md M1-1)
+    sync_interval_minutes: int = Field(default=0, ge=0)  # 0 = 주기 동기화 off
+    sync_event_threshold: int = Field(default=30, ge=1)  # 개수 트리거 기준
+    sync_max_events_per_batch: int = Field(default=150, ge=1)  # 배치당 claim 상한
+
 
 settings = Settings()

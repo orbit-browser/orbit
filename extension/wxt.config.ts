@@ -10,8 +10,14 @@ export default defineConfig({
   manifest: {
     name: 'Orbit',
     description: '탐색의 흐름을 기억하고, 원하는 순간에 복원하는 AI Browser Agent',
-    permissions: ['tabs', 'storage', 'sidePanel'],
+    permissions: ['tabs', 'storage', 'sidePanel', 'webNavigation', 'alarms', 'idle'],
+    // TODO: 배포 URL 확정 시 프로덕션 백엔드 도메인 추가
     host_permissions: ['http://localhost/*', 'http://127.0.0.1/*'],
+    commands: {
+      _execute_action: {
+        suggested_key: { default: 'Alt+Shift+O' },
+      },
+    },
     icons: {
       '128': '/orbit_icon.png',
     },

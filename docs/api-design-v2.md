@@ -31,8 +31,7 @@
       "previous_event_id": null,
       "referrer_url": null,
       "event_type": "visit",
-      "content_excerpt": null,
-      "content_hash": "sha1:9f2a..."
+      "content_excerpt": null
     }
   ]
 }
