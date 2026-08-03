@@ -1,4 +1,5 @@
 import { getTabPageContent } from './chrome-bridge';
+import type { WireEvent } from './events/types';
 import { isSensitiveUrl } from './sensitive-domains';
 import type { Session, SessionSummary, TabItem } from './types';
 
@@ -155,6 +156,26 @@ export async function renameSession(id: string, title: string): Promise<void> {
 
 export async function deleteSession(id: string): Promise<void> {
   await request(`/sessions/${id}`, { method: 'DELETE' });
+}
+
+// ── 이벤트 배치 동기화 (docs/api-design-v2.md §1) ──────────────────
+
+export interface EventBatchResponse {
+  accepted: number;
+  duplicates: number;
+  filtered: number;
+  pending_total: number;
+}
+
+export async function postEventBatch(
+  deviceId: string,
+  events: WireEvent[],
+): Promise<EventBatchResponse> {
+  return request<EventBatchResponse>('/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId, events }),
+  });
 }
 
 export async function checkHealth(): Promise<boolean> {

@@ -92,3 +92,92 @@
 - `pnpm.cmd build` (`extension/`): 통과.
 - `pnpm.cmd build` (`frontend/`): 통과.
 - `git diff --check`: 최종 변경 후 통과.
+
+## 2026-08-03 — M2 수집기 & 로컬 큐 & 동기화 엔진 (`feat/auto-session`)
+
+### 요청
+
+`docs/Plan.md` M2(6~10단계) — 상시 방문 이벤트 수집, IndexedDB 기반 Persistent Queue,
+체류시간 세그먼트, 본문 부착, 4트리거 동기화 엔진을 구현한다. M1에서 준비된
+`lib/settings.ts`와 매니페스트 권한(webNavigation/alarms/idle)을 그대로 사용한다.
+
+### 변경
+
+- `extension/lib/events/types.ts`(신규): 로컬 `ExplorationEvent`(camelCase) ↔ 서버
+  `WireEvent`(snake_case) 변환 경계. `toWire()`가 `source: 'browser'` 고정, `domain`
+  제외(서버가 인제스트 시 재계산).
+- `extension/lib/events/db.ts`(신규): `idb`로 `orbit` DB(`events` 스토어, `by-status`/
+  `by-visitedAt` 인덱스)를 여는 lazy 싱글턴.
+- `extension/lib/events/queue.ts`(신규): 상태 기계(open→pending→syncing→synced) 전이
+  전체 — `addEvent`/`attachContent`/`addDwell`/`finalizeOpenEvent`/`finalizeAllOpen`/
+  `claimPending`/`markSynced`/`releaseToPending`(지수 백오프)/`resetStaleSyncing`/
+  `prune`(48h)/`evictIfOver`(5000, synced 우선). 모든 뮤테이션 후 `orbit:syncStatus`
+  (`pendingCount`/`todayCount`/`lastSyncAt`/`lastError`/`droppedCount`)를
+  `chrome.storage.local`에 갱신.
+- `extension/lib/events/collector.ts`(신규): `webNavigation.onCommitted`/
+  `onHistoryStateUpdated`(SPA, 500ms 디바운스)/`tabs.onUpdated`(title)/
+  `tabs.onActivated`/`windows.onFocusChanged`/`idle.onStateChanged`/`tabs.onRemoved`를
+  `initCollector()`에서 동기적으로 등록. 탭 상태·활성 세그먼트는 `chrome.storage.session`
+  (SW 종료 생존). 3초 미만 리다이렉트는 URL 치환, 그 외에는 새 이벤트 생성. 모든 큐 호출은
+  fail-open(try/catch로 감싸 브라우징을 막지 않음).
+- `extension/lib/sync/engine.ts`(신규): `navigator.locks`(`ifAvailable`) 뮤텍스로
+  `requestDrain(reason)`을 직렬화. 50개씩 `postEventBatch` 전송, 성공 시 `markSynced`
+  반복, 실패 시 `releaseToPending(backoff)` + `orbit-retry` 1회성 알람 예약 후 중단.
+- `extension/lib/sync/triggers.ts`(신규): 수동(`SYNC_NOW` 메시지)/주기(`orbit-sync`
+  알람, 설정 반응형)/개수(`countThreshold` 이상 시)/유휴 4트리거를 `requestDrain`으로
+  수렴. SW 시작 시 `resetStaleSyncing(5분)` + `prune` + `evictIfOver` 실행.
+- `extension/entrypoints/background.ts`: 컴포지션 루트화 — `initCollector()`/
+  `initTriggers()` 호출 추가. 기존 `TABS_CHANGED`/`GET_CURRENT_TABS`/`GET_PAGE_CONTENT`
+  동작은 무변경. `PAGE_CONTENT_READY` 핸들러가 기존 캐시 갱신에 더해
+  `handlePageContentReady`(큐 부착)도 호출.
+- `extension/lib/api.ts`: `postEventBatch` 추가(기존 `enrichTabs`/세션 API는 무변경).
+- `extension/lib/messages.ts`(죽은 코드 부활): 기존 메시지 + `SYNC_NOW`/
+  `GET_SYNC_STATUS`를 포함한 타입드 유니온으로 갱신(현재 실사용처는 아직 없음 — M4
+  사이드패널에서 소비 예정).
+- `extension/package.json`: `pnpm add idb`로 `idb@8.0.3` 의존성 추가.
+- `extension/entrypoints/content.ts`: 변경 없음 — 기존 `EXTRACT_CONTENT` 핸들러가
+  매 호출마다 현재 DOM을 새로 파싱해 응답하므로, SPA 온디맨드 pull에 그대로 재사용 가능해
+  추가 변경이 불필요했다.
+
+### 계약과 다르게 구현한 부분 (이유)
+
+- `ExplorationEvent`에 계약 명세에 없는 `syncingStartedAt: string | null` 필드를
+  추가했다(`toWire()`에서는 제외). `resetStaleSyncing(olderThanMs)`이 "오래 syncing에
+  머문" 이벤트를 판별하려면 syncing 전환 시각이 필요한데, 명세된 필드만으로는 이 값을
+  알 수 없었다.
+- `WireEvent.content_excerpt`를 `string`(non-null)으로 정의하고 `toWire()`에서
+  `null → ''`로 치환한다. `backend/app/schemas/event.py`의 `ExplorationEventIn`이
+  `content_excerpt: str = ""`로 선언돼 있어(널 불허) `docs/api-design-v2.md`의
+  `"content_excerpt": null` 예시와 실제 스키마가 어긋났다 — 과제 지시대로 스키마 파일을
+  최종 근거로 따랐다.
+- 유휴 트리거를 "idle.onStateChanged==='idle'이면 즉시 requestDrain"이 아니라,
+  idle 진입 시 `settings.idleSyncMin`분짜리 1회성 `chrome.alarms`를 예약하고 active
+  복귀 시 취소하는 방식으로 구현했다. `chrome.idle.setDetectionInterval(60)`(체류시간
+  세그먼트용, 60초)과 별개로 "유휴가 idleSyncMin(기본 10분) 지속되면 동기화"라는
+  `target-architecture.md` §4의 트리거 정의를 만족시키려면 60초 단위 idle 신호와
+  실제 동기화 시점을 분리해야 했다. `setTimeout`은 MV3 SW가 유휴 중 종료되면 유실되므로
+  쓰지 않고 `chrome.alarms`(SW 재시작에도 생존)로 구현했다.
+- 개수 트리거(`pending ≥ countThreshold`)는 `queue.ts`가 `sync/triggers.ts`를 직접
+  참조하지 않도록, `setPendingChangeListener` 콜백 훅으로 느슨하게 연결했다(모든
+  뮤테이션 후 재계산된 `pendingCount`를 리스너에 전달).
+
+### 검증
+
+- `pnpm compile` (`extension/`): 통과.
+- `pnpm build` (`extension/`): 통과. `.output/chrome-mv3/manifest.json`에
+  `webNavigation`/`alarms`/`idle`/`tabs`/`storage`/`sidePanel` 권한이 모두 유지됨을 확인.
+
+### 수동 검증이 필요한 항목 (브라우저 실행 불가로 이번 세션에서는 확인하지 못함)
+
+- SW devtools 강제 종료 후 `chrome.storage.session`의 탭 상태·활성 세그먼트 생존, 재시작
+  직후 `resetStaleSyncing`이 고아 `syncing` 이벤트를 되돌리는지.
+- YouTube/Maps 등 SPA 폭주 사이트에서 500ms 디바운스가 충분한지, 짧은 리다이렉트(<3초)
+  치환이 실제로 이벤트 수를 줄이는지.
+- 체류시간 세그먼트: 탭 전환/창 포커스 아웃/유휴/탭 종료 각 케이스에서 dwell이 정확히
+  마감되고 30분 상한이 적용되는지.
+- 유휴 트리거: `idleSyncMin` 경과 후 실제로 `requestDrain('idle')`이 호출되고, 중간에
+  active로 돌아오면 알람이 취소되는지.
+- 동기화 엔진: 백엔드 다운 상태에서 지수 백오프(최대 30분) 후 `orbit-retry` 알람으로
+  재시도되는지, 회복 후 `duplicates` 카운트로 중복 전송이 없는지.
+- 큐 상한(5,000) 초과 시 `synced` 우선 정리 → 최고령 `pending` 퇴출 → `droppedCount`가
+  사이드패널에 노출 가능한 형태로 쌓이는지(사이드패널 UI 자체는 M4 범위).
