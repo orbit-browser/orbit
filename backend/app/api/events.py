@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends
@@ -5,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..db.models import ExplorationEvent, SyncBatch
 from ..db.session import get_db
 from ..schemas.event import (
@@ -13,6 +16,7 @@ from ..schemas.event import (
     ExplorationEventIn,
     PendingCountResponse,
 )
+from ..services import sync_pipeline
 from ..services.event_filter import (
     content_hash,
     extract_search_query,
@@ -21,10 +25,31 @@ from ..services.event_filter import (
     normalize_url,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["events"])
 
 _MAX_EXCERPT_LEN = 5000
 _MAX_TITLE_LEN = 500
+
+_trigger_tasks: set[asyncio.Task] = set()
+
+
+def _trigger_batch_if_over_threshold(pending_total: int) -> None:
+    """pending ≥ sync_event_threshold면 배치를 트리거한다. 락 사용 중이면 조용히 스킵한다."""
+    if pending_total < settings.sync_event_threshold or sync_pipeline.is_running():
+        return
+
+    async def _run() -> None:
+        try:
+            await sync_pipeline.run_batch("event_count")
+        except sync_pipeline.SyncBatchRunningError:
+            pass
+        except Exception as exc:
+            logger.warning("개수 기준 배치 트리거 실패: %s", exc)
+
+    task = asyncio.create_task(_run())
+    _trigger_tasks.add(task)
+    task.add_done_callback(_trigger_tasks.discard)
 
 
 def _build_event_rows(
@@ -108,6 +133,7 @@ async def ingest_events(
         duplicates = len(rows) - accepted
 
     pending_total = await _count_pending(db)
+    _trigger_batch_if_over_threshold(pending_total)
 
     return EventIngestResult(
         accepted=accepted,

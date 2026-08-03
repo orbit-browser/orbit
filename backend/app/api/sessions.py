@@ -3,15 +3,13 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.clusterer import cluster_tabs
-from ..ai.embedding import embed
-from ..config import settings
-from ..db.models import Session as SessionModel
+from ..db.models import ExplorationEvent, Session as SessionModel, SyncBatch
 from ..db.session import AsyncSessionLocal, get_db
-from ..db.vector import delete_point, upsert_point
+from ..db.vector import delete_point
 from ..schemas.session import (
     PatchSessionRequest,
     SaveSessionRequest,
@@ -20,6 +18,9 @@ from ..schemas.session import (
     TabItemRequest,
     TabItemResponse,
 )
+from ..services.embedding_sync import build_embedding_text as _build_embedding_text
+from ..services.embedding_sync import embed_and_upsert as _embed_and_upsert
+from ..services.session_updater import record_version, refresh_session_ai
 from ..services.summarizer import generate_summary, rule_based_title
 
 logger = logging.getLogger(__name__)
@@ -65,36 +66,6 @@ def _to_detail(session: SessionModel) -> SessionDetail:
     )
 
 
-def _build_embedding_text(title: str, summary: SessionSummary) -> str:
-    parts = [title, summary.overview, summary.purpose, *summary.highlights]
-    return " ".join(part.strip() for part in parts if part.strip())
-
-
-async def _embed_and_upsert(session_id: str, title: str, summary: SessionSummary) -> None:
-    """요약 텍스트를 embedding-passage로 임베딩해 Qdrant에 반영. 요약 성공 여부와 독립적으로 상태를 추적."""
-    try:
-        embed_text = _build_embedding_text(title, summary)
-        vector = await embed(embed_text, model=settings.embedding_passage_model)
-        await upsert_point(session_id, vector, {
-            "session_id": session_id,
-            "title": title,
-            "overview": summary.overview,
-            "purpose": summary.purpose,
-        })
-        async with AsyncSessionLocal() as db:
-            session = await db.get(SessionModel, session_id)
-            if session:
-                session.embedding_status = "done"
-                await db.commit()
-    except Exception as exc:
-        logger.warning("임베딩/Qdrant upsert 실패 (session_id=%s): %s", session_id, exc)
-        async with AsyncSessionLocal() as db:
-            session = await db.get(SessionModel, session_id)
-            if session:
-                session.embedding_status = "failed"
-                await db.commit()
-
-
 async def _ai_update(session_id: str, tabs_raw: list[dict]) -> None:
     """AI 요약 + Qdrant 임베딩을 백그라운드에서 처리. 두 단계의 실패를 각각 별도 상태로 기록한다."""
     try:
@@ -109,6 +80,9 @@ async def _ai_update(session_id: str, tabs_raw: list[dict]) -> None:
             session.summary = summary.model_dump()
             session.summary_status = "done"
             session.updated_at = datetime.now(timezone.utc)
+            # 스냅샷 경로도 성공 시 버전 기록(docs/data-model-v2.md §6) — summarizer.py는
+            # model 메타를 반환하지 않아 prompt_version/model은 None으로 남긴다.
+            await record_version(db, session, summary.model_dump(), None, None)
             await db.commit()
         logger.info("AI 요약 완료 (session_id=%s): %s", session_id, title)
     except Exception as exc:
@@ -245,7 +219,12 @@ async def retry_summary(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> SessionDetail:
-    """AI 요약 실패 세션을 다시 시도 (A1 — 실패 상태 UI의 재시도 버튼용)."""
+    """AI 요약 실패 세션을 다시 시도 (A1 — 실패 상태 UI의 재시도 버튼용).
+
+    origin='events'(Auto Session 배치 생성) 세션은 session_events를 다시 모아
+    재요약하는 refresh_session_ai를, 그 외(origin='snapshot')는 기존 _ai_update를 쓴다
+    (docs/api-design-v2.md §11 retry-summary origin 분기).
+    """
     session = await db.get(SessionModel, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
@@ -254,13 +233,17 @@ async def retry_summary(
     await db.commit()
     await db.refresh(session)
 
-    background_tasks.add_task(_ai_update, session.id, session.tabs or [])
+    if session.origin == "events":
+        background_tasks.add_task(refresh_session_ai, session.id)
+    else:
+        background_tasks.add_task(_ai_update, session.id, session.tabs or [])
     return _to_detail(session)
 
 
 async def _run_pending_recovery(
     pending_summary: list[SessionModel],
     pending_embed: list[SessionModel],
+    pending_events_sessions: list[SessionModel] | None = None,
 ) -> None:
     """외부 API 제한을 넘지 않도록 기동 복구 작업을 순차 실행한다."""
     for session in pending_summary:
@@ -272,13 +255,46 @@ async def _run_pending_recovery(
         summary = SessionSummary(**(session.summary or {}))
         await _embed_and_upsert(session.id, session.title, summary)
 
+    for session in (pending_events_sessions or []):
+        logger.info("기동 시 이벤트 기반 세션 재요약 (session_id=%s)", session.id)
+        await refresh_session_ai(session.id)
+
+
+async def _recover_sync_pipeline_state() -> None:
+    """서버 재시작 시 중단된 배치/이벤트를 안전 상태로 복구한다(docs/target-architecture.md §5).
+
+    running이던 배치는 failed로, processing이던 이벤트는 pending으로 되돌려
+    다음 배치가 자동으로 재시도하게 한다.
+    """
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(SyncBatch)
+            .where(SyncBatch.status == "running")
+            .values(
+                status="failed",
+                error_message="server restart",
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.execute(
+            update(ExplorationEvent)
+            .where(ExplorationEvent.sync_status == "processing")
+            .values(sync_status="pending")
+        )
+        await db.commit()
+
 
 async def recover_pending_sessions() -> None:
     """서버 기동 시 유실된 작업을 단일 background task로 복구한다."""
+    await _recover_sync_pipeline_state()
+
     async with AsyncSessionLocal() as db:
         pending_summary = (
             await db.execute(
-                select(SessionModel).where(SessionModel.summary_status == "pending")
+                select(SessionModel).where(
+                    SessionModel.summary_status == "pending",
+                    SessionModel.origin == "snapshot",
+                )
             )
         ).scalars().all()
         pending_embed = (
@@ -289,10 +305,20 @@ async def recover_pending_sessions() -> None:
                 )
             )
         ).scalars().all()
+        pending_events_sessions = (
+            await db.execute(
+                select(SessionModel).where(
+                    SessionModel.origin == "events",
+                    SessionModel.summary_status.in_(["pending", "failed"]),
+                )
+            )
+        ).scalars().all()
 
-    if not pending_summary and not pending_embed:
+    if not pending_summary and not pending_embed and not pending_events_sessions:
         return
 
-    task = asyncio.create_task(_run_pending_recovery(pending_summary, pending_embed))
+    task = asyncio.create_task(
+        _run_pending_recovery(pending_summary, pending_embed, pending_events_sessions)
+    )
     _recovery_tasks.add(task)
     task.add_done_callback(_finish_recovery_task)
