@@ -357,3 +357,58 @@ export async function searchMemory(query: string, rerank = false): Promise<Memor
 export async function deleteServerEvent(eventId: string): Promise<void> {
   await request(`/events/${eventId}`, { method: 'DELETE' });
 }
+
+// ── Exploration Analytics (docs/api-design-v2.md §9) ──────────────────
+// TimelineView 하단 요약 카드용 — 세션별 탐색 시간/도메인 방문 수만 사용한다.
+// 집계 쿼리만 수행하는 엔드포인트라 AI 호출은 없고, 배열 필드는 백엔드 구현
+// 상황에 따라 없을 수 있어 옵셔널로 두고 빈 배열로 정규화한다.
+
+export interface AnalyticsSessionDuration {
+  sessionId: string;
+  title: string;
+  totalActiveDurationMs: number;
+}
+
+export interface AnalyticsDomainCount {
+  domain: string;
+  visitCount: number;
+}
+
+export interface AnalyticsOverview {
+  periodDays: number;
+  topSessionsByDuration: AnalyticsSessionDuration[];
+  topDomains: AnalyticsDomainCount[];
+}
+
+interface BackendAnalyticsSessionDuration {
+  session_id: string;
+  title: string;
+  total_active_duration_ms: number;
+}
+
+interface BackendAnalyticsDomainCount {
+  domain: string;
+  visit_count: number;
+}
+
+interface BackendAnalyticsOverview {
+  period_days?: number;
+  top_sessions_by_duration?: BackendAnalyticsSessionDuration[];
+  top_domains?: BackendAnalyticsDomainCount[];
+}
+
+export async function fetchAnalyticsOverview(days: number): Promise<AnalyticsOverview> {
+  const data = await request<BackendAnalyticsOverview>(`/analytics/overview?days=${days}`);
+  return {
+    periodDays: data.period_days ?? days,
+    topSessionsByDuration: (data.top_sessions_by_duration ?? []).map((s) => ({
+      sessionId: s.session_id,
+      title: s.title,
+      totalActiveDurationMs: s.total_active_duration_ms,
+    })),
+    topDomains: (data.top_domains ?? []).map((d) => ({
+      domain: d.domain,
+      visitCount: d.visit_count,
+    })),
+  };
+}

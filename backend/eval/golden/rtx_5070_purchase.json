@@ -1,0 +1,58 @@
+{
+  "name": "rtx_5070_purchase_research",
+  "events": [
+    {
+      "id": "a749f075-2b23-4693-a4b3-57ff4c6b1df9",
+      "url": "https://www.google.com/search?q=rtx+5070+%EA%B0%80%EA%B2%A9",
+      "title": "rtx 5070 가격 - Google 검색",
+      "domain": "google.com",
+      "visited_at": "2026-08-01T10:00:00Z",
+      "active_duration_ms": 40000
+    },
+    {
+      "id": "3022dac7-66af-48c4-8aa4-7a0056176024",
+      "url": "https://www.danawa.com/product/rtx-5070",
+      "title": "RTX 5070 다나와 최저가 비교",
+      "domain": "danawa.com",
+      "visited_at": "2026-08-01T10:02:00Z",
+      "active_duration_ms": 180000
+    },
+    {
+      "id": "9ec6a886-8823-497c-8915-8194f9a8a96e",
+      "url": "https://www.youtube.com/watch?v=example-review",
+      "title": "RTX 5070 리뷰 - 벤치마크 비교",
+      "domain": "youtube.com",
+      "visited_at": "2026-08-01T10:06:00Z",
+      "active_duration_ms": 420000
+    },
+    {
+      "id": "8f136a14-0a09-4d06-a9c1-ef0a91176b51",
+      "url": "https://gall.dcinside.com/board/view/?id=graphic",
+      "title": "RTX 5070 써본 사람 있음?",
+      "domain": "gall.dcinside.com",
+      "visited_at": "2026-08-01T10:14:00Z",
+      "active_duration_ms": 90000
+    },
+    {
+      "id": "ff52d698-9f5f-438b-b365-b748e2f296ea",
+      "url": "https://www.instagram.com/",
+      "title": "Instagram",
+      "domain": "instagram.com",
+      "visited_at": "2026-08-01T10:16:00Z",
+      "active_duration_ms": 20000
+    }
+  ],
+  "existing_sessions": [],
+  "expected": {
+    "session_count": 1,
+    "assignments": {
+      "a749f075-2b23-4693-a4b3-57ff4c6b1df9": "gpu_research",
+      "3022dac7-66af-48c4-8aa4-7a0056176024": "gpu_research",
+      "9ec6a886-8823-497c-8915-8194f9a8a96e": "gpu_research",
+      "8f136a14-0a09-4d06-a9c1-ef0a91176b51": "gpu_research",
+      "ff52d698-9f5f-438b-b365-b748e2f296ea": "noise"
+    },
+    "new_vs_existing": "new",
+    "titles_hint": ["RTX 5070 구매 비교", "그래픽카드 알아보기"]
+  }
+}

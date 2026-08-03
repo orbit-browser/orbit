@@ -1,0 +1,47 @@
+{
+  "name": "existing_session_continue",
+  "events": [
+    {
+      "id": "4f7ddff8-f289-41df-b37e-441d10dde6f3",
+      "url": "https://www.agoda.com/hotel/tokyo-shinjuku",
+      "title": "신주쿠 호텔 예약 - Agoda",
+      "domain": "agoda.com",
+      "visited_at": "2026-08-03T11:00:00Z",
+      "active_duration_ms": 200000
+    },
+    {
+      "id": "1017bc30-372a-48f1-95d9-4bba5aa52688",
+      "url": "https://www.japan-guide.com/e/e2361_jrpass.html",
+      "title": "JR 패스 구매 안내 - Japan Guide",
+      "domain": "japan-guide.com",
+      "visited_at": "2026-08-03T11:05:00Z",
+      "active_duration_ms": 150000
+    },
+    {
+      "id": "85eeb0fb-e4ee-47c6-812e-3911de61e996",
+      "url": "https://translate.google.com/?sl=ko&tl=ja",
+      "title": "한국어-일본어 번역 - Google 번역",
+      "domain": "translate.google.com",
+      "visited_at": "2026-08-03T11:09:00Z",
+      "active_duration_ms": 90000
+    }
+  ],
+  "existing_sessions": [
+    {
+      "session_id": "trip_planning",
+      "title": "일본 도쿄 여행 준비",
+      "overview": "도쿄 여행 항공권과 일정을 알아보는 중입니다.",
+      "keywords": ["도쿄", "여행", "항공권", "일정"]
+    }
+  ],
+  "expected": {
+    "session_count": 1,
+    "assignments": {
+      "4f7ddff8-f289-41df-b37e-441d10dde6f3": "trip_planning",
+      "1017bc30-372a-48f1-95d9-4bba5aa52688": "trip_planning",
+      "85eeb0fb-e4ee-47c6-812e-3911de61e996": "trip_planning"
+    },
+    "new_vs_existing": "existing",
+    "titles_hint": ["일본 도쿄 여행 준비"]
+  }
+}

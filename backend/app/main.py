@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api.analytics import router as analytics_router
 from .api.events import router as events_router
 from .api.search import router as search_router
 from .api.sessions import recover_pending_sessions
@@ -52,6 +53,7 @@ app.include_router(sessions_router)
 app.include_router(search_router)
 app.include_router(events_router)
 app.include_router(sync_router)
+app.include_router(analytics_router)
 
 
 @app.get("/health")
