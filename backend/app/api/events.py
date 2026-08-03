@@ -1,18 +1,20 @@
 import asyncio
 import logging
+from datetime import date as date_cls, datetime, time, timedelta, timezone
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..db.models import ExplorationEvent, SyncBatch
+from ..db.models import ExplorationEvent, Session as SessionModel, SessionEvent, SyncBatch
 from ..db.session import get_db
 from ..schemas.event import (
     EventBatchRequest,
     EventIngestResult,
+    EventListItem,
     ExplorationEventIn,
     PendingCountResponse,
 )
@@ -24,12 +26,14 @@ from ..services.event_filter import (
     is_system_url,
     normalize_url,
 )
+from ..services.session_updater import _resync_tabs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["events"])
 
 _MAX_EXCERPT_LEN = 5000
 _MAX_TITLE_LEN = 500
+_EVENTS_LIST_CAP = 500
 
 _trigger_tasks: set[asyncio.Task] = set()
 
@@ -159,3 +163,126 @@ async def get_pending_count(db: AsyncSession = Depends(get_db)) -> PendingCountR
         pending=pending,
         last_completed_sync_at=last_completed.isoformat() if last_completed else None,
     )
+
+
+# ── GET /events?date= (Timeline 홈 화면, docs/api-design-v2.md §3) ──────────
+
+
+def _resolve_date_range(date_param: str, *, now: datetime | None = None) -> tuple[datetime, datetime]:
+    """'today' 또는 'YYYY-MM-DD'를 [start, end) 자정 범위로 변환한다(순수 함수).
+
+    visited_at 컬럼에 저장된 값 그대로(별도 사용자 타임존 없음)의 날짜를 단순 매칭한다
+    — 사용자별 타임존을 저장/변환하는 기능이 없어 UTC 자정 기준 범위로 비교한다.
+    """
+    if date_param == "today":
+        target = (now or datetime.now(timezone.utc)).date()
+    else:
+        try:
+            target = date_cls.fromisoformat(date_param)
+        except ValueError as exc:
+            raise ValueError("Invalid date parameter. Use YYYY-MM-DD or 'today'.") from exc
+
+    start = datetime.combine(target, time.min, tzinfo=timezone.utc)
+    return start, start + timedelta(days=1)
+
+
+async def _fetch_events_for_date(db: AsyncSession, start: datetime, end: datetime) -> list[EventListItem]:
+    result = await db.execute(
+        select(ExplorationEvent, SessionEvent.session_id, SessionModel.title)
+        .outerjoin(SessionEvent, SessionEvent.event_id == ExplorationEvent.id)
+        .outerjoin(SessionModel, SessionEvent.session_id == SessionModel.id)
+        .where(
+            ExplorationEvent.user_id == "local",
+            ExplorationEvent.sync_status != "discarded",
+            ExplorationEvent.visited_at >= start,
+            ExplorationEvent.visited_at < end,
+        )
+        .order_by(ExplorationEvent.visited_at.desc())
+        .limit(_EVENTS_LIST_CAP)
+    )
+
+    seen: set[str] = set()
+    items: list[EventListItem] = []
+    for event, session_id, session_title in result.all():
+        if event.id in seen:
+            continue
+        seen.add(event.id)
+        items.append(
+            EventListItem(
+                event_id=event.id,
+                url=event.url,
+                title=event.title,
+                domain=event.domain,
+                visited_at=event.visited_at.isoformat(),
+                active_duration_ms=event.active_duration_ms,
+                session_id=session_id,
+                session_title=session_title,
+            )
+        )
+    return items
+
+
+@router.get("/events", response_model=list[EventListItem])
+async def list_events(
+    date: str = Query(..., description="YYYY-MM-DD or 'today'"),
+    db: AsyncSession = Depends(get_db),
+) -> list[EventListItem]:
+    try:
+        start, end = _resolve_date_range(date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return await _fetch_events_for_date(db, start, end)
+
+
+# ── DELETE /events/{id} (docs/api-design-v2.md §10) ──────────────────────
+
+
+async def _recompute_session_after_event_removed(db: AsyncSession, session_id: str) -> None:
+    """이벤트 삭제 후 event_count/total_active_duration_ms 재계산 + tabs 재작성.
+
+    AI 재요약(refresh_session_ai)은 호출하지 않는다 — 즉시 재요약은 MVP 범위 밖이고
+    (docs/api-design-v2.md §10), 여기서 하는 일은 순수 집계/규칙 기반 tabs 선정뿐이다.
+    tabs 재작성은 session_updater의 기존 함수를 그대로 재사용한다(단일 작성자 원칙 유지).
+    """
+    session = await db.get(SessionModel, session_id)
+    if not session:
+        return
+
+    count_result = await db.execute(
+        select(func.count()).select_from(SessionEvent).where(SessionEvent.session_id == session_id)
+    )
+    session.event_count = count_result.scalar_one()
+
+    duration_result = await db.execute(
+        select(func.coalesce(func.sum(ExplorationEvent.active_duration_ms), 0))
+        .select_from(SessionEvent)
+        .join(ExplorationEvent, SessionEvent.event_id == ExplorationEvent.id)
+        .where(SessionEvent.session_id == session_id)
+    )
+    session.total_active_duration_ms = duration_result.scalar_one()
+
+    await _resync_tabs(db, session_id)
+
+
+@router.delete("/events/{event_id}", status_code=204)
+async def delete_event(
+    event_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    event = await db.get(ExplorationEvent, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    affected_result = await db.execute(
+        select(SessionEvent.session_id).where(SessionEvent.event_id == event_id)
+    )
+    affected_session_ids = set(affected_result.scalars().all())
+
+    await db.execute(delete(SessionEvent).where(SessionEvent.event_id == event_id))
+    await db.delete(event)
+
+    for session_id in affected_session_ids:
+        await _recompute_session_after_event_removed(db, session_id)
+
+    await db.commit()

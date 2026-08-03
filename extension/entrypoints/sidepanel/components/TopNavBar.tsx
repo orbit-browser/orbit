@@ -26,7 +26,8 @@ export function TopNavBar() {
   }
 
   const tabs = [
-    { view: 'sessions' as const, label: 'My Session' },
+    { view: 'timeline' as const, label: '타임라인' },
+    { view: 'sessions' as const, label: '세션' },
     { view: 'search' as const, label: 'Ask AI' },
   ];
 
@@ -42,7 +43,7 @@ export function TopNavBar() {
               type="button"
               onClick={() => setView(view)}
               className={
-                'rounded-md px-3.5 py-1 text-xs font-bold transition-all duration-200 cursor-pointer ' +
+                'rounded-md px-2.5 py-1 text-xs font-bold transition-all duration-200 cursor-pointer ' +
                 (active
                   ? 'bg-orbit-surface text-orbit-primary shadow-xs'
                   : 'text-orbit-muted hover:text-orbit-text')

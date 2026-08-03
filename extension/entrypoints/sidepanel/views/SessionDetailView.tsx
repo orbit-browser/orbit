@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Pencil, Loader2, Plus, ExternalLink, RotateCw } from 'lucide-react';
 import { useSession, useRenameSession, useRetrySummary } from '../hooks/useSessions';
 import { useUIStore } from '../store/ui';
 import { TabListItem } from '../components/TabListItem';
 import { SummaryPanel } from '../components/SummaryPanel';
 import { StatePlaceholder } from '../components/StatePlaceholder';
+import { TimelineItem } from '../components/timeline/TimelineItem';
 import { restoreInNewWindow, restoreInCurrentWindow } from '../../../lib/chrome-bridge';
+import { fetchSessionEvents } from '../../../lib/api';
 
 export function SessionDetailView() {
   const selectedId = useUIStore((s) => s.selectedSessionId);
@@ -15,6 +18,11 @@ export function SessionDetailView() {
   const { data: session, isLoading, isError } = useSession(selectedId);
   const { mutate: renameSession } = useRenameSession();
   const { mutate: retrySummary, isPending: isRetrying } = useRetrySummary();
+  const { data: timelineEvents } = useQuery({
+    queryKey: ['session-events', selectedId],
+    queryFn: () => fetchSessionEvents(selectedId as string),
+    enabled: !!selectedId,
+  });
 
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
@@ -211,6 +219,27 @@ export function SessionDetailView() {
                 <SummaryPanel summary={session.summary} />
               )}
             </div>
+
+            {!!timelineEvents?.length && (
+              <div className="pt-1">
+                <p className="mb-1 px-1 text-xs font-semibold text-orbit-muted">탐색 타임라인</p>
+                <div className="space-y-0.5 rounded-xl border border-orbit-border bg-orbit-surface p-1">
+                  {timelineEvents.map((ev) => (
+                    <TimelineItem
+                      key={ev.eventId}
+                      event={{
+                        id: ev.eventId,
+                        url: ev.url,
+                        title: ev.title,
+                        domain: ev.domain,
+                        visitedAt: ev.visitedAt,
+                        durationMs: ev.durationMs,
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </StatePlaceholder>

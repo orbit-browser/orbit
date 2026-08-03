@@ -7,14 +7,22 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.clusterer import cluster_tabs
-from ..db.models import ExplorationEvent, Session as SessionModel, SyncBatch
+from ..db.models import (
+    ExplorationEvent,
+    Session as SessionModel,
+    SessionEvent,
+    SessionVersion,
+    SyncBatch,
+)
 from ..db.session import AsyncSessionLocal, get_db
 from ..db.vector import delete_point
 from ..schemas.session import (
     PatchSessionRequest,
     SaveSessionRequest,
     SessionDetail,
+    SessionEventItem,
     SessionSummary,
+    SessionVersionItem,
     TabItemRequest,
     TabItemResponse,
 )
@@ -181,6 +189,71 @@ async def get_session(
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
     return _to_detail(session)
+
+
+@router.get("/{session_id}/events", response_model=list[SessionEventItem])
+async def get_session_events(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> list[SessionEventItem]:
+    """Session Timeline (docs/api-design-v2.md §6) — sequence_order 순.
+
+    세션이 없으면 404. origin='snapshot' 세션(session_events 연결 없음)은 빈 배열.
+    """
+    session = await db.get(SessionModel, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    result = await db.execute(
+        select(SessionEvent, ExplorationEvent)
+        .join(ExplorationEvent, SessionEvent.event_id == ExplorationEvent.id)
+        .where(SessionEvent.session_id == session_id)
+        .order_by(SessionEvent.sequence_order)
+    )
+    return [
+        SessionEventItem(
+            event_id=event.id,
+            url=event.url,
+            title=event.title,
+            domain=event.domain,
+            visited_at=event.visited_at.isoformat(),
+            active_duration_ms=event.active_duration_ms,
+            relevance_score=session_event.relevance_score,
+            sequence_order=session_event.sequence_order,
+        )
+        for session_event, event in result.all()
+    ]
+
+
+@router.get("/{session_id}/versions", response_model=list[SessionVersionItem])
+async def get_session_versions(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> list[SessionVersionItem]:
+    """요약 이력 (docs/api-design-v2.md §7) — version 내림차순. 세션 없으면 404."""
+    session = await db.get(SessionModel, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    result = await db.execute(
+        select(SessionVersion)
+        .where(SessionVersion.session_id == session_id)
+        .order_by(SessionVersion.version.desc())
+    )
+    return [
+        SessionVersionItem(
+            version=v.version,
+            title=v.title,
+            overview=v.overview,
+            purpose=v.purpose,
+            highlights=v.highlights,
+            todos=v.todos,
+            next_actions=v.next_actions,
+            model=v.model,
+            created_at=v.created_at.isoformat(),
+        )
+        for v in result.scalars().all()
+    ]
 
 
 @router.patch("/{session_id}", response_model=SessionDetail)

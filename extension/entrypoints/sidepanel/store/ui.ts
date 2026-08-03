@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type View = 'sessions' | 'search' | 'settings' | 'detail';
+export type View = 'timeline' | 'sessions' | 'search' | 'settings' | 'detail';
 
 interface UIState {
   activeView: View;
@@ -21,7 +21,7 @@ interface UIState {
 }
 
 export const useUIStore = create<UIState>((set) => ({
-  activeView: 'sessions',
+  activeView: 'timeline',
   selectedSessionId: null,
   toast: null,
   pendingSessionIds: [],

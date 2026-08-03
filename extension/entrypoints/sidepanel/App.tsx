@@ -1,6 +1,7 @@
 import { TopNavBar } from './components/TopNavBar';
 import { Toast } from './components/Toast';
 import { useUIStore } from './store/ui';
+import { TimelineView } from './views/TimelineView';
 import { SessionListView } from './views/SessionListView';
 import { SearchView } from './views/SearchView';
 import { SessionDetailView } from './views/SessionDetailView';
@@ -9,6 +10,8 @@ import { SettingsView } from './views/SettingsView';
 function CurrentView() {
   const view = useUIStore((s) => s.activeView);
   switch (view) {
+    case 'timeline':
+      return <TimelineView />;
     case 'sessions':
       return <SessionListView />;
     case 'search':

@@ -11,6 +11,12 @@ import {
 interface SettingsState extends OrbitSettings {
   setRerankEnabled: (v: boolean) => void;
   setExcludeSensitive: (v: boolean) => void;
+  setCollectionEnabled: (v: boolean) => void;
+  setContentCapture: (v: boolean) => void;
+  setAutoSyncEnabled: (v: boolean) => void;
+  setAutoSyncIntervalMin: (v: 15 | 30 | 60) => void;
+  setIdleSyncMin: (v: number) => void;
+  setCountThreshold: (v: number) => void;
 }
 
 // chrome.storage.local(lib/settings.ts)을 진실 원천으로 삼는 메모리 캐시.
@@ -24,6 +30,30 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   setExcludeSensitive: (excludeSensitive) => {
     set({ excludeSensitive });
     void updateSettings({ excludeSensitive });
+  },
+  setCollectionEnabled: (collectionEnabled) => {
+    set({ collectionEnabled });
+    void updateSettings({ collectionEnabled });
+  },
+  setContentCapture: (contentCapture) => {
+    set({ contentCapture });
+    void updateSettings({ contentCapture });
+  },
+  setAutoSyncEnabled: (autoSyncEnabled) => {
+    set({ autoSyncEnabled });
+    void updateSettings({ autoSyncEnabled });
+  },
+  setAutoSyncIntervalMin: (autoSyncIntervalMin) => {
+    set({ autoSyncIntervalMin });
+    void updateSettings({ autoSyncIntervalMin });
+  },
+  setIdleSyncMin: (idleSyncMin) => {
+    set({ idleSyncMin });
+    void updateSettings({ idleSyncMin });
+  },
+  setCountThreshold: (countThreshold) => {
+    set({ countThreshold });
+    void updateSettings({ countThreshold });
   },
 }));
 

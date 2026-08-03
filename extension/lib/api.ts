@@ -1,7 +1,15 @@
 import { getTabPageContent } from './chrome-bridge';
 import type { WireEvent } from './events/types';
 import { isSensitiveUrl } from './sensitive-domains';
-import type { Session, SessionSummary, TabItem } from './types';
+import type {
+  MemoryEvent,
+  MemorySearchResult,
+  Session,
+  SessionSummary,
+  SessionTimelineEvent,
+  TabItem,
+  TodayEvent,
+} from './types';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -30,6 +38,44 @@ interface BackendSession {
   tabs: BackendTab[];
   created_at: string;
   updated_at: string;
+}
+
+interface BackendTodayEvent {
+  event_id: string;
+  url: string;
+  title: string;
+  domain: string;
+  visited_at: string;
+  active_duration_ms: number;
+  session_id: string | null;
+  session_title: string | null;
+}
+
+interface BackendSessionTimelineEvent {
+  event_id: string;
+  url: string;
+  title: string;
+  domain: string;
+  visited_at: string;
+  active_duration_ms: number;
+  relevance_score: number | null;
+  sequence_order: number;
+}
+
+interface BackendMemoryEvent {
+  event_id: string;
+  url: string;
+  title: string;
+  domain: string;
+  visited_at: string;
+  session_id: string | null;
+  relevance_score: number | null;
+  match_reason: 'session_relevance' | 'text_match';
+}
+
+interface BackendMemorySearchResponse {
+  sessions: BackendSession[];
+  events: BackendMemoryEvent[];
 }
 
 // ── 타입 변환 ────────────────────────────────────────
@@ -67,6 +113,45 @@ function mapSession(b: BackendSession): Session {
   };
 }
 
+function mapTodayEvent(b: BackendTodayEvent): TodayEvent {
+  return {
+    eventId: b.event_id,
+    url: b.url,
+    title: b.title,
+    domain: b.domain,
+    visitedAt: b.visited_at,
+    durationMs: b.active_duration_ms,
+    sessionId: b.session_id,
+    sessionTitle: b.session_title,
+  };
+}
+
+function mapSessionTimelineEvent(b: BackendSessionTimelineEvent): SessionTimelineEvent {
+  return {
+    eventId: b.event_id,
+    url: b.url,
+    title: b.title,
+    domain: b.domain,
+    visitedAt: b.visited_at,
+    durationMs: b.active_duration_ms,
+    relevanceScore: b.relevance_score,
+    sequenceOrder: b.sequence_order,
+  };
+}
+
+function mapMemoryEvent(b: BackendMemoryEvent): MemoryEvent {
+  return {
+    eventId: b.event_id,
+    url: b.url,
+    title: b.title,
+    domain: b.domain,
+    visitedAt: b.visited_at,
+    sessionId: b.session_id,
+    relevanceScore: b.relevance_score,
+    matchReason: b.match_reason,
+  };
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
@@ -91,6 +176,21 @@ export async function fetchSession(id: string): Promise<Session | undefined> {
   } catch (err) {
     if (err instanceof Error && err.message.includes('404')) return undefined;
     throw err;
+  }
+}
+
+/**
+ * 세션 상세의 "탐색 타임라인" 섹션용 (docs/api-design-v2.md §6).
+ * `origin='snapshot'` 세션(이벤트 연결 없음)은 빈 배열을 반환하고, 조회 자체가 실패해도
+ * (백엔드 미연결 등) 섹션을 조용히 숨길 수 있도록 빈 배열로 완화한다 — 기존 화면과
+ * 독립적으로 배포 가능해야 한다는 계약(docs/IA.md 세션 상세)에 따른 처리.
+ */
+export async function fetchSessionEvents(sessionId: string): Promise<SessionTimelineEvent[]> {
+  try {
+    const data = await request<BackendSessionTimelineEvent[]>(`/sessions/${sessionId}/events`);
+    return data.map(mapSessionTimelineEvent).sort((a, b) => a.sequenceOrder - b.sequenceOrder);
+  } catch {
+    return [];
   }
 }
 
@@ -213,4 +313,47 @@ export async function searchSessions(query: string, rerank = false): Promise<Sea
     );
     return { sessions: filtered, degraded: true };
   }
+}
+
+// ── Timeline / Memory 검색 (M4, docs/api-design-v2.md §3, §8, §10) ─────
+
+/** Timeline 홈용 — 서버에 이미 동기화된 오늘자 이벤트만 반환한다(미동기화분은 로컬 IDB에서 읽음). */
+export async function fetchTodayEvents(): Promise<TodayEvent[]> {
+  const data = await request<BackendTodayEvent[]>('/events?date=today');
+  return data.map(mapTodayEvent);
+}
+
+/**
+ * scope=memory 검색 — 세션/이벤트 두 그룹을 함께 반환한다.
+ * 실패 시 기존 searchSessions와 동일한 substring fallback을 쓰되, 이벤트 그룹은 항상 비운다
+ * (로컬에는 세션 텍스트만 있고 이벤트 인덱스가 없어 fallback으로 재현할 수 없음).
+ */
+export async function searchMemory(query: string, rerank = false): Promise<MemorySearchResult> {
+  const q = query.trim();
+  if (!q) return { sessions: [], events: [], degraded: false };
+  try {
+    const params = new URLSearchParams({ q, scope: 'memory' });
+    if (rerank) params.set('rerank', 'true');
+    const data = await request<BackendMemorySearchResponse>(`/search?${params}`);
+    return {
+      sessions: data.sessions.map(mapSession),
+      events: data.events.map(mapMemoryEvent),
+      degraded: false,
+    };
+  } catch {
+    const sessions = await fetchSessions();
+    const lower = q.toLowerCase();
+    const filtered = sessions.filter(
+      (s) =>
+        s.title.toLowerCase().includes(lower) ||
+        s.summary.overview.toLowerCase().includes(lower) ||
+        s.tabs.some((t) => t.title.toLowerCase().includes(lower)),
+    );
+    return { sessions: filtered, events: [], degraded: true };
+  }
+}
+
+/** 개인정보 통제 목적 — 서버에 이미 저장된 이벤트를 개별 삭제한다 (docs/api-design-v2.md §10). */
+export async function deleteServerEvent(eventId: string): Promise<void> {
+  await request(`/events/${eventId}`, { method: 'DELETE' });
 }
