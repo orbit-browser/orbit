@@ -6,7 +6,7 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteEvent as deleteLocalEvent, listByStatus } from '../../../lib/events/queue';
-import { deleteServerEvent, fetchTodayEvents } from '../../../lib/api';
+import { deleteServerEvent, fetchEventsByDate } from '../../../lib/api';
 import type { TodayEvent } from '../../../lib/types';
 import { useSyncStatusInvalidation } from './useSyncStatus';
 
@@ -71,13 +71,20 @@ async function loadTimelineEntries(): Promise<TimelineEntry[]> {
 
   // synced 이벤트의 세션 배정 여부는 서버 조회 성공 시에만 표시하고,
   // 실패(백엔드 미연결 등)하면 "동기화됨"으로 fallback한다(계약 명시 사항).
-  let serverById = new Map<string, TodayEvent>();
-  try {
-    const todayEvents = await fetchTodayEvents();
-    serverById = new Map(todayEvents.map((ev) => [ev.eventId, ev]));
-  } catch {
-    // no-op — 아래에서 전부 'synced' 배지로 처리됨
-  }
+  // 로컬 큐는 48시간 보관이라 '오늘' 외 날짜도 있을 수 있으므로,
+  // synced 이벤트가 걸친 날짜별로 조회한다(최대 3일 캡).
+  const serverById = new Map<string, TodayEvent>();
+  const dates = [...new Set(synced.map((e) => e.visitedAt.slice(0, 10)))].sort().reverse().slice(0, 3);
+  await Promise.all(
+    dates.map(async (date) => {
+      try {
+        const events = await fetchEventsByDate(date);
+        for (const ev of events) serverById.set(ev.eventId, ev);
+      } catch {
+        // no-op — 해당 날짜 이벤트는 'synced' 배지로 처리됨
+      }
+    }),
+  );
 
   const syncedEntries: TimelineEntry[] = synced.map((e) => {
     const match = serverById.get(e.eventId);

@@ -85,9 +85,10 @@ export interface MemoryEvent {
   domain: string;
   /** ISO 8601 */
   visitedAt: string;
+  durationMs: number;
   sessionId: string | null;
-  relevanceScore: number | null;
-  matchReason: 'session_relevance' | 'text_match';
+  sessionTitle: string | null;
+  matchedBy: 'session' | 'keyword';
 }
 
 /** GET /search?scope=memory 응답 전체 매핑. */

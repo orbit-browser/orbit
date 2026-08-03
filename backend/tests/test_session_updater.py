@@ -187,6 +187,19 @@ def test_apply_assignments_hold_below_threshold_does_not_create(monkeypatch):
 
     assert touched == set()
     assert calls["create"] == []
+    # claim 때 processing이 된 이벤트를 pending으로 되돌려야 다음 배치가 재판단한다
+    assert (["a"], "pending") in calls["mark"]
+
+
+def test_apply_assignments_hold_at_threshold_does_not_revert_forced(monkeypatch):
+    calls = _patch_collaborators(monkeypatch, hold_counts={"a": 3})
+    group = [_event("a")]
+    assignments = [Assignment(event_indices=[0], action="hold", relevance=0.0)]
+
+    asyncio.run(session_updater.apply_assignments(_FakeDB(), group, assignments, "batch-1"))
+
+    # 강제 create된 이벤트는 pending으로 되돌리지 않는다
+    assert (["a"], "pending") not in calls["mark"]
 
 
 def test_apply_assignments_hold_at_threshold_forces_create(monkeypatch):

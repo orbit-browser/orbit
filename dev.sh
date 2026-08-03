@@ -55,7 +55,7 @@ done
 
 # ── 1. Docker ────────────────────────────────────────────────────────
 if ! $SKIP_DOCKER; then
-    step "Docker (postgres · qdrant · redis)"
+    step "Docker (postgres · qdrant)"
 
     docker compose -f "$ROOT/docker-compose.yml" up -d \
         || die "docker compose up 실패 — Docker Desktop이 실행 중인지 확인하세요"

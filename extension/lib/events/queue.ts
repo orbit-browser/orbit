@@ -125,7 +125,9 @@ export async function updateEventTitle(eventId: string, title: string): Promise<
 export async function attachContent(eventId: string, excerpt: string): Promise<void> {
   const db = await getDB();
   const event = await db.get(EVENTS_STORE, eventId);
-  if (!event) return;
+  // open 상태에만 부착 — 지연 추출(SPA 1.5초 pull 등)이 도착했을 때 이벤트가 이미
+  // finalize됐다면 현재 DOM은 다른 페이지일 수 있으므로 버린다(오염 방지)
+  if (!event || event.status !== 'open') return;
   event.contentExcerpt = excerpt.slice(0, MAX_CONTENT_EXCERPT_LENGTH);
   await db.put(EVENTS_STORE, event);
   await writeSyncStatusSummary();

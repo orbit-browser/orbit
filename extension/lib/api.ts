@@ -68,9 +68,10 @@ interface BackendMemoryEvent {
   title: string;
   domain: string;
   visited_at: string;
+  active_duration_ms: number;
   session_id: string | null;
-  relevance_score: number | null;
-  match_reason: 'session_relevance' | 'text_match';
+  session_title: string | null;
+  matched_by: 'session' | 'keyword';
 }
 
 interface BackendMemorySearchResponse {
@@ -146,9 +147,10 @@ function mapMemoryEvent(b: BackendMemoryEvent): MemoryEvent {
     title: b.title,
     domain: b.domain,
     visitedAt: b.visited_at,
+    durationMs: b.active_duration_ms,
     sessionId: b.session_id,
-    relevanceScore: b.relevance_score,
-    matchReason: b.match_reason,
+    sessionTitle: b.session_title,
+    matchedBy: b.matched_by,
   };
 }
 
@@ -278,6 +280,23 @@ export async function postEventBatch(
   });
 }
 
+export type ServerSyncTrigger = 'manual' | 'periodic' | 'event_count' | 'idle';
+
+/**
+ * 서버 배치 세션화 트리거. 202(시작)/200(pending 없음)은 성공,
+ * 409(이미 실행 중)도 정상 흐름이므로 예외로 취급하지 않는다.
+ */
+export async function triggerServerSync(triggerType: ServerSyncTrigger): Promise<void> {
+  const res = await fetch(`${BASE}/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trigger_type: triggerType }),
+  });
+  if (!res.ok && res.status !== 409) {
+    throw new Error(`[Orbit API] POST /sync ${res.status}`);
+  }
+}
+
 export async function checkHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(3000) });
@@ -318,8 +337,9 @@ export async function searchSessions(query: string, rerank = false): Promise<Sea
 // ── Timeline / Memory 검색 (M4, docs/api-design-v2.md §3, §8, §10) ─────
 
 /** Timeline 홈용 — 서버에 이미 동기화된 오늘자 이벤트만 반환한다(미동기화분은 로컬 IDB에서 읽음). */
-export async function fetchTodayEvents(): Promise<TodayEvent[]> {
-  const data = await request<BackendTodayEvent[]>('/events?date=today');
+/** date는 'today' 또는 'YYYY-MM-DD' — 백엔드 GET /events가 둘 다 지원한다. */
+export async function fetchEventsByDate(date: string): Promise<TodayEvent[]> {
+  const data = await request<BackendTodayEvent[]>(`/events?date=${encodeURIComponent(date)}`);
   return data.map(mapTodayEvent);
 }
 

@@ -275,7 +275,11 @@ async def apply_assignments(
             if forced:
                 session_id = await _create_session(db, forced, None, None, assignment.relevance)
                 touched.add(session_id)
-            # 나머지는 sync_status='pending' 유지, hold_count만 증가한 상태로 남는다.
+            # 나머지는 claim 때 'processing'이 된 상태이므로 명시적으로 'pending'으로
+            # 되돌려야 다음 배치가 다시 뽑는다 (되돌리지 않으면 영구 보류 = 이벤트 유실)
+            held = [e for e in events if not _hold_forces_create(hold_counts.get(e["id"], 0))]
+            if held:
+                await _mark_events_status(db, [e["id"] for e in held], "pending")
 
         elif assignment.action == "create":
             session_id = await _create_session(

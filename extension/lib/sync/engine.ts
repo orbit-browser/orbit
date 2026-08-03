@@ -2,7 +2,7 @@
 // navigator.locks 뮤텍스로 동시 실행을 막고, 실패 시 지수 백오프 + 1회성 재시도 알람을 예약한다.
 // 계약 근거: docs/target-architecture.md §4, §5, docs/implementation-roadmap.md M2-10
 
-import { postEventBatch } from '../api';
+import { postEventBatch, triggerServerSync, type ServerSyncTrigger } from '../api';
 import {
   claimPending,
   finalizeAllOpen,
@@ -47,6 +47,15 @@ async function scheduleRetry(released: Awaited<ReturnType<typeof releaseToPendin
   chrome.alarms.create(RETRY_ALARM_NAME, { delayInMinutes });
 }
 
+// retry는 자동 배경 재전송이므로 사용자 액션(manual)이 아니라 periodic으로 근사한다.
+const SERVER_TRIGGER_BY_REASON: Record<DrainReason, ServerSyncTrigger> = {
+  manual: 'manual',
+  periodic: 'periodic',
+  threshold: 'event_count',
+  idle: 'idle',
+  retry: 'periodic',
+};
+
 async function drain(reason: DrainReason): Promise<void> {
   if (reason === 'manual') {
     try {
@@ -57,15 +66,17 @@ async function drain(reason: DrainReason): Promise<void> {
   }
 
   const deviceId = await getDeviceId();
+  let sentAny = false;
 
   for (;;) {
     const batch = await claimPending(BATCH_SIZE);
-    if (batch.length === 0) return;
+    if (batch.length === 0) break;
 
     try {
       await postEventBatch(deviceId, batch.map(toWire));
       await markSynced(batch.map((e) => e.eventId));
       await updateSyncStatus({ lastSyncAt: new Date().toISOString(), lastError: null });
+      sentAny = true;
       // 배치가 가득 찼을 수 있으니(pending이 더 있을 가능성) 계속 반복한다.
       continue;
     } catch (err) {
@@ -77,6 +88,17 @@ async function drain(reason: DrainReason): Promise<void> {
       await updateSyncStatus({ lastError: message });
       await scheduleRetry(released);
       return; // fail-open — 실패 시 이번 drain은 중단하고 예약된 알람이 재시도한다.
+    }
+  }
+
+  // 이벤트 전송만으로는 세션이 만들어지지 않는다 — 서버 배치 세션화를 명시적으로 트리거한다.
+  // manual은 보낼 이벤트가 없어도 호출(서버에 이미 쌓인 pending을 사용자가 지금 분석하길 원한 것).
+  if (sentAny || reason === 'manual') {
+    try {
+      await triggerServerSync(SERVER_TRIGGER_BY_REASON[reason]);
+    } catch (err) {
+      // 이벤트는 이미 서버에 안전하게 저장됨 — 세션화는 서버 임계값/주기 루프가 이어받는다.
+      console.error('[Orbit] 서버 세션화 트리거 실패', err);
     }
   }
 }

@@ -181,3 +181,96 @@
   재시도되는지, 회복 후 `duplicates` 카운트로 중복 전송이 없는지.
 - 큐 상한(5,000) 초과 시 `synced` 우선 정리 → 최고령 `pending` 퇴출 → `droppedCount`가
   사이드패널에 노출 가능한 형태로 쌓이는지(사이드패널 UI 자체는 M4 범위).
+
+## 2026-08-03~04 — Personal Exploration Memory 전환 종합 (M0~M5, `feat/auto-session`)
+
+### 요청과 배경
+
+열린 탭을 분류·요약해 저장하는 것 자체는 지속적인 사용자 가치가 아니고, 탐색 중
+사고의 흐름(Context)이 시간이 지나면 사라지는 문제가 더 근본적이라는 판단에 따라
+(`docs/DecisionLog.md` 2026-08-03 "제품 방향 전환" 항목) Orbit을 "탭 스냅샷 분류"
+도구에서 "상시 이벤트 수집 + 배치 세션화" 기반 Personal Exploration Memory로
+전환했다. 기존 요약(`generate_summary`)·임베딩 검색(Qdrant)·복원·민감 도메인 필터는
+새로 만들지 않고 그대로 재사용하는 것을 전제로, M0(설계 문서) → M1(이벤트 인제스트) →
+M2(수집기·로컬 큐·동기화 엔진) → M3(배치 세션화 파이프라인) → M4(Timeline·Intent 검색) →
+M5(Analytics·평가 하네스) 순으로 진행했다. M2는 별도 항목(위 "M2 수집기 & 로컬 큐 &
+동기화 엔진")으로 이미 기록되어 있어 여기서는 전체 마일스톤 관점에서 6개 커밋과
+전체 검증 결과를 종합한다.
+
+### 마일스톤별 커밋과 범위
+
+- `71d5344` (M0, docs) — `product-direction-v2`/`current-state-audit`/
+  `target-architecture`/`data-model-v2`/`api-design-v2`/`migration-plan`/
+  `evaluation-plan`/`implementation-roadmap` 신규 작성, `ProjectContext`/
+  `DecisionLog`(2026-08-03 결정 6건)/`Plan`/`Personas`/`IA`/`UserScenarios` 갱신.
+- `866fea9` (M1, feat(events)) — `exploration_events`/`sync_batches`/
+  `sync_batch_events`/`session_events`/`session_versions` 모델과 `sessions` additive
+  컬럼 9개, 멱등 ALTER 러너(`app/db/migrations.py`), `event_filter.py`(URL 정규화·
+  시스템 URL 거부·민감 도메인 판정·검색어 추출), `POST /events`, Extension
+  `lib/settings.ts`(chrome.storage 기반 공용 설정)와 매니페스트 신규 권한
+  (webNavigation/alarms/idle).
+- `9afec1d` (M2, feat(collector)) — IndexedDB 기반 Persistent Queue와 이벤트 상태
+  기계(open→pending→syncing→synced), `webNavigation` 방문 감지·체류시간 세그먼트,
+  `navigator.locks` 기반 동기화 엔진과 4트리거(수동/주기/개수/유휴). 상세는 위 M2
+  항목 참고.
+- `c14d023` (M3, feat(sync)) — 배치 내 중복 병합·시간 그룹화(`grouper.py`), LLM 의도
+  분석(append/create/hold/discard, `intent_analyzer.py`), 세션 생성/갱신
+  (`session_updater.py`), `asyncio.Lock` 직렬화 배치 파이프라인(`sync_pipeline.py`),
+  `POST /sync`/`GET /sync/status`. A.X-K1 전역 0.5초 최소 호출 간격 리미터 추가.
+- `c09f73b` (M4, feat(timeline)) — `GET /sessions/{id}/events`·`/versions`,
+  `GET /search?scope=memory`(세션+관련 이벤트 통합), `GET /events?date=`,
+  `DELETE /events/{id}`. Extension `TimelineView`를 사이드패널 기본 홈으로,
+  `SyncStatusCard`(opt-in 온보딩), `SettingsView` 수집·동기화 섹션 추가.
+- `397189a` (M5, feat(analytics)) — `GET /analytics/overview`(순수 SQL 집계, AI
+  호출 없음), `backend/eval`(골든셋 3개 + `run_eval.py`, 지표 5종), 웹 대시보드
+  `HomeView` 탐색 분석 섹션, 미참조 죽은 코드 9파일 삭제.
+
+### 검증
+
+- `python -m pytest -p no:asyncio`: 204 passed (이번 문서 갱신 세션에서 재실행해
+  재확인).
+- Extension `pnpm compile` / `pnpm build`, Frontend `pnpm build`: 각 커밋 시점에
+  통과(커밋 메시지 기준. 최종 상태 재확인은 이번 세션에서 다시 실행하지 않았다).
+- 실환경 E2E 스모크(실 Postgres/Qdrant/LLM, 커밋 메시지 기록 기준): M3에서 이벤트
+  4개 인제스트(멱등성·필터) → 배치 → 'RTX 5070 구매 분석' 단일 세션 자동 생성 →
+  `session_events` 순서/버전 기록 → 벡터 검색 히트까지 확인. M4에서 timeline/versions/
+  memory 검색 실 DB 스모크(UTF-8 정상) 확인. M5에서 analytics 실 DB 스모크 확인.
+- 세션 분류 평가 하네스(`backend/eval/run_eval.py`, 실 LLM 1회 실행, 커밋 메시지
+  기록 기준): Assignment Accuracy·Purity·Coverage·New-vs-Existing 4개 지표 100%,
+  노이즈 제외율(noise exclusion rate) 50%. 원인: 골든셋의 노이즈 이벤트(체류시간이
+  짧은 SNS 방문 등)를 의도 분석이 discard로 제외하지 않고 별도 세션으로 새로
+  생성(create)한 사례가 있었다 — 프롬프트 개선이 필요한 항목으로 식별되었다.
+
+### 남은 일
+
+- 크롬 실기기 수동 검증: 위 M2 항목에 정리된 SW 강제 종료 생존/디바운스/체류시간/
+  유휴 트리거/동기화 백오프·복구/큐 상한 목록에 더해, M4~M5에서 추가된 TimelineView·
+  SyncStatusCard 온보딩·SearchView 2그룹 렌더·Analytics 대시보드도 실제 Chrome에서
+  아직 수동으로 확인하지 못했다.
+- 노이즈 제외율 50%의 원인이 된 의도 분석 프롬프트의 discard 판단 기준 보강.
+- 검색 score threshold(`0.35`, `docs/DecisionLog.md` 2026-07-12 항목) 실측 튜닝 —
+  골든셋을 더 늘려 임계값 조정 여부를 재평가해야 한다.
+
+### 완료 게이트 (fresh-eyes 교차 검토, 2026-08-04)
+
+요구사항 원문과 diff만 보는 무맥락 리뷰어가 확인 결함 5건을 보고했고 전부 수정했다.
+
+- [Critical] 수동/주기/유휴 동기화가 이벤트 전송만 하고 서버 배치 세션화를 호출하지
+  않음 — "지금 저장"을 눌러도 세션이 생성되지 않는 결함. `sync/engine.ts`의 drain
+  성공 후 `POST /sync`를 트리거 타입과 함께 호출하도록 연결(`triggerServerSync`,
+  409/200은 정상 흐름 처리).
+- [High] hold 판정 이벤트가 `processing`에 갇혀 재판단 불가(사실상 유실) —
+  `session_updater.py` hold 분기에서 강제 create 대상이 아닌 이벤트를 `pending`으로
+  명시 복귀 + 이를 검증하는 테스트 2건 보강.
+- [High] SPA 연속 라우팅 시 다른 페이지 본문이 직전 이벤트에 부착될 수 있음 —
+  `queue.attachContent`에 `status === 'open'` 가드 추가(finalize된 이벤트에는 부착 안 함).
+- [Medium] Timeline 세션 배지가 '오늘' 외 날짜에서 표시되지 않음 — 서버 조회를
+  로컬 synced 이벤트가 걸친 날짜별(최대 3일)로 확장(`fetchEventsByDate`).
+- [Low] memory 검색 이벤트 타입이 실제 wire 형태와 불일치(`relevance_score`/
+  `match_reason` → 실제는 `matched_by`/`session_title`/`active_duration_ms`) — 타입·매퍼 정정.
+
+리뷰어가 지적한 6번째 항목(extension lib/events·lib/sync 단위 테스트 부재)은 이번
+범위에서 테스트 프레임워크 도입 없이 수동 검증 목록으로 유지한다 — vitest 등 도입은
+사용자 결정 필요 항목(신규 dev 의존성)으로 남긴다.
+
+수정 후 재검증: backend 테스트 205개 통과, extension compile/build 통과.
