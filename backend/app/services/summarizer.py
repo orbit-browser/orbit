@@ -1,10 +1,6 @@
-import logging
-
 from ..ai.json_utils import extract_json
 from ..ai.llm import chat_completion
 from ..schemas.session import SessionSummary, TabItemRequest
-
-logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
 당신은 브라우저 탭 묶음을 분석해 사용자의 탐색 목적과 맥락을 파악하는 AI입니다.
@@ -48,26 +44,21 @@ def rule_based_title(tabs: list[TabItemRequest]) -> str:
 async def generate_summary(
     tabs: list[TabItemRequest],
 ) -> tuple[str, SessionSummary]:
-    """탭 목록 → (title, SessionSummary). LLM 실패 시 규칙 기반 fallback."""
+    """탭 목록을 요약하고, 유효한 AI 결과만 반환한다."""
     prompt = _USER_PROMPT.format(tabs_text=_build_tabs_text(tabs))
+    raw = await chat_completion(_SYSTEM_PROMPT, prompt, max_tokens=600)
+    data = extract_json(raw)
 
-    try:
-        raw = await chat_completion(_SYSTEM_PROMPT, prompt, max_tokens=600)
-        data = extract_json(raw)
+    overview = str(data.get("overview") or "").strip()
+    if not overview:
+        raise ValueError("AI summary overview is empty")
 
-        title = str(data.get("title") or "").strip()[:20] or rule_based_title(tabs)
-        summary = SessionSummary(
-            overview=str(data.get("overview") or ""),
-            purpose=str(data.get("purpose") or ""),
-            highlights=[str(h) for h in (data.get("highlights") or [])],
-            todos=[str(t) for t in (data.get("todos") or [])],
-            next_actions=[str(a) for a in (data.get("next_actions") or [])],
-        )
-        return title, summary
-
-    except Exception as exc:
-        logger.warning("LLM 요약 실패 (%s) — 규칙 기반 fallback 적용", exc)
-        return rule_based_title(tabs), SessionSummary(
-            overview=f"{len(tabs)}개 탭 세션",
-            highlights=[t.title for t in tabs[:3]],
-        )
+    title = str(data.get("title") or "").strip()[:20] or rule_based_title(tabs)
+    summary = SessionSummary(
+        overview=overview,
+        purpose=str(data.get("purpose") or "").strip(),
+        highlights=[str(h) for h in (data.get("highlights") or [])],
+        todos=[str(t) for t in (data.get("todos") or [])],
+        next_actions=[str(a) for a in (data.get("next_actions") or [])],
+    )
+    return title, summary

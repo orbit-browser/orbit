@@ -16,7 +16,7 @@ backend/
    ├─ schemas/
    │  └─ session.py       # Pydantic v2 요청/응답 스키마
    ├─ services/
-   │  └─ summarizer.py    # 탭 목록 → LLM 요약 JSON, 실패 시 규칙 기반 fallback
+   │  └─ summarizer.py    # 탭 목록 → LLM 요약 JSON, 잘못된 결과는 실패 상태로 전파
    ├─ ai/
    │  ├─ llm.py           # A.X-K1 / Solar Pro 3 / Solar Mini 클라이언트 + fallback 로직
    │  ├─ embedding.py     # embedding-query/embedding-passage 클라이언트 (4096차원, 비대칭 임베딩)
@@ -27,7 +27,7 @@ backend/
       ├─ models.py        # SQLAlchemy Session 모델 (PostgreSQL, JSONB) — summary_status/embedding_status 포함
       ├─ session.py        # 비동기 DB 세션 팩토리
       └─ vector.py         # Qdrant 클라이언트, 컬렉션 초기화, upsert/search/delete
-tests/                     # pytest 단위 테스트 (json_utils, clusterer, reranker, summarizer)
+tests/                     # pytest 단위 테스트 (AI 파싱/분류/요약, 검색 API, Qdrant 계약)
 ```
 
 ## 실행
@@ -57,7 +57,16 @@ uvicorn app.main:app --reload
 | PATCH | `/sessions/{id}` | 제목 수정 |
 | POST | `/sessions/{id}/retry-summary` | AI 요약 실패(`summary_status=failed`) 세션 재시도 |
 | DELETE | `/sessions/{id}` | 세션 삭제 (Qdrant 포인트도 함께 삭제) |
-| GET | `/search?q=&rerank=` | 자연어 검색. `rerank=true`면 후보를 더 넓게 가져와 LLM으로 재정렬 |
+| GET | `/search?q=&rerank=` | 자연어 검색. score threshold 적용 후 `rerank=true`면 후보를 더 넓게 가져와 LLM으로 재정렬 |
+
+검색 관련 설정:
+
+| 환경변수 | 기본값 | 설명 |
+|---|---|---|
+| `SEARCH_SCORE_THRESHOLD` | `0.35` | Qdrant cosine 검색의 최소 유사도. 실제 골든셋에 맞춰 `0.0`~`1.0` 범위에서 조정 |
+
+검색 임베딩 timeout은 504, 연결 실패는 503, upstream/응답 형식 오류는 502로 반환한다.
+Qdrant 검색 장애는 503으로 반환하며 내부 예외 상세는 API 응답에 포함하지 않는다.
 
 ## AI 모델 구성
 
@@ -74,6 +83,9 @@ uvicorn app.main:app --reload
 Extension은 `usePendingSessionPoller`로 `summary_status`를 폴링해 반영하고, `failed`면
 재시도 버튼을 노출한다. 서버가 재시작되면 `lifespan`에서 미완료(`pending`) 세션과
 임베딩 미완료 세션을 자동으로 재처리한다.
+
+저장 임베딩에는 제목, overview, purpose, highlights가 포함된다. 이 변경 전에 생성된 Qdrant
+포인트는 자동 재색인되지 않으므로 제목 검색 효과는 신규 세션과 요약 재처리 세션부터 적용된다.
 
 ## 알려진 미완성 항목
 

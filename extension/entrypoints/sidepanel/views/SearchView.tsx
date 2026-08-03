@@ -26,7 +26,7 @@ export function SearchView() {
   const isActive = query.trim().length > 0;
 
   const rerankEnabled = useSettingsStore((s) => s.rerankEnabled);
-  const { data: results, isFetching } = useSearch(query);
+  const { data: results, isFetching, isError } = useSearch(query);
   const topResults = results?.sessions.slice(0, TOP_N) ?? [];
   const degraded = results?.degraded ?? false;
 
@@ -103,6 +103,8 @@ export function SearchView() {
               <span>
                 {isFetching
                   ? rerankEnabled ? 'AI가 결과를 정렬 중…' : '유사한 세션 검색 중…'
+                  : isError
+                    ? '백엔드에 연결할 수 없어요. 서버 상태를 확인해 주세요.'
                   : degraded
                     ? topResults.length > 0
                       ? `간단 검색 결과 ${topResults.length}개 (백엔드 미연결)`
@@ -114,7 +116,8 @@ export function SearchView() {
             </div>
             <StatePlaceholder
               loading={isFetching}
-              empty={!isFetching && topResults.length === 0}
+              error={!isFetching && isError}
+              empty={!isFetching && !isError && topResults.length === 0}
               emptyText="다른 키워드로 다시 검색해 보세요"
             >
               <div className="grid grid-cols-1 min-[500px]:grid-cols-2 min-[750px]:grid-cols-3 gap-3">

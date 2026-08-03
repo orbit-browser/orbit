@@ -22,7 +22,7 @@ class SaveSessionRequest(BaseModel):
 
 
 class PatchSessionRequest(BaseModel):
-    title: str = Field(min_length=1)
+    title: str = Field(min_length=1, max_length=100)
 
 
 # ── 공통 ──────────────────────────────────────────────

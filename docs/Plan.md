@@ -1,78 +1,93 @@
-# Orbit 작업 계획
+# Orbit P2 검색 정확도 및 오류 계약 계획
 
 **상태:** 완료 (2026-07-12)
+**브랜치:** `fix/first-stabilization`
+**선행 커밋:** `930a5ce` (1차 안정화)
 
 ## 작업 목표
 
-`AGENTS.md`가 요구하는 필수 프로젝트 문서를 생성하고, 이후 구현 작업이 동일한 맥락과 절차를 따를 수 있는 기본 문서 체계를 마련한다.
+무관한 자연어 검색에서 억지 결과가 반환되는 문제를 줄이고, 제목 키워드 검색을 강화하며, 임베딩 서비스와 Qdrant 장애를 구분 가능한 안전한 API 오류로 제공한다.
 
 ## 현재 상태와 조사 결과
 
-- 저장소는 Chrome Extension, FastAPI Backend, React 웹 대시보드로 구성되어 있다.
-- 세션 저장, LLM 요약, 벡터 검색, 세션 복원 기능이 구현되어 있다.
-- `docs/`에는 개선점 리포트만 있고 `AGENTS.md`의 필수 문서 10종은 모두 누락되어 있다.
-- `README.md`, `IMPLEMENTATION.md`, `ppt.md`, `docs/improvement-report.md`에 프로젝트 맥락과 구현 현황이 분산되어 있다.
-- 작업 트리의 `AGENTS.md`, `CLAUDE.md`, `docs/improvement-report.md` 변경은 사용자 작업이므로 수정하지 않는다.
+- Qdrant `query_points` 호출에 `score_threshold`가 없어 유사도가 낮아도 top-N을 반환한다.
+- Qdrant Client 1.18의 `query_points`는 `score_threshold: float | None`을 지원한다.
+- 저장 임베딩 입력은 overview, purpose, highlights만 포함하고 세션 제목은 제외한다.
+- 검색 임베딩과 Qdrant 예외가 모두 처리되지 않아 일반 500 응답으로 노출된다.
+- Extension은 검색 API 실패 시 로컬 substring 검색으로 fallback하고, Backend 전체 장애는 별도 오류 UI로 표시한다.
+- 기존 Qdrant 포인트는 새 임베딩 입력으로 자동 재색인되지 않는다.
 
 ## 포함 범위
 
-- 필수 문서 10종의 초기 버전 생성
-- 기존 문서에서 확인한 프로젝트 목표, 구조, 사용자 흐름, 주요 결정 반영
-- 이후 구현 작업에서 갱신할 수 있는 명확한 섹션과 기록 형식 제공
+- 저장 임베딩 입력에 세션 제목 포함
+- Qdrant score threshold 적용
+- threshold를 `SEARCH_SCORE_THRESHOLD` 환경변수로 설정
+- 임베딩 timeout, 연결, upstream 상태, 응답 형식 오류 구분
+- Qdrant 검색 장애를 503으로 변환
+- threshold 전달과 검색 오류 응답 단위 테스트
+- Backend README, env 예시, 개선 리포트, 작업/결정 로그 갱신
 
 ## 제외 범위
 
-- 애플리케이션 코드, API, 데이터 모델, 설정 변경
-- `README.md`, `IMPLEMENTATION.md`, `ppt.md`, 개선점 리포트 정리
-- 개선점 리포트에 제안된 기능 또는 버그 수정 구현
-- Git 커밋, push, PR 생성
+- 실제 사용자 골든셋 수집과 threshold 재튜닝
+- 기존 Qdrant 포인트 자동 재색인
+- Extension/Frontend 검색 UI 추가 변경
+- 리랭커 프롬프트 변경
+- API 인증 및 CORS 변경
 
-## 변경할 파일
+## 변경할 파일 또는 모듈
 
-- `docs/ProjectContext.md`
+- `backend/app/config.py`
+- `backend/app/api/sessions.py`
+- `backend/app/api/search.py`
+- `backend/app/db/vector.py`
+- `backend/.env.example`
+- `backend/tests/test_vector.py`
+- `backend/tests/test_search.py`
+- `backend/README.md`
 - `docs/Plan.md`
-- `docs/IA.md`
-- `docs/UserScenarios.md`
-- `docs/Personas.md`
 - `docs/DecisionLog.md`
 - `docs/WorkLog.md`
-- `docs/Process.md`
-- `docs/ReviewChecklist.md`
-- `docs/Research.md`
+- `docs/improvement-report.md`
 
 ## 구현 순서
 
-1. 프로젝트 배경과 현재 제약을 `ProjectContext.md`에 정리한다.
-2. 화면 구조, 사용자 시나리오, 페르소나를 각각 독립 문서로 작성한다.
-3. 확인된 주요 기술 결정을 `DecisionLog.md`에 기록한다.
-4. 표준 작업 절차와 완료 체크리스트를 작성한다.
-5. 기존 기술 조사와 추가 검증 대상을 `Research.md`에 구분해 기록한다.
-6. 생성 작업과 검증 결과를 `WorkLog.md`에 기록한다.
+1. threshold 설정 계약을 추가한다.
+2. Qdrant 검색 호출에 threshold를 전달하고 단위 테스트한다.
+3. 저장 임베딩 입력에 제목을 추가한다.
+4. 검색 API에서 외부 임베딩 오류와 Qdrant 오류를 분리한다.
+5. 정상, timeout, upstream, Qdrant 장애 테스트를 추가한다.
+6. Backend 전체 테스트와 Extension/Frontend 빌드를 실행한다.
+7. 설정과 기존 인덱스 적용 범위를 문서화한다.
 
 ## 테스트 및 검증 방법
 
-- 필수 문서가 모두 존재하는지 파일 목록으로 확인한다.
-- 각 문서에 필수 목적에 맞는 섹션이 있는지 확인한다.
-- Markdown 제목 구조와 로컬 링크를 점검한다.
-- `git diff --check`로 공백 오류를 검사한다.
-- 코드 변경이 없으므로 애플리케이션 테스트와 빌드는 실행하지 않는다.
+- `python -m pytest -p no:asyncio` in `backend/`
+- Qdrant mock client에 `score_threshold=0.35`가 전달되는지 확인
+- 검색 임베딩 timeout은 504, 연결 실패는 503, upstream/응답 오류는 502인지 확인
+- Qdrant 검색 실패는 503인지 확인
+- Extension compile/build와 Frontend build로 API 호환성 확인
+- `git diff --check`
 
-## 위험과 사용자 결정이 필요한 사항
+## 위험과 결정 사항
 
-- 세션 분류 단위, 기존 세션 병합, 원문 보관 기간, 외부 배포 보안 정책은 아직 제품 결정이 필요하다.
-- 이번 작업에서는 해당 항목을 결정하지 않고 열린 결정으로 기록한다.
-- 기존 문서 간 구현 현황 불일치는 별도 문서 정합화 작업에서 처리한다.
+- 기본 threshold는 `0.35`로 시작한다. 실제 검색 골든셋 없이 확정값으로 간주하지 않고 환경변수로 조정한다.
+- API 오류 메시지는 영어 ASCII 고정 문구로 제공하고 외부 응답 본문과 키를 노출하지 않는다.
+- 제목 임베딩은 신규 세션과 요약 재처리 세션부터 적용한다. 기존 포인트 재색인은 별도 운영 작업으로 남긴다.
+- threshold가 너무 높으면 관련 결과가 누락되고, 너무 낮으면 무관한 결과가 남을 수 있다.
 
 ## 완료 조건
 
-- `AGENTS.md`에 명시된 필수 문서가 모두 생성되어 있다.
-- 각 문서가 현재 저장소에서 확인 가능한 사실과 열린 결정을 구분한다.
-- 기존 사용자 변경과 애플리케이션 코드를 건드리지 않는다.
-- 문서 생성 내역과 검증 결과가 `WorkLog.md`에 기록되어 있다.
+- Qdrant 검색에 설정된 threshold가 전달된다.
+- 새로 생성하거나 재처리한 세션의 임베딩에 제목이 포함된다.
+- 임베딩과 벡터 저장소 오류가 일반 500이나 내부 상세 노출 없이 구분된다.
+- 관련 테스트와 빌드가 통과한다.
+- README, env 예시, 개선 리포트와 작업 로그가 실제 구현과 일치한다.
 
 ## 완료 결과
 
-- 필수 문서 10종을 모두 생성했다.
-- 필수 파일 존재 여부와 최상위 Markdown 제목을 확인했다.
-- `git diff --check`를 통과했다.
-- 애플리케이션 코드는 변경하지 않았다.
+- score threshold 설정과 Qdrant 전달 계약을 구현했다.
+- 제목이 포함된 저장 임베딩 텍스트를 구현했다.
+- 임베딩 및 Qdrant 오류 응답을 구분했다.
+- Backend 테스트 28개, Extension 타입 검사/빌드, Frontend 빌드를 통과했다.
+- 기본값 `0.35`의 골든셋 실측과 기존 포인트 재색인은 후속 작업으로 남겼다.

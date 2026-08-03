@@ -55,9 +55,10 @@ export function usePendingSessionPoller() {
           if (!session || session.summaryStatus !== 'pending') {
             removePending(id);
             queryClient.invalidateQueries({ queryKey: ['sessions'] });
+            queryClient.invalidateQueries({ queryKey: ['session', id] });
           }
         } catch {
-          removePending(id);
+          // 일시적인 연결 오류에서는 pending을 유지해 다음 주기에 다시 확인한다.
         }
       }
     }, 3000);

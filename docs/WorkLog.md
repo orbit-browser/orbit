@@ -32,3 +32,63 @@
 - 각 문서의 최상위 Markdown 제목을 확인했다: 모두 존재.
 - `git diff --check`를 실행했다: 오류 없음.
 - 애플리케이션 코드를 변경하지 않아 테스트와 빌드는 실행하지 않는다.
+
+## 2026-07-12 — 1차 안정화
+
+### 요청
+
+개선 리포트의 1차 안정화 항목을 구현하고 리포트를 읽기 쉽게 갱신한다.
+
+### 변경
+
+- AI 요약 오류와 빈 overview를 실패 상태로 전파했다.
+- pending 폴러가 목록과 상세 캐시를 함께 갱신하도록 수정했다.
+- Backend 전체 장애를 검색 빈 결과와 구분해 표시했다.
+- 실제 국내 금융/결제 도메인을 보강하고 `.or.kr` 전면 차단과 미사용 `bookmarks` 권한을 제거했다.
+- 기동 복구 작업을 참조가 유지되는 단일 순차 task로 변경했다.
+- PATCH 제목의 최대 길이를 100자로 검증했다.
+- 개선 리포트를 완료 상태와 다음 우선순위 중심으로 재구성했다.
+
+### 오류와 해결
+
+- 첫 검증 명령이 잘못된 작업 디렉터리와 PowerShell 실행 정책 때문에 실패했다. 저장소 루트와 `pnpm.cmd`를 사용하도록 수정했다.
+- 시스템 Python에 `qdrant_client`가 없어 테스트 수집이 실패했다. `python -m pip install -e 'backend[dev]'`로 선언된 의존성을 설치했다.
+- 설치된 pytest 9와 전역 pytest-asyncio 0.23.3이 충돌했다. 테스트가 `asyncio.run()` 기반이라 `-p no:asyncio`로 불필요한 플러그인을 제외했다.
+- Extension에 선언된 Readability 패키지가 로컬에 설치되지 않아 타입 검사가 실패했다. lockfile 기준으로 의존성을 설치하고 재실행했다.
+
+### 검증
+
+- `python -m pytest -p no:asyncio`: 20 passed.
+- `pnpm.cmd compile` (`extension/`): 통과.
+- `pnpm.cmd build` (`extension/`): 통과.
+- `pnpm.cmd build` (`frontend/`): 통과.
+- 대표 민감 URL 5개와 일반 URL 2개의 `isSensitiveUrl` 판정: 통과.
+- `git diff --check`: 최종 변경 후 통과.
+
+## 2026-07-12 — P2 검색 정확도 및 오류 계약
+
+### 요청
+
+1차 안정화를 커밋하고 P2 검색 정확도 개선을 진행한다.
+
+### 변경
+
+- 1차 안정화 변경을 `930a5ce`로 커밋했다.
+- Qdrant 검색에 설정 가능한 score threshold를 추가하고 기본값을 `0.35`로 정했다.
+- 저장 임베딩 입력에 세션 제목을 포함했다.
+- 검색 임베딩 timeout, 연결, upstream 상태, 응답 형식 오류를 504/503/502로 구분했다.
+- Qdrant 검색 장애를 내부 상세가 없는 503 응답으로 변환했다.
+- threshold 전달, 제목 임베딩 텍스트, 검색 오류 매핑 테스트를 추가했다.
+
+### 제한과 후속 작업
+
+- `0.35`는 초기 기본값이며 실제 골든셋 실측 후 조정해야 한다.
+- 기존 Qdrant 포인트는 자동 재색인되지 않아 신규·재처리 세션부터 제목 임베딩이 적용된다.
+
+### 검증
+
+- `python -m pytest -p no:asyncio`: 28 passed.
+- `pnpm.cmd compile` (`extension/`): 통과.
+- `pnpm.cmd build` (`extension/`): 통과.
+- `pnpm.cmd build` (`frontend/`): 통과.
+- `git diff --check`: 최종 변경 후 통과.
