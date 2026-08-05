@@ -111,6 +111,14 @@
 - 대안: WxtVitest 플러그인 전체 구성(자동 import·vite 플러그인 체인 포함), jest
 - 근거와 영향: lib 코드는 wxt 모듈이 아닌 chrome 전역과 IndexedDB 전역을 직접 사용하므로 WXT 플러그인 기계 없이 전역 대역 2개(fakeBrowser, fake-indexeddb)로 충분하다. 구성이 단순할수록 WXT 버전 업그레이드와 독립적이다. E2E는 Playwright(MCP 등록 완료)로 별도 수행한다.
 
+## 2026-08-05 — 의도 분석 프롬프트 v2 + temperature 0
+
+- 상태: 승인
+- 배경: 평가 하네스에서 노이즈 제외율이 50%에 고정 — 짧은 SNS 스침 방문을 discard하지 않고 별도 세션으로 create했다. 또한 temperature 미지정(기본 0.3)으로 실행마다 판정이 흔들려 평가 재현성이 낮았다.
+- 결정: `intent_analyzer.py` 프롬프트를 v2로 올린다 — ① discard 기준에 "체류 약 1분 미만 + 어떤 주제와도 무관한 스침 방문(SNS 피드·쇼츠/릴스·포털 홈)" 명시 ② 도구성 방문(번역기·지도 등)이 주제 흐름에 속하면 보호 ③ 서로 다른 주제는 assignment 분리 강제 ④ JSON 예시를 다중 assignment(append+create+discard)로 확장. LLM 호출에 `temperature=0.0`을 명시한다.
+- 대안: 체류시간 기반 서버측 사전 필터(LLM 무호출 discard 규칙), temperature 유지(0.3)
+- 근거와 영향: temperature 0 단독은 "전부 한 세션으로 뭉치는" 나쁜 greedy 경로에 결정적으로 고정됐고(3회 동일: coverage 0.75, noise 50%), 다중 assignment 예시 앵커링과 주제 분리 지침을 더하자 greedy 경로가 교정됐다(3회 중 2회 전 지표 100%, 1회 noise 50% — API 측 잔여 비결정성). 결정적 사전 필터(예: 30초 미만 SNS 도메인 즉시 discard)는 데이터 처리 정책 변경이므로 별도 사용자 결정 항목으로 남긴다.
+
 ## 열린 결정
 
 | 항목 | 필요한 결정 | 구현 전 조건 | 상태 |

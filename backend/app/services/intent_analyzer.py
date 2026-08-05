@@ -13,7 +13,7 @@ from ..ai.llm import chat_completion_with_meta
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 _VALID_ACTIONS = {"append", "create", "hold", "discard"}
 _CANDIDATE_LABEL_RE = re.compile(r"^S(\d+)$")
@@ -38,23 +38,48 @@ _USER_TEMPLATE = """\
 - append: 기존 세션 후보 중 하나와 이어지는 방문이면 해당 세션(target)에 추가
 - create: 새로운 탐색 주제이면 새 세션 생성(title, purpose 작성)
 - hold: 이 정보만으로 판단하기 어려우면 보류(다음 배치에서 재판단)
-- discard: 광고, 리다이렉트, 오류/빈 페이지 등 의미 없는 방문이면 폐기
+- discard: 의미 없는 방문이면 폐기 — 광고, 리다이렉트, 오류/빈 페이지, 그리고
+  체류가 아주 짧고(약 1분 미만) 어떤 탐색 주제와도 이어지지 않는 스침 방문
+  (SNS 피드·쇼츠/릴스·포털 홈 등 습관적 확인)
 
 판단 지침:
 - 기존 세션과의 연관성이 확실하지 않으면 append보다 create를 선택하세요(기존 세션 오염 방지).
+- create는 의미 있는 탐색 주제에만 사용하세요. 스침 방문 하나를 새 세션으로 만들지 말고
+  discard하세요.
+- discard는 확신할 때만 사용하세요. 체류가 짧아도 검색어가 있거나 다른 이벤트와 같은
+  주제 흐름에 속하면 discard하지 마세요. 번역기·지도·환율계산 같은 도구성 방문도 주변
+  이벤트와 같은 작업 흐름이면 해당 주제에 포함하세요.
 - 같은 주제/작업 흐름에 속하는 이벤트는 event_indices에 함께 묶으세요.
+- 목록에 서로 다른 주제가 섞여 있으면(예: 여행 예약과 코딩 학습) 절대 하나로 묶지 말고
+  주제별로 assignment를 분리하세요. 시간순으로 번갈아 나타나도 주제가 다르면 다른 세션입니다.
 - 정말 판단하기 어려운 경우에만 hold를 사용하세요.
 
-아래 JSON 스키마로만 응답하세요(예시):
+아래 JSON 스키마로만 응답하세요(예시 — 주제 2개와 스침 방문 1개가 섞인 경우):
 {{
   "assignments": [
     {{
-      "event_indices": [0, 1],
+      "event_indices": [0, 2],
       "action": "append",
       "target": "S0",
       "title": "",
       "purpose": "",
       "relevance": 0.8
+    }},
+    {{
+      "event_indices": [1, 3],
+      "action": "create",
+      "target": null,
+      "title": "새 탐색 주제 제목",
+      "purpose": "이 탐색의 목적 한 줄",
+      "relevance": 0.9
+    }},
+    {{
+      "event_indices": [4],
+      "action": "discard",
+      "target": null,
+      "title": "",
+      "purpose": "",
+      "relevance": 0.1
     }}
   ]
 }}"""
@@ -134,8 +159,9 @@ async def analyze(group: list[dict], candidates: list[dict]) -> list[Assignment]
         return []
 
     try:
+        # 분류 작업 — temperature 0으로 실행 간 판정 변동을 줄인다(평가 재현성 포함)
         raw, model = await chat_completion_with_meta(
-            _SYSTEM_PROMPT, _build_prompt(group, candidates), max_tokens=1000
+            _SYSTEM_PROMPT, _build_prompt(group, candidates), max_tokens=1000, temperature=0.0
         )
         data = extract_json(raw)
         if not isinstance(data, dict):

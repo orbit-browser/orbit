@@ -423,3 +423,48 @@ uvicorn + 기존 docker로 백엔드 기동. SW 종료는 브라우저 레벨 CD
 - 노이즈 제외율 50% — 의도 분석 discard 기준 프롬프트 보강.
 - 검색 score threshold(0.35) 실측 튜닝.
 - 세션별 탐색 시간 "0분" 표시 정책 검토.
+
+## 2026-08-05 — SearchView E2E + 의도 분석 discard 프롬프트 보강
+
+### 요청
+
+SearchView 2그룹 렌더 검증을 마치고 discard 프롬프트를 보강한다.
+
+### SearchView E2E — 5/5 PASS
+
+Playwright로 사이드패널 Ask AI 탭에서 "웹 브라우저 탐색하던 기록" 검색(실 임베딩 호출):
+결과 상태("관련 결과 5개"), 그룹1 "세션"(SessionCard 2개 + 복원 버튼), 그룹2 "관련
+기록"(TimelineItem 3개) 렌더를 스크린샷과 함께 확인. 이로써 실기기 검증 목록의 마지막
+항목이 완료됐다.
+
+### discard 프롬프트 보강 (intent_analyzer.py, PROMPT_VERSION v1→v2)
+
+증상: 노이즈 제외율 50% — 골든셋의 노이즈 이벤트 2개(Instagram 15초/20초) 중 하나를
+discard하지 않고 별도 세션으로 create.
+
+반복 실험 과정(각 라운드 실 LLM 평가):
+1. discard 기준에 "짧은 스침 방문(SNS 등)" 추가 → noise 100%가 됐지만 과교정 —
+   여행 흐름의 Google 번역(1.5분)까지 discard(accuracy 86.7%).
+2. 도구성 방문 보호 지침 추가("번역기·지도 등이 주제 흐름에 속하면 포함") →
+   1회차 전 지표 100%. 그러나 재실행에서 noise 50%, MDN→여행 그룹핑 오류 재발 —
+   temperature 미지정(0.3)의 실행 간 변동성 확인.
+3. temperature=0.0 고정 → 완전 결정적(3회 동일)이지만 나쁜 greedy 경로에 고정:
+   여행+코딩 인터리브 이벤트를 세션 하나로 뭉침(coverage 0.75, noise 50%).
+4. "서로 다른 주제는 assignment 분리" 지침 + JSON 예시를 다중
+   assignment(append/create/discard 3건)로 확장 → greedy 경로 교정.
+
+최종 결과(temp 0, 3회 실행): accuracy 100/100/100, purity 100/95/100,
+coverage 100/100/100, noise **100/50/100**(기준선: 항상 50), new_vs_existing 100×3.
+잔여 변동은 temp 0에서도 남는 API 측 비결정성(또는 primary→fallback 모델 전환).
+
+### 검증
+
+- backend `python -m pytest -p no:asyncio`: 205 passed (temperature 파라미터 추가 후 재실행)
+- 평가 하네스 총 9회 실행(실 LLM) — 위 라운드별 수치 참조
+
+### 남은 일
+
+- 노이즈 제외를 결정적으로 만들려면 서버측 사전 필터(예: 체류 30초 미만 + SNS 도메인
+  → LLM 무호출 discard) 도입 검토 — 데이터 처리 정책 변경이라 사용자 결정 필요.
+- 검색 score threshold(0.35) 실측 튜닝, 세션별 탐색 시간 "0분" 표시 정책 검토(기존 항목 유지).
+- 골든셋 확대(현재 노이즈 이벤트 2개뿐이라 노이즈 지표가 50%p 단위로만 움직임).
