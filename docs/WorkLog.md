@@ -712,3 +712,51 @@ main 병합 전, LLM 재배정에서 유일하게 실측이 빠졌던 스냅샷 
 - 평가 `python -m eval.run_eval`: 위 "프롬프트 보강" 절 참조(사용자 승인 하 실행)
 - 라이브 확인: 세션 목록이 마지막 활동 기준 정렬로 반환, last_activity_at 필드 노출,
   DELETE 자식 정리 21회 무오류
+
+## 2026-08-05 — 노이즈 사전 필터 (결정적 규칙) + discarded 이벤트 Timeline 뱃지
+
+### 요청
+
+프롬프트로 못 잡는 스침 방문 혼입을 결정적 규칙으로 차단한다(직전 세션의 "프롬프트
+추가 보강 반려" 후속). 사용자 승인 사항: 규칙은 추천안(로그인·습관성 60초/고립 루트
+30초)대로, discarded 이벤트는 Timeline에 "제외됨" 뱃지로 계속 노출.
+
+### 설계 핵심
+
+실데이터에서 의미 있는 탐색도 5~42초였다는 게 설계 제약이었다 — 체류시간 단독 컷은
+탐색 본체를 날린다. 그래서 "짧으면 버린다"가 아니라 **구제 조건(검색어/도메인 반복/
+체류 미측정) 우선 + 짧음이 특정 신호(로그인 경로·습관성 도메인·고립 루트)와 겹칠
+때만 좁게 버린다"** 로 설계했다.
+
+### 변경
+
+- `backend/app/services/noise_filter.py` — 신규 순수 함수 모듈. `split_noise(group)`,
+  `is_noise(event, domain_counts)`, `is_short_stray(event)`.
+- `backend/app/services/sync_pipeline.py` — `_process_group`에서 is_system_url 재검사
+  직후 `split_noise` 적용, 걸린 이벤트를 discarded로.
+- `backend/app/services/session_updater.py` — hold 상한 도달 시 짧은 스침은 강제
+  create 대신 discard(`is_short_stray`).
+- `backend/app/api/events.py` + `schemas/event.py` — `GET /events?date=`가 discarded도
+  반환, `EventListItem.excluded` 추가(sync_status=='discarded').
+- `backend/eval/run_eval.py` — 실 파이프라인과 동일하게 LLM 전 `split_noise` 적용.
+- `extension/` — `TodayEvent.excluded`, api 매퍼, `TimelineBadge`에 'excluded' 종류
+  추가, `SessionBadge`에 "제외됨" muted 뱃지, useTimeline 매핑.
+- 테스트: `test_noise_filter.py` 신규(15), `test_session_updater.py` hold 정책 갱신 +
+  스침 discard 케이스 추가, `test_events_api.py` excluded 플래그 테스트 추가.
+
+### 오류와 해결
+
+- `test_events_api.py`의 SimpleNamespace 이벤트 픽스처에 `sync_status`가 없어
+  `event.sync_status == "discarded"`에서 AttributeError → 픽스처 3개에 sync_status 추가.
+- hold 정책 변경으로 기존 forced-create 테스트 2개가 깨짐(기본 이벤트가 1초/검색어
+  없음 → 이제 스침으로 분류되어 discard) → 테스트를 긴 체류(120초) 이벤트로 수정하고
+  스침 discard 전용 테스트 추가.
+
+### 검증
+
+- backend `python -m pytest -p no:asyncio`: **224 passed**
+- extension `pnpm test`(31) + compile + build: 통과
+- frontend build: 통과
+- 골든셋 평가 2회(사용자 승인 범위): **노이즈 제외율 69%(변동) → 100%(결정적)**,
+  배정 정확도·purity·coverage 100% 고정, 실패 0건. 남은 new/existing 변동(88.9%↔100%)은
+  append vs create LLM 판단으로 이 필터 범위 밖.

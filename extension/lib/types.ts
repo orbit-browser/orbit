@@ -62,6 +62,8 @@ export interface TodayEvent {
   /** 아직 세션에 배정되지 않았으면 null */
   sessionId: string | null;
   sessionTitle: string | null;
+  /** 노이즈 사전 필터/LLM이 세션 대상에서 제외한 스침 방문 */
+  excluded: boolean;
 }
 
 /** GET /sessions/{id}/events 응답 매핑 — 세션 상세의 "탐색 타임라인" 섹션용. */

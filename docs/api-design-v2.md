@@ -80,12 +80,14 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
     "visited_at": "2026-08-03T05:12:00Z",
     "active_duration_ms": 150000,
     "session_id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-    "session_title": "RTX 5070 구매 비교"
+    "session_title": "RTX 5070 구매 비교",
+    "excluded": false
   }
 ]
 ```
 
 `session_id`/`session_title`은 아직 세션에 배정되지 않은 이벤트에서는 `null`(Timeline이 "분류 대기"로 표시).
+`excluded=true`는 노이즈 사전 필터/LLM이 세션 대상에서 제외한 스침 방문(`sync_status='discarded'`)으로, 삭제하지 않고 Timeline에 "제외됨" 뱃지로 계속 노출한다(2026-08-05). discarded 이벤트도 이 응답에 포함된다.
 
 ## 4. `POST /sync`
 

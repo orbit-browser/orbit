@@ -50,6 +50,7 @@ interface BackendTodayEvent {
   active_duration_ms: number;
   session_id: string | null;
   session_title: string | null;
+  excluded: boolean;
 }
 
 interface BackendSessionTimelineEvent {
@@ -126,6 +127,7 @@ function mapTodayEvent(b: BackendTodayEvent): TodayEvent {
     durationMs: b.active_duration_ms,
     sessionId: b.session_id,
     sessionTitle: b.session_title,
+    excluded: b.excluded ?? false,
   };
 }
 

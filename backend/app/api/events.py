@@ -187,13 +187,14 @@ def _resolve_date_range(date_param: str, *, now: datetime | None = None) -> tupl
 
 
 async def _fetch_events_for_date(db: AsyncSession, start: datetime, end: datetime) -> list[EventListItem]:
+    # discarded 이벤트도 반환한다 — 세션에서 제외됐을 뿐 탐색 기록으로는 유효하므로
+    # Timeline에 "제외됨" 뱃지로 노출된다(사용자 결정 2026-08-05).
     result = await db.execute(
         select(ExplorationEvent, SessionEvent.session_id, SessionModel.title)
         .outerjoin(SessionEvent, SessionEvent.event_id == ExplorationEvent.id)
         .outerjoin(SessionModel, SessionEvent.session_id == SessionModel.id)
         .where(
             ExplorationEvent.user_id == "local",
-            ExplorationEvent.sync_status != "discarded",
             ExplorationEvent.visited_at >= start,
             ExplorationEvent.visited_at < end,
         )
@@ -217,6 +218,7 @@ async def _fetch_events_for_date(db: AsyncSession, start: datetime, end: datetim
                 active_duration_ms=event.active_duration_ms,
                 session_id=session_id,
                 session_title=session_title,
+                excluded=event.sync_status == "discarded",
             )
         )
     return items

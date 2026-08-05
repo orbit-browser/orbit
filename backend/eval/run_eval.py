@@ -31,6 +31,7 @@ from app.services.event_filter import (
 )
 from app.services.grouper import dedupe_events, group_by_time_gap
 from app.services.intent_analyzer import Assignment
+from app.services.noise_filter import split_noise
 
 from . import metrics
 
@@ -163,6 +164,14 @@ async def evaluate_scenario(
     create_counter = 0
 
     for group_index, group in enumerate(groups):
+        # 노이즈 사전 필터 — 실 파이프라인(_process_group)과 동일하게 LLM 전에 적용한다.
+        # 걸린 이벤트는 LLM 호출 없이 discard(noise)로 계상한다.
+        group, prefilter_noise_ids = split_noise(group)
+        for noise_id in prefilter_noise_ids:
+            predicted_key_by_event[noise_id] = metrics.NOISE
+        if not group:
+            continue
+
         call_key = f"{name}::{group_index}"
         assignments = await _analyze_group(
             group, existing_sessions, call_key, record_sink=record_sink, replay_map=replay_map

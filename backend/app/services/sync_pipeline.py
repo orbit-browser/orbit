@@ -20,6 +20,7 @@ from ..db.session import AsyncSessionLocal
 from ..db.vector import search_similar_with_scores
 from ..services import intent_analyzer
 from ..services.event_filter import is_system_url
+from ..services.noise_filter import split_noise
 from ..services.grouper import dedupe_events, group_by_time_gap
 from ..services.session_updater import apply_assignments, refresh_session_ai
 
@@ -255,6 +256,12 @@ async def _process_group(group: list[dict], batch_id: str, touched: set[str]) ->
     filtered_group = [e for e in group if not is_system_url(e["url"])]
     filtered_ids = {e["id"] for e in filtered_group}
     discarded_ids = [e["id"] for e in group if e["id"] not in filtered_ids]
+
+    # 노이즈 사전 필터 — 스침 방문(로그인 화면·습관성 도메인·고립 루트)을 LLM 호출 전에
+    # 결정적으로 discard한다(LLM 판정 변동성 회피, DecisionLog 2026-08-05).
+    filtered_group, noise_ids = split_noise(filtered_group)
+    discarded_ids.extend(noise_ids)
+
     if discarded_ids:
         await _set_status(discarded_ids, "discarded")
 
