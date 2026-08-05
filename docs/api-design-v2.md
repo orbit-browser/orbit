@@ -7,7 +7,13 @@
 
 - 모든 신규 엔드포인트는 `user_id`를 요청/응답에 노출하지 않는다(인증 미도입 — 서버가 내부적으로 `'local'` 고정값을 사용). 인증 도입 시점에 헤더/토큰 기반으로 대체한다(MVP 범위 밖).
 - 날짜/시간은 기존 `SessionDetail.created_at`과 동일하게 ISO 8601 문자열로 반환한다.
-- 목록형 응답은 기존 `GET /sessions`와 동일하게 최신순(내림차순) 정렬을 기본으로 한다.
+- 목록형 응답은 최신순(내림차순) 정렬을 기본으로 한다. `GET /sessions`의 정렬 키는
+  `coalesce(last_activity_at, created_at)`이다 — append로 성장한 세션이 마지막 활동
+  기준으로 위로 올라온다(2026-08-05 도그푸딩 피드백). `SessionDetail` 응답에
+  `last_activity_at`(nullable, snapshot 세션은 null)이 포함되며 클라이언트 timeLabel도
+  `last_activity_at ?? created_at`을 쓴다.
+- `DELETE /sessions/{id}`는 자식 행(`session_events`, `session_versions`)을 함께
+  삭제한다(FK에 ON DELETE 없음 — 애플리케이션 계층에서 정리).
 
 ## 1. `POST /events` — 배치 인제스트
 
@@ -74,12 +80,14 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
     "visited_at": "2026-08-03T05:12:00Z",
     "active_duration_ms": 150000,
     "session_id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-    "session_title": "RTX 5070 구매 비교"
+    "session_title": "RTX 5070 구매 비교",
+    "excluded": false
   }
 ]
 ```
 
 `session_id`/`session_title`은 아직 세션에 배정되지 않은 이벤트에서는 `null`(Timeline이 "분류 대기"로 표시).
+`excluded=true`는 노이즈 사전 필터/LLM이 세션 대상에서 제외한 스침 방문(`sync_status='discarded'`)으로, 삭제하지 않고 Timeline에 "제외됨" 뱃지로 계속 노출한다(2026-08-05). discarded 이벤트도 이 응답에 포함된다.
 
 ## 4. `POST /sync`
 

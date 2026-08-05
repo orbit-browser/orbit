@@ -638,3 +638,284 @@ main 병합 전, LLM 재배정에서 유일하게 실측이 빠졌던 스냅샷 
 
 이로써 재배정된 모든 LLM 경로(클러스터링=EXAONE, 요약·의도분석·리랭킹=A.X, 상호
 폴백)가 실측 검증됐다. 다음: main 병합.
+
+## 2026-08-05 — 도그푸딩 1차 피드백 수정 (세션 최신성·후보 recency·골든셋 실데이터화)
+
+### 요청
+
+도그푸딩 첫날 사용자 보고 2건을 조사·수정한다: ① 항공권 세션에 무관 방문(대학 포털
+로그인·Kaggle 홈)이 섞임 ② 새로 만들어진 세션이 옛 테스트 세션들 밑에 깔림. 조사 후
+사용자 승인으로 4개 항목(정렬 수정·후보 recency 컷·골든셋 확장·테스트 세션 삭제)을
+모두 진행했다.
+
+### 조사 결과
+
+- "밑에 깔린 새 세션"의 정체: 새 세션이 아니라 **7/3 테스트 세션에 append**된 것.
+  벡터 유사 후보에 시간 제한이 없어 한 달 전 세션이 후보로 올라갔고 LLM이 append했다.
+  목록 정렬·표시가 `created_at` 기준이라 append된 세션이 옛 날짜로 아래에 묻혔다
+  (`last_activity_at`은 정상 갱신되고 있었으나 정렬·표시에 미사용).
+- `DELETE /sessions/{id}`가 자식 행(`session_events`, `session_versions`)을 지우지
+  않아 버전이 있는 세션 삭제 시 FK IntegrityError가 나는 잠재 결함 발견(테스트 세션
+  삭제에 필요해 함께 수정).
+- 실데이터 체류시간은 골든셋 가정(분 단위)과 달리 초 단위(항공권 42s·5s, 검색 5s)로
+  훨씬 마진이 얇았다.
+
+### 변경
+
+- `backend/app/api/sessions.py` — 목록 정렬 `coalesce(last_activity_at, created_at) desc`,
+  `_to_detail`에 last_activity_at 포함, delete_session이 자식 행 정리 후 삭제.
+- `backend/app/schemas/session.py` — `SessionDetail.last_activity_at`(nullable) 추가.
+- `backend/app/services/sync_pipeline.py` — 후보 세션에 recency 컷 7일 적용
+  (벡터 후보 포함, `_CANDIDATE_MAX_AGE_DAYS`), 후보 dict에 `last_activity_days_ago`.
+- `backend/app/services/intent_analyzer.py` — 후보 프롬프트 라인에 "마지막 활동:
+  오늘/N일 전" 표기(없으면 생략, 골든셋 하위호환), PROMPT_VERSION v2→v3.
+- `backend/eval/golden/` — 실데이터 시나리오 2개 추가:
+  `flight_rebooking_with_stray_visits`(주제 맞는 후보 존재), 
+  `flight_search_vs_generic_candidate`(일반 제목 후보만 존재 — 라이브 실패 재현).
+- `extension/lib/api.ts`, `frontend/src/lib/api.ts` — timeLabel을
+  `last_activity_at ?? created_at` 기준으로. `SessionDetailView` 라벨 "저장"→"활동".
+- 테스트: `test_sync_pipeline.py` 후보 포맷 갱신, `test_intent_analyzer.py`에
+  후보 라인 표기/생략 테스트 추가.
+
+### 프롬프트 보강 시도와 반려 (중요 발견)
+
+- discard 예시 확대("사이트 홈·로그인 화면")와 "스침 방문 끼워넣기 금지" 지침을 각각
+  시도 → 둘 다 job_search 시나리오를 무너뜨림(정확도 100%→40%, 후자는 2회 재현).
+  **두 보강 모두 반려**하고 v3는 후보 최신활동 표기만 유지.
+- **A.X-K1은 temperature 0에서도 실행 간 판정이 흔들린다** — 같은 프롬프트로 전체
+  골든셋이 100% ↔ 실패 2건을 오감(서버측 비결정성). 특히 초 단위 체류의 경계 이벤트
+  (스침 방문)는 discard/hold/세션 혼입 사이를 오간다. 배정 정확도는 안정적으로 높음
+  (97~100%), 노이즈 제외율만 변동(0~100%). → 프롬프트 미세조정으로 해결 불가.
+  구조적 해법(노이즈 사전 필터)의 우선순위를 상향해 열린 결정에 반영.
+- 최종 확정 평가(9개 시나리오): 배정 정확도 97.4%, purity 97.9%, coverage 100%,
+  new/existing 100%, 노이즈 제외 69.2%(변동 구간).
+
+### 데이터 정리 (사용자 삭제 승인)
+
+- 테스트 세션 21개 삭제: 7/3 세션 17개 + 오늘 스모크 4개(example.com 3개 +
+  클러스터링 스모크 "상태 관리 전략 분석"). 수정된 DELETE로 FK 오류 없이 완료.
+- 항공권 실이벤트 5건 재세션화: LLM 재배치를 2회 시도했으나 매번 다른 형태로 뒤섞임
+  (1차: GitHub 세션에 전부 append, 2차: 한밭대가 GitHub 세션에 붙고 세션 제목까지
+  "한밭대 포털 로그인"으로 오염, 42초 핵심 방문은 discard). **LLM 재배치 중단** 후
+  결정적 수술로 복구: 한밭대(2건)·Kaggle 이벤트 분리·discard, 항공권 3건을 한 세션
+  ("제주 항공권 검색")으로 통합(오폐기 42초 방문은 `assigned_by='user'`로 복원),
+  `_resync_tabs`·통계 재계산·retry-summary로 마무리.
+- 최종 상태: 실사용 세션 3개(브라우저 탐색/가비아/제주 항공권 검색)만 남음.
+- 관찰: 배치가 discard로 마킹한 이벤트의 session_events 행이 남아 있는 사례 1건 발견
+  (원인 미상 — 재발 시 apply_assignments 트랜잭션 검토 필요).
+
+### 검증
+
+- backend `python -m pytest -p no:asyncio`: 207 passed
+- extension `pnpm test`(31 passed) + `pnpm compile` + `pnpm build`: 통과
+- frontend `pnpm build`(tsc 포함): 통과
+- 평가 `python -m eval.run_eval`: 위 "프롬프트 보강" 절 참조(사용자 승인 하 실행)
+- 라이브 확인: 세션 목록이 마지막 활동 기준 정렬로 반환, last_activity_at 필드 노출,
+  DELETE 자식 정리 21회 무오류
+
+## 2026-08-05 — 노이즈 사전 필터 (결정적 규칙) + discarded 이벤트 Timeline 뱃지
+
+### 요청
+
+프롬프트로 못 잡는 스침 방문 혼입을 결정적 규칙으로 차단한다(직전 세션의 "프롬프트
+추가 보강 반려" 후속). 사용자 승인 사항: 규칙은 추천안(로그인·습관성 60초/고립 루트
+30초)대로, discarded 이벤트는 Timeline에 "제외됨" 뱃지로 계속 노출.
+
+### 설계 핵심
+
+실데이터에서 의미 있는 탐색도 5~42초였다는 게 설계 제약이었다 — 체류시간 단독 컷은
+탐색 본체를 날린다. 그래서 "짧으면 버린다"가 아니라 **구제 조건(검색어/도메인 반복/
+체류 미측정) 우선 + 짧음이 특정 신호(로그인 경로·습관성 도메인·고립 루트)와 겹칠
+때만 좁게 버린다"** 로 설계했다.
+
+### 변경
+
+- `backend/app/services/noise_filter.py` — 신규 순수 함수 모듈. `split_noise(group)`,
+  `is_noise(event, domain_counts)`, `is_short_stray(event)`.
+- `backend/app/services/sync_pipeline.py` — `_process_group`에서 is_system_url 재검사
+  직후 `split_noise` 적용, 걸린 이벤트를 discarded로.
+- `backend/app/services/session_updater.py` — hold 상한 도달 시 짧은 스침은 강제
+  create 대신 discard(`is_short_stray`).
+- `backend/app/api/events.py` + `schemas/event.py` — `GET /events?date=`가 discarded도
+  반환, `EventListItem.excluded` 추가(sync_status=='discarded').
+- `backend/eval/run_eval.py` — 실 파이프라인과 동일하게 LLM 전 `split_noise` 적용.
+- `extension/` — `TodayEvent.excluded`, api 매퍼, `TimelineBadge`에 'excluded' 종류
+  추가, `SessionBadge`에 "제외됨" muted 뱃지, useTimeline 매핑.
+- 테스트: `test_noise_filter.py` 신규(15), `test_session_updater.py` hold 정책 갱신 +
+  스침 discard 케이스 추가, `test_events_api.py` excluded 플래그 테스트 추가.
+
+### 오류와 해결
+
+- `test_events_api.py`의 SimpleNamespace 이벤트 픽스처에 `sync_status`가 없어
+  `event.sync_status == "discarded"`에서 AttributeError → 픽스처 3개에 sync_status 추가.
+- hold 정책 변경으로 기존 forced-create 테스트 2개가 깨짐(기본 이벤트가 1초/검색어
+  없음 → 이제 스침으로 분류되어 discard) → 테스트를 긴 체류(120초) 이벤트로 수정하고
+  스침 discard 전용 테스트 추가.
+
+### 검증
+
+- backend `python -m pytest -p no:asyncio`: **224 passed**
+- extension `pnpm test`(31) + compile + build: 통과
+- frontend build: 통과
+- 골든셋 평가 2회(사용자 승인 범위): **노이즈 제외율 69%(변동) → 100%(결정적)**,
+  배정 정확도·purity·coverage 100% 고정, 실패 0건. 남은 new/existing 변동(88.9%↔100%)은
+  append vs create LLM 판단으로 이 필터 범위 밖.
+
+## 2026-08-05 — AI 챗 대화 URL 정규화 + 노이즈 필터 진입화면 규칙 + 재세션화
+
+### 요청
+
+세션에 이질 주제가 뒤섞이는 도그푸딩 2차 피드백("여름 음악에 명함") 조사·수정.
+사용자 승인: ①(AI 챗 URL 정규화)+③(노이즈 필터 보강) 후 재세션화.
+
+### 조사 결과
+
+- `chatgpt.com/c/<id>` 대화 하나가 SPA nav로 최대 5~6개 이벤트로 수집됨. 같은
+  normalized_url인데도 여러 배치에 흩어져 dedup을 못 거쳐 여러 세션으로 파편화.
+- 노이즈 필터 "도메인 반복" 구제가 `chatgpt.com/`(진입 화면)을 살려버림.
+- **추가 발견(범위 밖)**: LLM이 시간 인접한 이질 주제(음악·맥미니 구매·브랜딩)를
+  한 세션에 뭉치고, 그룹 간 append로 확산. 이건 ①③으로 해결 안 되는 별개 문제.
+
+### 변경
+
+- `backend/app/services/event_filter.py` — `_AI_CHAT_HOSTS` 상수·`_is_ai_chat_host`,
+  normalize_url이 AI 챗 도메인은 query를 통째로 제거(휘발성 messageId 등 제거).
+- `backend/app/services/noise_filter.py` — AI 챗 진입 화면(대화 id 없는 루트·/new)을
+  도메인 반복 구제보다 우선해 discard(검색어·체류 미측정 구제는 유지).
+- 테스트: `test_event_filter.py` 정규화 4케이스, `test_noise_filter.py` 진입화면 4케이스.
+
+### 재세션화
+
+- 오염 세션(event-origin 4개) 삭제, 전체 이벤트 normalized_url 재계산·pending 복귀
+  후 수동 sync 1배치. **주의**: 1차 시도는 구코드 서버(b05cbaa)로 돌아 진입화면
+  규칙이 미적용됐다 — 서버를 현재 코드로 재기동 후 재실행해 바로잡음.
+
+### 검증
+
+- backend `python -m pytest -p no:asyncio`: **231 passed**
+- 골든셋 평가 1회: 전 지표 100%, 실패 0건(회귀 없음)
+- 재세션화 결과:
+  - ✅ 대화 파편화 해소: 6a6b4e7b 5→1, 6a73028c 6→1 이벤트로 dedup.
+  - ✅ `chatgpt.com/`(31s) 진입 화면 discard됨(구코드에선 생존했던 것).
+  - ✅ 항공권 세션은 08:49·11:02 방문이 깔끔히 한 세션으로.
+  - ❌ **미해결**: LLM이 "여름 음악 및 맥미니 구매"(음악+구매+브랜딩+명함 9개),
+    "메일 및 브라우저 분석"(메일+로고+옛 위키 6개)처럼 이질 주제를 여전히 뭉침.
+    노이즈 필터는 스침만 제거하고 주제 분리는 LLM 몫인데 A.X가 실패 — 별도 과제.
+  - 잔여: 옛 테스트 이벤트(example.com, Web browser Wikipedia 06:45)가 재유입돼 오염.
+
+## 2026-08-05 — 의도분석 EXAONE-primary 하이브리드 전환 + v4 프롬프트 + 실데이터 검증
+
+### 요청
+
+공정 재평가에서 EXAONE(튜닝)이 A.X와 대등함을 확인한 뒤, 사용자 결정: "EXAONE을 메인으로,
+너무 오래 대기하면 A.X로 fallback, 실데이터로 검증."
+
+### 변경
+
+- `app/ai/llm.py` — `chat_completion_intent(system, user) -> (content, model)` 신설.
+  EXAONE primary → A.X-K1 fallback. 핵심: FriendliAI 클라이언트를 `max_retries=0` +
+  `timeout=12s`로 만들어 429/지연 시 내부 백오프 없이 **즉시** A.X로 폴백(오래 대기 방지).
+  기존 `chat_completion_with_meta`(A.X primary)는 `chat_completion`(요약·리랭킹)이 감싸므로
+  건드리지 않고 별도 함수로 분리.
+- `app/services/intent_analyzer.py` — `chat_completion_intent` 사용, PROMPT_VERSION v3→v4.
+  v4 = 공정 재평가에서 EXAONE 과분할을 잡은 튜닝 프롬프트: 시스템 프롬프트에 "같은 주제는
+  하나로 묶어라" 원칙, 유저 템플릿에 "[매우 중요 — 과분할 금지]" 블록(WRONG/RIGHT 예시 +
+  title·purpose 강제).
+- `tests/test_intent_analyzer.py`, `eval/run_eval.py` — 목/패치 대상 함수명 갱신.
+
+### 검증
+
+- backend pytest: **231 passed**
+- 골든셋 하이브리드 end-to-end: 배정·순도·커버리지·노이즈 100%, 실패 0건(무회귀).
+- **실데이터 재세션화(139개 이벤트)**:
+  - EXAONE 폴백 **3건만** 발생(나머지 그룹은 EXAONE 처리) — fair_eval의 429 폭주와 달리
+    실제 배치는 그룹 간 임베딩·DB·0.5초 스로틀로 호출이 벌어져 EXAONE이 대부분 통과.
+    max_retries=0 덕에 폴백도 즉시(20~40초 대기 없음). 배치 오류 0.
+  - **주제 분리 대폭 개선**: 기존 "여름 음악 + 맥미니 + 브랜딩" 한 덩어리 →
+    "맥미니 M4 구매"(6) / "여름 플레이리스트"(2) / "AI 기반 디자인"(3)으로 정확히 분리.
+  - 139개 → 12개 응집 세션 + 8개 discard(노이즈 필터). 예: "이터널 리턴 플레이어 분석"
+    33개 전부 dak.gg 단일 주제로 깔끔.
+  - **잔여 한계**: "항공권 예약 및 결제 확인"(16)은 항공권 + 확인 메일 여러 개가 뭉쳐 있음
+    (예약→확인메일 흐름으로 볼 여지도 있으나 nangman.cloud 메일 9건·github는 과포함).
+    v4로 최악의 뭉침은 사라졌으나 flight+mail류 잔여 뭉침은 남음.
+
+### 알려진 이슈(경미)
+
+- `SyncBatch.model` 감사 필드가 그룹별 사용 모델 집합에서 임의 1개만 기록(`next(iter(...))`)해
+  이번 배치가 EXAONE 위주였는데도 "A.X-K1"로 표기됨. 폴백률 관측을 위해 향후 개선 여지.
+
+## 2026-08-05 — 잔여 뭉침(flight+mail) 개선(프롬프트 v5) + 배치 감사 필드 개선
+
+### 요청
+
+하이브리드 전환 후 남은 flight+mail 뭉침을 개선하고, 폴백률이 안 보이던 감사 필드를 개선.
+
+### 조사
+
+"항공권 예약 및 결제 확인"(16개)을 뜯어보니 항공권(08:49~08:50)과 메일 확인
+(11:04~11:23, 약 2.5시간 뒤)이 한 세션. 원인은 그룹 내 뭉침이 아니라 **그룹 간 과잉
+append** — 나중 메일 그룹 처리 시 방금 만든 항공권 세션이 후보로 잡혀 LLM이 "결제 확인"
+으로 append. 나망 받은편지함 8건은 대부분 1~6초 습관성.
+
+### 변경
+
+- `app/services/intent_analyzer.py` — PROMPT_VERSION v4→v5. "받은편지함·메일 목록 같은
+  일반 메일 확인은 특정 작업의 확인 메일이 명백하지 않으면 무관한 세션에 append하지 말고
+  별도 '메일 확인' 세션(create)으로, 스침이면 discard" 지침 추가.
+- `app/services/sync_pipeline.py` — `_summarize_models()` 신설. 배치 `model` 감사 필드를
+  그룹별 사용 모델 카운트 요약으로 기록(예: `exaone:12,A.X-K1:3`). EXAONE 긴 라벨은
+  "exaone"으로 축약, String(50) 상한. `_process_batch`가 Counter로 집계.
+- `eval/golden/mail_browsing_not_appended_to_flight.json` — 신규. 항공권 후보 + 업무 메일
+  읽기(명확한 활동) → 별도 mail_check 세션으로 분리(항공권에 append 금지) 검증.
+- 테스트: `test_summarize_models_counts_and_shortens` 추가, `_process_batch` 모델 단언 갱신.
+
+### 검증
+
+- backend pytest: **232 passed**
+- 골든셋 전체(10개): 배정·순도·커버리지·노이즈 100%, 실패 0건. 신규 메일 시나리오 단독
+  2회 모두 100%(항공권에 안 붙고 별도 세션). (초기 시나리오는 15~26초 스침이라 noise/hold
+  경계로 불안정 → 명확한 메일 읽기 활동으로 개정해 안정화.)
+- **실데이터 재세션화(139개, v5)**:
+  - 감사 필드 `exaone:3,A.X-K1:1` — 4개 그룹 중 EXAONE 3 / A.X 폴백 1 관측 가능.
+  - flight+mail 뭉침 해소: 항공권 2세션(전부 flight.naver), 나망 메일 9건 → 독립 세션,
+    네이버 메일 2건 → 독립 세션, gmail/github 각각 분리. 15개 세션 모두 응집 도메인.
+
+### 남은 한계(경미)
+
+- 항공권이 시간 버스트에 따라 2세션으로 분리됨(둘 다 flight, 오분류 아님·경미한 과분할).
+- 나망 받은편지함 세션 제목이 내용 기반 "이메일 마케팅 자동화 분석"으로 다소 부정확(분리는
+  성공). 습관성 짧은 inbox 스침의 세션화 vs discard 경계는 추후 노이즈 필터 확장 후보.
+
+## 2026-08-05 — 메일 목록 보기 노이즈 규칙(C안: 실제 읽은 메일만 기억)
+
+### 요청
+
+사용자 결정: 받은편지함·폴더 목록 새로고침은 기억 안 함, 실제로 읽은 메일만 세션화.
+
+### 변경
+
+- `app/services/noise_filter.py` — 웹메일 목록/폴더 보기 규칙 추가. `_MAIL_HOST_RE`
+  (mail.*/outlook.*), `_MAIL_LIST_PATH_RE`(inbox/folders/sent/…), `_MAIL_MESSAGE_PATH_RE`
+  (message/read/msg/view). `_is_mail_list_view`: 웹메일 호스트 + 목록 경로 + 개별 메일
+  읽기 아님 → discard. is_noise에서 체류·도메인 반복과 무관하게 최우선 적용(받은편지함
+  버스트가 도메인 반복 구제에 걸리지 않도록). gmail은 정규화 후 /mail/u/N/ 하나라
+  목록/읽기 구분 불가 → 규칙에 안 걸려 보존(LLM 판단).
+- `eval/golden/mail_inbox_refresh_is_noise.json` — 신규(목록 보기 4건 → 전부 noise).
+- 테스트: test_noise_filter에 목록 discard·메일 읽기 보존·gmail 보존·도메인 반복 우회 6건.
+
+### 검증
+
+- backend pytest: **237 passed**
+- 골든셋 11개: 배정·순도·커버리지·노이즈 100%, 실패 0건(무회귀). mail_inbox_refresh 노이즈
+  100%, mail_browsing(개별 읽기) 세션화 100%.
+- 실데이터 재세션화(139개): 나망 받은편지함 목록 보기 전부 discard, "이메일 마케팅 자동화
+  분석" 잡동사니 세션 소멸. 세션에 남은 메일은 gmail 루트·네이버 루트(구분 불가, 의도적 보존)뿐.
+
+### 이번 run에서 재확인된 구조적 문제(메일 규칙과 무관)
+
+- "여행 계획 및 항공권 검색"(18개)이 항공권+브랜딩(ChatGPT 명함·로고)+맥미니 구매+여름
+  플레이리스트+github을 흡수한 메가 뭉침 발생. 원인은 **그룹 간 과잉 append** — 직전 run은
+  잘 분리됐으나 이번엔 뭉침(LLM 변동). 재세션화 품질이 run마다 출렁이는 근본 원인.
+- 프롬프트 튜닝(v4 과분할 금지, v5 메일)은 특정 케이스는 잡지만 그룹 간 append 불안정을
+  구조적으로 못 잡는다. append 게이팅(벡터 유사도 하한+시간 근접) 또는 그룹 내 임베딩
+  서브클러스터링이 필요 — DecisionLog "LLM 주제 뭉침" 열린 결정과 연결.

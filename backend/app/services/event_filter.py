@@ -54,6 +54,21 @@ _SENSITIVE_PATH_PATTERNS = [
 
 _GOOGLE_HOST_RE = re.compile(r"(^|\.)google\.", re.IGNORECASE)
 
+# AI 챗 서비스 — 대화가 SPA로 진행되며 같은 대화(/c/<id>, /chat/<id>) URL에
+# ?messageId= 등 휘발성 쿼리가 붙어 dedup이 대화를 파편화한다(도그푸딩 2차 피드백).
+# 이 도메인은 정규화 시 쿼리를 통째로 버려 같은 대화를 한 URL로 접는다.
+_AI_CHAT_HOSTS = {
+    "chatgpt.com",
+    "chat.openai.com",
+    "claude.ai",
+    "gemini.google.com",
+}
+
+
+def _is_ai_chat_host(host: str) -> bool:
+    host = host.lower()
+    return host in _AI_CHAT_HOSTS or host.startswith("www.") and host[4:] in _AI_CHAT_HOSTS
+
 
 def is_system_url(url: str) -> bool:
     """chrome:/about:/확장 페이지 등 시스템 URL이거나 빈/파싱불가 URL이면 True."""
@@ -69,11 +84,18 @@ def is_system_url(url: str) -> bool:
 
 
 def normalize_url(url: str) -> str:
-    """fragment 제거 + utm_*/gclid/fbclid 제거 + query 파라미터 정렬."""
+    """fragment 제거 + utm_*/gclid/fbclid 제거 + query 파라미터 정렬.
+
+    AI 챗 도메인은 query를 통째로 버린다 — 같은 대화(/c/<id>)에 붙는 휘발성 쿼리
+    (messageId 등)로 dedup이 파편화되는 것을 막는다.
+    """
     try:
         parts = urlsplit(url)
     except ValueError:
         return url
+
+    if _is_ai_chat_host(parts.hostname or ""):
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
     kept_params = [
         (key, value)

@@ -38,6 +38,7 @@ interface BackendSession {
   tabs: BackendTab[];
   created_at: string;
   updated_at: string;
+  last_activity_at: string | null;
 }
 
 interface BackendTodayEvent {
@@ -49,6 +50,7 @@ interface BackendTodayEvent {
   active_duration_ms: number;
   session_id: string | null;
   session_title: string | null;
+  excluded: boolean;
 }
 
 interface BackendSessionTimelineEvent {
@@ -108,7 +110,8 @@ function mapSession(b: BackendSession): Session {
     })),
     createdAt: b.created_at,
     updatedAt: b.updated_at,
-    timeLabel: formatTimeLabel(new Date(b.created_at)),
+    // append로 성장하는 Auto Session은 마지막 활동 시각이 사용자 기억과 맞는 기준
+    timeLabel: formatTimeLabel(new Date(b.last_activity_at ?? b.created_at)),
     summary: mapSummary(b.summary),
     summaryStatus: b.summary_status,
   };
@@ -124,6 +127,7 @@ function mapTodayEvent(b: BackendTodayEvent): TodayEvent {
     durationMs: b.active_duration_ms,
     sessionId: b.session_id,
     sessionTitle: b.session_title,
+    excluded: b.excluded ?? false,
   };
 }
 

@@ -1,0 +1,62 @@
+{
+  "name": "flight_search_vs_generic_candidate",
+  "description": "도그푸딩 실데이터 재세션화 실패 재현(2026-08-05) — 주제가 맞는 후보가 없고 제목이 일반적인 후보(브라우저 탐색 세션)만 있을 때, 항공권 이벤트를 그 후보에 append하지 말고 새 세션으로 만들어야 하며 스침 방문은 noise로 걸러져야 한다.",
+  "events": [
+    {
+      "id": "b7e2d3f5-0001-4b01-8c01-9e1f2a3b4c01",
+      "url": "https://my.hanbat.ac.kr/login.do",
+      "title": "한밭대학교",
+      "visited_at": "2026-08-05T08:49:00Z",
+      "active_duration_ms": 3000
+    },
+    {
+      "id": "b7e2d3f5-0002-4b02-8c02-9e1f2a3b4c02",
+      "url": "https://www.kaggle.com/",
+      "title": "Kaggle: The World's AI Proving Ground",
+      "visited_at": "2026-08-05T08:49:10Z",
+      "active_duration_ms": 29000
+    },
+    {
+      "id": "b7e2d3f5-0003-4b03-8c03-9e1f2a3b4c03",
+      "url": "https://search.naver.com/search.naver?where=nexearch&sm=top_hty&query=제주 항공권",
+      "title": "제주 항공권 : 네이버 검색",
+      "visited_at": "2026-08-05T08:50:00Z",
+      "active_duration_ms": 5000
+    },
+    {
+      "id": "b7e2d3f5-0004-4b04-8c04-9e1f2a3b4c04",
+      "url": "https://flight.naver.com/flights/domestic/CJJ-CJU-20260829/CJU-CJJ-20260901?adult=1&fareType=Y",
+      "title": "네이버 항공권",
+      "visited_at": "2026-08-05T08:51:00Z",
+      "active_duration_ms": 42000
+    },
+    {
+      "id": "b7e2d3f5-0005-4b05-8c05-9e1f2a3b4c05",
+      "url": "https://flight.naver.com/flights/domestic/detail/CJJ-CJU-20260812",
+      "title": "네이버 항공권",
+      "visited_at": "2026-08-05T08:53:30Z",
+      "active_duration_ms": 5000
+    }
+  ],
+  "existing_sessions": [
+    {
+      "session_id": "generic_browsing",
+      "title": "브라우저 탐색 세션",
+      "overview": "GitHub에서 오픈소스 저장소를 살펴보며 브라우저 확장 프로그램 코드를 확인했습니다.",
+      "keywords": ["GitHub", "브라우저", "오픈소스"],
+      "last_activity_days_ago": 0
+    }
+  ],
+  "expected": {
+    "session_count": 1,
+    "assignments": {
+      "b7e2d3f5-0001-4b01-8c01-9e1f2a3b4c01": "noise",
+      "b7e2d3f5-0002-4b02-8c02-9e1f2a3b4c02": "noise",
+      "b7e2d3f5-0003-4b03-8c03-9e1f2a3b4c03": "flight_search",
+      "b7e2d3f5-0004-4b04-8c04-9e1f2a3b4c04": "flight_search",
+      "b7e2d3f5-0005-4b05-8c05-9e1f2a3b4c05": "flight_search"
+    },
+    "new_vs_existing": "new",
+    "titles_hint": ["항공권"]
+  }
+}

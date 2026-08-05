@@ -9,11 +9,11 @@ import re
 from dataclasses import dataclass
 
 from ..ai.json_utils import extract_json
-from ..ai.llm import chat_completion_with_meta
+from ..ai.llm import chat_completion_intent
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v5"
 
 _VALID_ACTIONS = {"append", "create", "hold", "discard"}
 _CANDIDATE_LABEL_RE = re.compile(r"^S(\d+)$")
@@ -23,7 +23,8 @@ _MAX_OVERVIEW_CHARS = 80
 
 _SYSTEM_PROMPT = """\
 당신은 사용자의 브라우저 방문 이벤트를 분석해 탐색 세션으로 묶는 AI입니다.
-반드시 JSON 형식으로만 응답하고, 한국어로 작성하세요."""
+반드시 JSON 형식으로만 응답하고(설명 문장 금지), 한국어로 작성하세요.
+핵심 원칙: 같은 주제에 속하는 이벤트들은 반드시 하나의 assignment로 묶고, 절대 여러 개로 쪼개지 마세요."""
 
 _USER_TEMPLATE = """\
 다음은 사용자가 최근 방문한 이벤트 목록입니다.
@@ -52,7 +53,20 @@ _USER_TEMPLATE = """\
 - 같은 주제/작업 흐름에 속하는 이벤트는 event_indices에 함께 묶으세요.
 - 목록에 서로 다른 주제가 섞여 있으면(예: 여행 예약과 코딩 학습) 절대 하나로 묶지 말고
   주제별로 assignment를 분리하세요. 시간순으로 번갈아 나타나도 주제가 다르면 다른 세션입니다.
+- 받은편지함·메일 목록(inbox) 같은 일반적인 메일 확인은 그 자체가 하나의 활동입니다.
+  방금 수행한 작업의 확인 메일임이 명백하지 않으면 무관한 기존 세션(예: 항공권 예약)에
+  append하지 마세요. 여러 건이면 '메일 확인' 같은 별도 세션(create)으로 만들고,
+  짧은 스침 확인이면 discard하세요.
 - 정말 판단하기 어려운 경우에만 hold를 사용하세요.
+
+[매우 중요 — 과분할 금지]
+같은 주제·작업 흐름에 속하는 이벤트는 반드시 하나의 assignment로 묶으세요.
+같은 주제를 여러 assignment로 쪼개면 안 됩니다(가장 흔한 실수).
+- 올바름: 도쿄 항공권·호텔·여행코스·교통이 모두 한 여행이면
+  {{"event_indices": [0, 2, 4, 7], "action": "create", "title": "도쿄 여행 준비"}} 처럼 하나로 묶는다.
+- 잘못됨: 같은 여행을 {{"event_indices": [0, 2, 7]}} 과 {{"event_indices": [4]}} 로 나누는 것.
+  "여행 코스", "솔루션 코드"처럼 세부 항목을 별도 세션으로 떼어내지 마세요.
+append와 create의 title·purpose는 반드시 구체적인 한국어로 채우세요(빈 문자열 금지).
 
 아래 JSON 스키마로만 응답하세요(예시 — 주제 2개와 스침 방문 1개가 섞인 경우):
 {{
@@ -116,7 +130,11 @@ def _format_candidate_line(index: int, candidate: dict) -> str:
     title = candidate.get("title") or ""
     overview = (candidate.get("overview") or "")[:_MAX_OVERVIEW_CHARS]
     keywords = ", ".join(candidate.get("keywords") or [])
-    return f"[S{index}] {title} | {overview} | {keywords}"
+    line = f"[S{index}] {title} | {overview} | {keywords}"
+    days_ago = candidate.get("last_activity_days_ago")
+    if isinstance(days_ago, int):
+        line += f" | 마지막 활동: {'오늘' if days_ago == 0 else f'{days_ago}일 전'}"
+    return line
 
 
 def _build_prompt(group: list[dict], candidates: list[dict]) -> str:
@@ -160,7 +178,7 @@ async def analyze(group: list[dict], candidates: list[dict]) -> list[Assignment]
 
     try:
         # 분류 작업 — temperature 0으로 실행 간 판정 변동을 줄인다(평가 재현성 포함)
-        raw, model = await chat_completion_with_meta(
+        raw, model = await chat_completion_intent(
             _SYSTEM_PROMPT, _build_prompt(group, candidates), max_tokens=1000, temperature=0.0
         )
         data = extract_json(raw)

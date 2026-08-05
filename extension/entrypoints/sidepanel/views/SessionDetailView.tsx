@@ -99,7 +99,7 @@ export function SessionDetailView() {
             </div>
 
             <p className="text-xs text-orbit-muted">
-              {session.tabs.length}개 탭 · {session.timeLabel} 저장
+              {session.tabs.length}개 탭 · {session.timeLabel} 활동
             </p>
 
             <div className="flex items-center justify-between gap-2">

@@ -11,7 +11,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from ..ai.embedding import embed
 from ..config import settings
@@ -20,6 +20,7 @@ from ..db.session import AsyncSessionLocal
 from ..db.vector import search_similar_with_scores
 from ..services import intent_analyzer
 from ..services.event_filter import is_system_url
+from ..services.noise_filter import split_noise
 from ..services.grouper import dedupe_events, group_by_time_gap
 from ..services.session_updater import apply_assignments, refresh_session_ai
 
@@ -30,6 +31,9 @@ _MAX_GROUP_SIZE = 25
 _CANDIDATE_VECTOR_LIMIT = 3
 _CANDIDATE_RECENT_LIMIT = 5
 _CANDIDATE_RECENT_HOURS = 24
+# 벡터 유사 후보도 이 기간을 넘긴 세션이면 제외 — 주제가 비슷하다는 이유로
+# 오래전 끝난 탐색에 조용히 append되는 것을 막는다(도그푸딩 1차 피드백).
+_CANDIDATE_MAX_AGE_DAYS = 7
 _ERROR_MESSAGE_MAX_CHARS = 500
 
 _batch_lock = asyncio.Lock()
@@ -76,15 +80,19 @@ def _group_embedding_text(group: list[dict]) -> str:
 
 
 def _sessions_to_candidates(sessions: list[SessionModel]) -> list[dict]:
+    now = datetime.now(timezone.utc)
     candidates = []
     for s in sessions:
         summary = s.summary or {}
+        last_activity = s.last_activity_at or s.created_at
         candidates.append(
             {
                 "session_id": s.id,
                 "title": s.title,
                 "overview": summary.get("overview") or "",
                 "keywords": s.keywords or [],
+                # LLM이 "이어지는 탐색"인지 판단할 때 참고할 경과일 — 프롬프트에 표기됨
+                "last_activity_days_ago": max(0, (now - last_activity).days) if last_activity else None,
             }
         )
     return candidates
@@ -220,8 +228,15 @@ async def _fetch_candidates(vector: list[float]) -> list[dict]:
         if not combined_ids:
             return []
 
+        # recency 컷 — 벡터 후보에도 적용(최근 활동 후보는 24h 컷이라 항상 통과).
+        # last_activity_at이 없는 snapshot 세션은 created_at 기준으로 판정한다.
+        recency_floor = datetime.now(timezone.utc) - timedelta(days=_CANDIDATE_MAX_AGE_DAYS)
         sessions_result = await db.execute(
-            select(SessionModel).where(SessionModel.id.in_(combined_ids))
+            select(SessionModel).where(
+                SessionModel.id.in_(combined_ids),
+                func.coalesce(SessionModel.last_activity_at, SessionModel.created_at)
+                >= recency_floor,
+            )
         )
         sessions_by_id = {s.id: s for s in sessions_result.scalars().all()}
 
@@ -241,6 +256,12 @@ async def _process_group(group: list[dict], batch_id: str, touched: set[str]) ->
     filtered_group = [e for e in group if not is_system_url(e["url"])]
     filtered_ids = {e["id"] for e in filtered_group}
     discarded_ids = [e["id"] for e in group if e["id"] not in filtered_ids]
+
+    # 노이즈 사전 필터 — 스침 방문(로그인 화면·습관성 도메인·고립 루트)을 LLM 호출 전에
+    # 결정적으로 discard한다(LLM 판정 변동성 회피, DecisionLog 2026-08-05).
+    filtered_group, noise_ids = split_noise(filtered_group)
+    discarded_ids.extend(noise_ids)
+
     if discarded_ids:
         await _set_status(discarded_ids, "discarded")
 
@@ -259,7 +280,23 @@ async def _process_group(group: list[dict], batch_id: str, touched: set[str]) ->
     touched.update(touched_ids)
 
     models_used = {a.model for a in assignments if a.model}
+    # 그룹당 LLM 호출 1회라 보통 원소 1개 — 배치가 그룹별로 모아 폴백률을 집계한다.
     return next(iter(models_used), None)
+
+
+def _summarize_models(counts: dict[str, int]) -> str | None:
+    """그룹별 사용 모델 카운트를 감사용 요약 문자열로(EXAONE/A.X 폴백률 관측). String(50) 상한.
+
+    예: {"exaone/LGAI-EXAONE/K-EXAONE-236B-A23B": 12, "A.X-K1": 3} → "exaone:12,A.X-K1:3"
+    """
+    if not counts:
+        return None
+
+    def _short(model: str) -> str:
+        return "exaone" if model.startswith("exaone/") else model
+
+    parts = [f"{_short(m)}:{n}" for m, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+    return ",".join(parts)[:50]
 
 
 async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
@@ -271,12 +308,13 @@ async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
         groups = group_by_time_gap(kept, gap_minutes=_GAP_MINUTES, max_group_size=_MAX_GROUP_SIZE)
 
         touched: set[str] = set()
-        batch_model: str | None = None
+        model_counts: dict[str, int] = {}
 
         for group in groups:
             try:
                 model = await _process_group(group, batch_id, touched)
-                batch_model = model or batch_model
+                if model:
+                    model_counts[model] = model_counts.get(model, 0) + 1
             except Exception as exc:
                 # 그룹 실패는 해당 그룹 이벤트만 pending 복귀 후 계속(배치 전체 중단 금지).
                 logger.warning("배치 그룹 처리 실패(batch_id=%s) — 이벤트 pending 복귀: %s", batch_id, exc)
@@ -288,7 +326,7 @@ async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
             except Exception as exc:
                 logger.warning("세션 재요약 실패(session_id=%s): %s", session_id, exc)
 
-        await _complete_batch(batch_id, event_count=len(claimed), model=batch_model)
+        await _complete_batch(batch_id, event_count=len(claimed), model=_summarize_models(model_counts))
     except Exception as exc:
         logger.error("배치 실행 실패(batch_id=%s): %s", batch_id, exc)
         await _fail_batch(batch_id, exc)

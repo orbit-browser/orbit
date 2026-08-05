@@ -17,6 +17,7 @@ from ..db.session import AsyncSessionLocal
 from ..schemas.session import TabItemRequest
 from .embedding_sync import embed_and_upsert
 from .intent_analyzer import Assignment
+from .noise_filter import is_short_stray
 from .summarizer import generate_summary
 
 logger = logging.getLogger(__name__)
@@ -271,7 +272,13 @@ async def apply_assignments(
 
         elif assignment.action == "hold":
             hold_counts = await _increment_hold_count(db, [e["id"] for e in events])
-            forced = [e for e in events if _hold_forces_create(hold_counts.get(e["id"], 0))]
+            limit_reached = [e for e in events if _hold_forces_create(hold_counts.get(e["id"], 0))]
+            # 상한 도달 이벤트 중 짧고 검색어 없는 스침 방문은 create 대신 discard —
+            # 잡동사니 세션 승격 방지(DecisionLog 2026-08-05 노이즈 사전 필터).
+            stray = [e for e in limit_reached if is_short_stray(e)]
+            forced = [e for e in limit_reached if not is_short_stray(e)]
+            if stray:
+                await _mark_events_status(db, [e["id"] for e in stray], "discarded")
             if forced:
                 session_id = await _create_session(db, forced, None, None, assignment.relevance)
                 touched.add(session_id)

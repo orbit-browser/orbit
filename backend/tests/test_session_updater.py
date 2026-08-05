@@ -193,7 +193,8 @@ def test_apply_assignments_hold_below_threshold_does_not_create(monkeypatch):
 
 def test_apply_assignments_hold_at_threshold_does_not_revert_forced(monkeypatch):
     calls = _patch_collaborators(monkeypatch, hold_counts={"a": 3})
-    group = [_event("a")]
+    # 긴 체류 = 스침 방문 아님 → 상한 도달 시 create로 승격
+    group = [_event("a", active_duration_ms=120_000)]
     assignments = [Assignment(event_indices=[0], action="hold", relevance=0.0)]
 
     asyncio.run(session_updater.apply_assignments(_FakeDB(), group, assignments, "batch-1"))
@@ -204,13 +205,26 @@ def test_apply_assignments_hold_at_threshold_does_not_revert_forced(monkeypatch)
 
 def test_apply_assignments_hold_at_threshold_forces_create(monkeypatch):
     calls = _patch_collaborators(monkeypatch, hold_counts={"a": 3})
-    group = [_event("a")]
+    group = [_event("a", active_duration_ms=120_000)]
     assignments = [Assignment(event_indices=[0], action="hold", relevance=0.0)]
 
     touched = asyncio.run(session_updater.apply_assignments(_FakeDB(), group, assignments, "batch-1"))
 
     assert touched == {"created-0"}
     assert calls["create"][0][0] == group  # forced 이벤트 목록으로 create 호출
+
+
+def test_apply_assignments_hold_at_threshold_short_stray_discards(monkeypatch):
+    # 상한 도달 이벤트가 짧고 검색어 없는 스침이면 create 대신 discard(잡동사니 세션 방지)
+    calls = _patch_collaborators(monkeypatch, hold_counts={"a": 3})
+    group = [_event("a", active_duration_ms=3_000)]
+    assignments = [Assignment(event_indices=[0], action="hold", relevance=0.0)]
+
+    touched = asyncio.run(session_updater.apply_assignments(_FakeDB(), group, assignments, "batch-1"))
+
+    assert touched == set()
+    assert calls["create"] == []
+    assert (["a"], "discarded") in calls["mark"]
 
 
 def test_apply_assignments_commits_once(monkeypatch):

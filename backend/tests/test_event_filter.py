@@ -55,6 +55,28 @@ def test_normalize_url_combines_all_rules():
     assert event_filter.normalize_url(url) == "https://example.com/search?a=1&b=2"
 
 
+def test_normalize_url_ai_chat_drops_all_query():
+    # 같은 대화(/c/<id>)에 붙는 휘발성 쿼리(messageId 등)를 버려 dedup이 합치게 한다
+    base = "https://chatgpt.com/c/6a73028c-4d7c-83ee-85f7-9b687dc52d90"
+    assert event_filter.normalize_url(base + "?messageId=f9b2") == base
+    assert event_filter.normalize_url(base) == base
+
+
+def test_normalize_url_ai_chat_claude_and_fragment():
+    assert (
+        event_filter.normalize_url("https://claude.ai/chat/43984da3?foo=bar#x")
+        == "https://claude.ai/chat/43984da3"
+    )
+
+
+def test_normalize_url_non_ai_chat_keeps_query():
+    # AI 챗이 아닌 도메인은 기존 규칙(쿼리 보존·정렬) 유지
+    assert (
+        event_filter.normalize_url("https://flight.naver.com/x?b=2&a=1")
+        == "https://flight.naver.com/x?a=1&b=2"
+    )
+
+
 # ── is_sensitive_url ─────────────────────────────────────────────
 
 

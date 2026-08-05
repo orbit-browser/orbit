@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -203,7 +203,8 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
 
     assert (["a"], "pending") in calls["set_status"]
     assert calls["refresh"] == ["sess-ok"]
-    assert calls["complete"] == [("batch-1", 2, "model-x")]
+    # 감사 필드는 그룹별 모델 카운트 요약(성공 그룹 1개 → "model-x:1")
+    assert calls["complete"] == [("batch-1", 2, "model-x:1")]
 
 
 def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
@@ -248,6 +249,16 @@ def test_process_batch_exception_fails_batch(monkeypatch):
 # ── 순수 헬퍼 ──────────────────────────────────────────────
 
 
+def test_summarize_models_counts_and_shortens():
+    # EXAONE 긴 라벨은 "exaone"으로 축약, 카운트 내림차순
+    summary = sync_pipeline._summarize_models(
+        {"exaone/LGAI-EXAONE/K-EXAONE-236B-A23B": 12, "A.X-K1": 3}
+    )
+    assert summary == "exaone:12,A.X-K1:3"
+    assert sync_pipeline._summarize_models({}) is None
+    assert len(sync_pipeline._summarize_models({"exaone/x": 1, "A.X-K1": 1})) <= 50
+
+
 def test_group_embedding_text_joins_title_and_domain():
     group = [
         {"title": "제목1", "domain": "a.com"},
@@ -259,15 +270,46 @@ def test_group_embedding_text_joins_title_and_domain():
 
 
 def test_sessions_to_candidates_formats_expected_fields():
-    session = SimpleNamespace(id="s1", title="세션 제목", summary={"overview": "개요"}, keywords=["k1", "k2"])
+    session = SimpleNamespace(
+        id="s1",
+        title="세션 제목",
+        summary={"overview": "개요"},
+        keywords=["k1", "k2"],
+        last_activity_at=datetime.now(timezone.utc) - timedelta(days=3),
+        created_at=datetime.now(timezone.utc) - timedelta(days=10),
+    )
     candidates = sync_pipeline._sessions_to_candidates([session])
-    assert candidates == [{"session_id": "s1", "title": "세션 제목", "overview": "개요", "keywords": ["k1", "k2"]}]
+    assert candidates == [
+        {
+            "session_id": "s1",
+            "title": "세션 제목",
+            "overview": "개요",
+            "keywords": ["k1", "k2"],
+            "last_activity_days_ago": 3,
+        }
+    ]
 
 
 def test_sessions_to_candidates_handles_missing_summary_and_keywords():
-    session = SimpleNamespace(id="s1", title="제목", summary=None, keywords=None)
+    # last_activity_at이 없는 snapshot 세션은 created_at으로 경과일을 계산한다
+    session = SimpleNamespace(
+        id="s1",
+        title="제목",
+        summary=None,
+        keywords=None,
+        last_activity_at=None,
+        created_at=datetime.now(timezone.utc),
+    )
     candidates = sync_pipeline._sessions_to_candidates([session])
-    assert candidates == [{"session_id": "s1", "title": "제목", "overview": "", "keywords": []}]
+    assert candidates == [
+        {
+            "session_id": "s1",
+            "title": "제목",
+            "overview": "",
+            "keywords": [],
+            "last_activity_days_ago": 0,
+        }
+    ]
 
 
 # ── _fetch_candidates: 벡터 검색 실패 시 최근 활성 세션으로 폴백 ──────────
@@ -280,7 +322,12 @@ def test_fetch_candidates_falls_back_when_vector_search_fails(monkeypatch):
     monkeypatch.setattr(sync_pipeline, "search_similar_with_scores", failing_search)
 
     recent_session = SimpleNamespace(
-        id="sess-recent", title="최근 세션", summary={"overview": "ov"}, keywords=["k"]
+        id="sess-recent",
+        title="최근 세션",
+        summary={"overview": "ov"},
+        keywords=["k"],
+        last_activity_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc),
     )
     db = _QueuedDB(
         [
@@ -293,7 +340,13 @@ def test_fetch_candidates_falls_back_when_vector_search_fails(monkeypatch):
     candidates = asyncio.run(sync_pipeline._fetch_candidates([0.1, 0.2]))
 
     assert candidates == [
-        {"session_id": "sess-recent", "title": "최근 세션", "overview": "ov", "keywords": ["k"]}
+        {
+            "session_id": "sess-recent",
+            "title": "최근 세션",
+            "overview": "ov",
+            "keywords": ["k"],
+            "last_activity_days_ago": 0,
+        }
     ]
 
 

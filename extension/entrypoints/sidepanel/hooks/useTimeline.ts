@@ -15,6 +15,7 @@ const TIMELINE_QUERY_KEY = ['orbit-timeline'] as const;
 export type TimelineBadge =
   | { kind: 'pending' }
   | { kind: 'synced' }
+  | { kind: 'excluded' }
   | { kind: 'session'; sessionId: string; title: string };
 
 export interface TimelineEntry {
@@ -88,10 +89,14 @@ async function loadTimelineEntries(): Promise<TimelineEntry[]> {
 
   const syncedEntries: TimelineEntry[] = synced.map((e) => {
     const match = serverById.get(e.eventId);
-    const badge: TimelineBadge =
-      match?.sessionId && match.sessionTitle
-        ? { kind: 'session', sessionId: match.sessionId, title: match.sessionTitle }
-        : { kind: 'synced' };
+    let badge: TimelineBadge;
+    if (match?.sessionId && match.sessionTitle) {
+      badge = { kind: 'session', sessionId: match.sessionId, title: match.sessionTitle };
+    } else if (match?.excluded) {
+      badge = { kind: 'excluded' };
+    } else {
+      badge = { kind: 'synced' };
+    }
     return {
       id: e.eventId,
       url: e.url,

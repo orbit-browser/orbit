@@ -59,6 +59,8 @@ class EventListItem(BaseModel):
     """GET /events?date= 항목 (docs/api-design-v2.md §3).
 
     session_id/session_title은 아직 세션에 배정되지 않은 이벤트에서는 null.
+    excluded=True면 노이즈 사전 필터/LLM이 세션 대상에서 제외한 스침 방문 —
+    Timeline에는 "제외됨" 뱃지로 계속 노출된다(삭제 아님).
     """
 
     event_id: str
@@ -69,6 +71,7 @@ class EventListItem(BaseModel):
     active_duration_ms: int | None = None
     session_id: str | None = None
     session_title: str | None = None
+    excluded: bool = False
 
 
 class MemorySearchEventItem(BaseModel):

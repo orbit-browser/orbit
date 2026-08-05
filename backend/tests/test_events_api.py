@@ -163,7 +163,7 @@ def test_fetch_events_for_date_maps_fields_for_unassigned_event():
     visited_at = datetime(2026, 8, 3, 5, 12, tzinfo=timezone.utc)
     event = SimpleNamespace(
         id="e1", url="https://a", title="A", domain="a.com",
-        visited_at=visited_at, active_duration_ms=1000,
+        visited_at=visited_at, active_duration_ms=1000, sync_status="synced",
     )
     db = _FakeQueryDB(_AllResult([(event, None, None)]))
 
@@ -173,13 +173,14 @@ def test_fetch_events_for_date_maps_fields_for_unassigned_event():
     assert items[0].event_id == "e1"
     assert items[0].session_id is None
     assert items[0].session_title is None
+    assert items[0].excluded is False
 
 
 def test_fetch_events_for_date_includes_session_badge_when_assigned():
     visited_at = datetime(2026, 8, 3, 5, 12, tzinfo=timezone.utc)
     event = SimpleNamespace(
         id="e2", url="https://b", title="B", domain="b.com",
-        visited_at=visited_at, active_duration_ms=2000,
+        visited_at=visited_at, active_duration_ms=2000, sync_status="processed",
     )
     db = _FakeQueryDB(_AllResult([(event, "sess-1", "RTX 5070 구매 비교")]))
 
@@ -189,11 +190,27 @@ def test_fetch_events_for_date_includes_session_badge_when_assigned():
     assert items[0].session_title == "RTX 5070 구매 비교"
 
 
+def test_fetch_events_for_date_marks_discarded_as_excluded():
+    # discarded 이벤트도 반환하되 excluded=True로 Timeline에 "제외됨" 뱃지를 붙인다
+    visited_at = datetime(2026, 8, 3, 5, 12, tzinfo=timezone.utc)
+    event = SimpleNamespace(
+        id="e-noise", url="https://x.com/", title="X", domain="x.com",
+        visited_at=visited_at, active_duration_ms=8000, sync_status="discarded",
+    )
+    db = _FakeQueryDB(_AllResult([(event, None, None)]))
+
+    items = asyncio.run(events._fetch_events_for_date(db, visited_at, visited_at))
+
+    assert len(items) == 1
+    assert items[0].excluded is True
+    assert items[0].session_id is None
+
+
 def test_fetch_events_for_date_dedupes_duplicate_join_rows():
     visited_at = datetime(2026, 8, 3, 5, 12, tzinfo=timezone.utc)
     event = SimpleNamespace(
         id="e3", url="https://c", title="C", domain="c.com",
-        visited_at=visited_at, active_duration_ms=None,
+        visited_at=visited_at, active_duration_ms=None, sync_status="processed",
     )
     db = _FakeQueryDB(_AllResult([(event, "sess-1", "s"), (event, "sess-1", "s")]))
 
