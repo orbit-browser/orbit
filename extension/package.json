@@ -8,6 +8,7 @@
     "build": "wxt build",
     "zip": "wxt zip",
     "compile": "tsc --noEmit",
+    "test": "vitest run",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
@@ -26,8 +27,10 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@wxt-dev/module-react": "^1.2.2",
+    "fake-indexeddb": "^6.2.5",
     "tailwindcss": "^4.3.1",
     "typescript": "^5.9.0",
+    "vitest": "^4.1.10",
     "wxt": "^0.20.26"
   }
 }

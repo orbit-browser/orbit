@@ -93,6 +93,18 @@ Orbit을 "열린 탭 스냅샷을 AI가 분류·요약해 저장하는 도구"�
 
 구현 작업은 Sonnet 서브에이전트에 위임한다(CLAUDE.md §19 준수 — 동시 최대 2개, 마일스톤 병렬 구간은 3개까지, 에이전트별 수정 파일 비겹침(BE/EXT/FE·문서로 분리), 중첩 위임 금지). 계약(스키마·타입·API)과 아키텍처 통합, diff·테스트 검토는 메인 에이전트가 직접 수행한다.
 
+**M6 — 검증 단계** (2026-08-05 추가, 사용자 승인: vitest 도입 + Playwright MCP 설치)
+21. EXT: vitest 도입 — `vitest` + `fake-indexeddb` devDependency 추가. WxtVitest 플러그인
+    없이 plain vitest 구성으로 `wxt/testing`의 `fakeBrowser`만 chrome.* 전역 대역으로
+    사용한다(lib 코드가 wxt 모듈이 아닌 chrome 전역을 직접 쓰므로 플러그인 불필요).
+    대상: `lib/events/queue.ts` 상태 기계(claim/backoff/stale-reset/prune/evict),
+    `lib/sync/engine.ts` drain 루프(배치 반복, 실패 백오프·재시도 알람, 서버 세션화
+    트리거 매핑), `lib/events/types.ts` wire 변환. `triggers.ts`의 리스너 배선은
+    단위 테스트 대상에서 제외(E2E로 확인).
+22. E2E: Playwright로 빌드된 확장(`.output/chrome-mv3`)을 실제 Chromium에 로드해
+    사이드패널 렌더·수집 opt-in·이벤트 큐 적재·수동 동기화(백엔드 연동)를 확인한다.
+    Playwright MCP는 등록 완료(다음 세션부터 대화형 사용 가능) — 이번 세션은 스크립트로 실행.
+
 ## 테스트 및 검증 방법
 
 - **BE**: `python -m pytest -p no:asyncio` — 기존 28개 + 신규(event_filter/grouper/intent_analyzer/sync_pipeline/session_updater/event_schemas/analytics/search-memory). 기존 monkeypatch 스타일 유지, DB/네트워크/실키 미사용.

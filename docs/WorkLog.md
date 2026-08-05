@@ -308,3 +308,72 @@ M5(Analytics·평가 하네스) 순으로 진행했다. M2는 별도 항목(위 
 - `cd backend && python -m pytest -p no:asyncio --collect-only -q` — 205개 테스트
   정상 수집(문서화한 명령이 이 머신에서 동작함을 확인). 전체 테스트 실행과
   extension/frontend 빌드는 코드 변경이 없어 실행하지 않았다.
+
+## 2026-08-05 — M6 검증: vitest 도입 + Playwright E2E 스모크
+
+### 요청
+
+남은 검증을 진행한다. Playwright MCP 설치와 vitest 도입을 사용자가 승인했다.
+
+### 변경
+
+- **Playwright MCP 등록** — `claude mcp add playwright`(cmd /c npx @playwright/mcp@latest,
+  로컬 스코프). 연결 확인 완료. MCP 도구는 다음 Claude Code 세션부터 대화형으로 사용
+  가능하며, 이번 세션 E2E는 스크래치패드의 Playwright 스크립트로 수행했다(저장소에
+  E2E 코드 미포함).
+- **vitest 도입** (`extension/`) — `vitest@4.1.10` + `fake-indexeddb` devDependency,
+  `vitest.config.ts`, `tests/setup.ts`(fake-indexeddb/auto + `wxt/testing` fakeBrowser를
+  chrome 전역에 설치), `tests/helpers.ts`, `package.json`에 `test: vitest run` 스크립트.
+  WxtVitest 플러그인은 쓰지 않았다(DecisionLog 2026-08-05 참조).
+- **단위 테스트 31개 신규** — `tests/unit/types.test.ts`(wire 변환·null 본문 치환·
+  로컬 필드 제외), `tests/unit/queue.test.ts`(상태 기계: finalize/attachContent open
+  가드/claim 순서·limit·백오프 대기 제외/markSynced/백오프 2^n·30분 상한/stale-syncing
+  리셋/48h prune/evict synced 우선·droppedCount/개수 트리거 리스너),
+  `tests/unit/engine.test.ts`(drain: manual 선마감, 50개 배치 반복, threshold→event_count
+  매핑, 빈 큐 시 manual만 세션화 트리거, 실패 시 pending 복귀+재시도 알람+세션화
+  미트리거, 세션화 트리거 실패 무해성).
+
+### E2E 스모크 결과 (Playwright, 실 Chromium + 실 백엔드 + 실 LLM 1배치)
+
+빌드 산출물(`.output/chrome-mv3`)을 launchPersistentContext로 로드, docker
+postgres/qdrant(기존 가동) + uvicorn으로 백엔드 기동. **9/9 PASS**:
+
+1. 확장 SW 기동 및 확장 ID 확인
+2. 수집 기본 off(opt-in) — 온보딩 카드 렌더 스크린샷 확인
+3. 실제 방문 3건(example.com/example.org/wikipedia) 이벤트 수집
+4. 마지막 방문 open 유지, 이전 방문 finalize→pending 전이
+5. SYNC_NOW 수동 동기화 → 전량 synced
+6. syncStatus lastSyncAt/todayCount 기록
+7. 서버 배치 세션화로 Auto Session 자동 생성 — "웹 브라우저 및 도메인 정보 탐색"
+8. 동기화 후 사이드패널: 수집 상태 카드(3 방문/0 미처리/마지막 동기화), 타임라인
+   이벤트 3건 + 세션 배지, 주간 탐색 분석 카드 렌더 확인(스크린샷)
+9. 브라우저 재시작 후 IndexedDB 큐 생존(3건 유지)
+
+관찰: example.org 이벤트는 세션 배지 없이 "동기화됨"으로 표시 — 의도 분석이 해당
+이벤트를 세션에 미포함한 것으로 보임(노이즈 처리 경로 동작). 세션별 탐색 시간이
+"0분"으로 표시(체류 수 초를 분 단위 반올림) — 표시 정책 검토 후보.
+
+### 검증
+
+- `pnpm test` (extension): 31 passed (3 files)
+- `pnpm compile` (extension): 통과 (테스트 파일 포함 타입 검사)
+- `pnpm build` (extension): 통과
+- E2E 스모크: 9/9 PASS (위 상세)
+- backend pytest는 이번 변경과 무관해 재실행하지 않았다.
+
+### 오류와 해결
+
+- Git Bash에서 `claude mcp add ... cmd /c`의 `/c`가 `C:/`로 경로 변환됨 —
+  `MSYS_NO_PATHCONV=1`로 재등록.
+- 첫 `pnpm compile`에서 테스트 타입 오류 2건 — mock 응답에 `EventBatchResponse`
+  필수 필드(filtered/pending_total) 누락 보강, fakeBrowser alarms.create 타입이
+  단일 인자 오버로드만 선언해 2인자 호출 검증부를 명시 캐스팅.
+
+### 남은 일 (이전 목록 갱신)
+
+- ~~수동 동기화·큐 생존·Timeline/SyncStatusCard/Analytics 렌더 수동 검증~~ → E2E로 확인 완료.
+- 실기기 미검증 잔여: SW 강제 종료 시 체류시간 세그먼트 생존, 유휴/주기 트리거 실시간
+  동작, SearchView 2그룹 렌더, 백엔드 다운 시 백오프 실기기 동작(로직은 단위 테스트로 커버).
+- 노이즈 제외율 50% 원인인 의도 분석 discard 기준 보강(프롬프트).
+- 검색 score threshold(0.35) 실측 튜닝 — 골든셋 확대 후 재평가.
+- 세션별 탐색 시간 "0분" 표시 정책 검토(분 미만 반올림).

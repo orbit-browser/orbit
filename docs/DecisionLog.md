@@ -103,6 +103,14 @@
 - 대안: Celery, ARQ 등 별도 워커/큐 인프라 도입
 - 근거와 영향: 현재 서비스 규모와 대회 일정에서는 별도 인프라 없이도 단일 프로세스 락과 DB 상태 행으로 동시 실행 방지와 재시작 복구를 충분히 처리할 수 있다. 향후 다중 인스턴스 배포 시에는 분산 락으로 전환이 필요하다.
 
+## 2026-08-05 — Extension 단위 테스트: vitest + fake-indexeddb 도입
+
+- 상태: 승인 (사용자 승인, 2026-08-05)
+- 배경: `lib/events`·`lib/sync`는 M2 완료 게이트 리뷰에서 단위 테스트 부재가 지적됐으나, 테스트 프레임워크 도입이 신규 dev 의존성이라 사용자 결정 대기로 보류돼 있었다.
+- 결정: `vitest` + `fake-indexeddb`를 devDependency로 추가한다. WxtVitest 플러그인 없이 plain vitest 구성으로 `wxt/testing`의 `fakeBrowser`만 chrome.* 전역 대역으로 사용한다. 검증 명령은 `pnpm test`.
+- 대안: WxtVitest 플러그인 전체 구성(자동 import·vite 플러그인 체인 포함), jest
+- 근거와 영향: lib 코드는 wxt 모듈이 아닌 chrome 전역과 IndexedDB 전역을 직접 사용하므로 WXT 플러그인 기계 없이 전역 대역 2개(fakeBrowser, fake-indexeddb)로 충분하다. 구성이 단순할수록 WXT 버전 업그레이드와 독립적이다. E2E는 Playwright(MCP 등록 완료)로 별도 수행한다.
+
 ## 열린 결정
 
 | 항목 | 필요한 결정 | 구현 전 조건 | 상태 |

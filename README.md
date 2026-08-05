@@ -105,12 +105,14 @@ pnpm dev
 ### 테스트
 
 ```bash
-# Backend (204개)
+# Backend (205개)
 cd backend
 python -m pytest -p no:asyncio
 
-# Extension / Frontend — 타입 검사 + 빌드
-cd extension && pnpm compile && pnpm build
+# Extension — 단위 테스트(vitest) + 타입 검사 + 빌드
+cd extension && pnpm test && pnpm compile && pnpm build
+
+# Frontend — 빌드(타입 검사 포함)
 cd frontend && pnpm build
 
 # 세션 분류 평가 하네스 (실 LLM 호출, backend/.env 키 필요)
