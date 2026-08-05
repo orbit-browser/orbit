@@ -109,7 +109,7 @@ async def _analyze_group(
 ) -> list[Assignment]:
     """그룹 하나를 intent_analyzer.analyze로 분석한다(실 LLM/기록 재생 공용 경로).
 
-    재생 모드든 기록 모드든 chat_completion_with_meta만 패치하고 analyze()의 파싱/방어
+    재생 모드든 기록 모드든 chat_completion_intent만 패치하고 analyze()의 파싱/방어
     로직은 그대로 실행한다 — 평가가 실제 코드 경로를 그대로 대표하게 하기 위함(§3, §4).
     """
     if replay_map is not None:
@@ -120,20 +120,20 @@ async def _analyze_group(
         async def _fake(*_args, **_kwargs) -> tuple[str, str]:
             return recorded["raw"], recorded["model"]
 
-        with patch.object(intent_analyzer, "chat_completion_with_meta", _fake):
+        with patch.object(intent_analyzer, "chat_completion_intent", _fake):
             return await intent_analyzer.analyze(group, candidates)
 
     if record_sink is None:
         return await intent_analyzer.analyze(group, candidates)
 
-    original = intent_analyzer.chat_completion_with_meta
+    original = intent_analyzer.chat_completion_intent
 
     async def _recording(*args, **kwargs) -> tuple[str, str]:
         raw, model = await original(*args, **kwargs)
         record_sink[call_key] = {"raw": raw, "model": model}
         return raw, model
 
-    with patch.object(intent_analyzer, "chat_completion_with_meta", _recording):
+    with patch.object(intent_analyzer, "chat_completion_intent", _recording):
         return await intent_analyzer.analyze(group, candidates)
 
 

@@ -802,3 +802,44 @@ main 병합 전, LLM 재배정에서 유일하게 실측이 빠졌던 스냅샷 
     "메일 및 브라우저 분석"(메일+로고+옛 위키 6개)처럼 이질 주제를 여전히 뭉침.
     노이즈 필터는 스침만 제거하고 주제 분리는 LLM 몫인데 A.X가 실패 — 별도 과제.
   - 잔여: 옛 테스트 이벤트(example.com, Web browser Wikipedia 06:45)가 재유입돼 오염.
+
+## 2026-08-05 — 의도분석 EXAONE-primary 하이브리드 전환 + v4 프롬프트 + 실데이터 검증
+
+### 요청
+
+공정 재평가에서 EXAONE(튜닝)이 A.X와 대등함을 확인한 뒤, 사용자 결정: "EXAONE을 메인으로,
+너무 오래 대기하면 A.X로 fallback, 실데이터로 검증."
+
+### 변경
+
+- `app/ai/llm.py` — `chat_completion_intent(system, user) -> (content, model)` 신설.
+  EXAONE primary → A.X-K1 fallback. 핵심: FriendliAI 클라이언트를 `max_retries=0` +
+  `timeout=12s`로 만들어 429/지연 시 내부 백오프 없이 **즉시** A.X로 폴백(오래 대기 방지).
+  기존 `chat_completion_with_meta`(A.X primary)는 `chat_completion`(요약·리랭킹)이 감싸므로
+  건드리지 않고 별도 함수로 분리.
+- `app/services/intent_analyzer.py` — `chat_completion_intent` 사용, PROMPT_VERSION v3→v4.
+  v4 = 공정 재평가에서 EXAONE 과분할을 잡은 튜닝 프롬프트: 시스템 프롬프트에 "같은 주제는
+  하나로 묶어라" 원칙, 유저 템플릿에 "[매우 중요 — 과분할 금지]" 블록(WRONG/RIGHT 예시 +
+  title·purpose 강제).
+- `tests/test_intent_analyzer.py`, `eval/run_eval.py` — 목/패치 대상 함수명 갱신.
+
+### 검증
+
+- backend pytest: **231 passed**
+- 골든셋 하이브리드 end-to-end: 배정·순도·커버리지·노이즈 100%, 실패 0건(무회귀).
+- **실데이터 재세션화(139개 이벤트)**:
+  - EXAONE 폴백 **3건만** 발생(나머지 그룹은 EXAONE 처리) — fair_eval의 429 폭주와 달리
+    실제 배치는 그룹 간 임베딩·DB·0.5초 스로틀로 호출이 벌어져 EXAONE이 대부분 통과.
+    max_retries=0 덕에 폴백도 즉시(20~40초 대기 없음). 배치 오류 0.
+  - **주제 분리 대폭 개선**: 기존 "여름 음악 + 맥미니 + 브랜딩" 한 덩어리 →
+    "맥미니 M4 구매"(6) / "여름 플레이리스트"(2) / "AI 기반 디자인"(3)으로 정확히 분리.
+  - 139개 → 12개 응집 세션 + 8개 discard(노이즈 필터). 예: "이터널 리턴 플레이어 분석"
+    33개 전부 dak.gg 단일 주제로 깔끔.
+  - **잔여 한계**: "항공권 예약 및 결제 확인"(16)은 항공권 + 확인 메일 여러 개가 뭉쳐 있음
+    (예약→확인메일 흐름으로 볼 여지도 있으나 nangman.cloud 메일 9건·github는 과포함).
+    v4로 최악의 뭉침은 사라졌으나 flight+mail류 잔여 뭉침은 남음.
+
+### 알려진 이슈(경미)
+
+- `SyncBatch.model` 감사 필드가 그룹별 사용 모델 집합에서 임의 1개만 기록(`next(iter(...))`)해
+  이번 배치가 EXAONE 위주였는데도 "A.X-K1"로 표기됨. 폴백률 관측을 위해 향후 개선 여지.

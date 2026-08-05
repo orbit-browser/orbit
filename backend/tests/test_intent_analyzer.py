@@ -30,14 +30,14 @@ def _mock_llm(monkeypatch, response: str, model: str = "A.X-K1"):
     async def fake(*_args, **_kwargs):
         return response, model
 
-    monkeypatch.setattr(intent_analyzer, "chat_completion_with_meta", fake)
+    monkeypatch.setattr(intent_analyzer, "chat_completion_intent", fake)
 
 
 def test_empty_group_returns_empty_without_llm_call(monkeypatch):
     async def boom(*_a, **_k):
         raise AssertionError("빈 그룹은 LLM을 호출하면 안 됨")
 
-    monkeypatch.setattr(intent_analyzer, "chat_completion_with_meta", boom)
+    monkeypatch.setattr(intent_analyzer, "chat_completion_intent", boom)
     result = asyncio.run(intent_analyzer.analyze([], []))
     assert result == []
 
@@ -147,7 +147,7 @@ def test_llm_failure_falls_back_to_full_group_hold(monkeypatch):
     async def boom(*_a, **_k):
         raise RuntimeError("network error")
 
-    monkeypatch.setattr(intent_analyzer, "chat_completion_with_meta", boom)
+    monkeypatch.setattr(intent_analyzer, "chat_completion_intent", boom)
 
     events = [_event(), _event()]
     result = asyncio.run(intent_analyzer.analyze(events, []))

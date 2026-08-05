@@ -149,8 +149,15 @@
   - 즉 앞서의 "32%"·"A.X가 더 낫다"는 프롬프트 불공정 + rate limit 오염 탓이었고, 사용자 가설이 옳았다.
 - 결론(수정): **품질은 두 모델을 가르지 못한다.** 배치 의도분석의 모델 선택은 이제 ① 비용(EXAONE 저렴) ② serverless rate limit 운영 가능성 두 축의 결정이다. rate limit이 관건 — 재평가 내내 429가 반복돼 실제 배치(그룹 연속 처리)에서 리스크. 후보 경로: EXAONE primary→A.X fallback(429 시 A.X가 받음) 하이브리드.
 - 남은 검증: 골든셋 과적합 가능성(패턴 알고 튜닝함) → held-out/실데이터 검증 필요. rate limit은 실제 배치 처리량으로 별도 검증.
-- 현 상태: 코드는 아직 A.X 유지(실험은 몽키패치, 미반영). 전환 여부는 사용자 결정 대기.
-- 참고: 상시 수집→자동 세션화 경로는 EXAONE 클러스터러를 쓰지 않는다(시간 그룹핑 + A.X 의도분석). EXAONE 클러스터링은 수동 스냅샷 경로 전용.
+- 참고: 상시 수집→자동 세션화 경로는 EXAONE 클러스터러를 쓰지 않는다(시간 그룹핑 + 의도분석). EXAONE 클러스터링(cluster_tabs)은 수동 스냅샷 경로 전용.
+
+## 2026-08-05 — 의도분석 EXAONE-primary 하이브리드 전환 (구현·실데이터 검증 완료)
+
+- 상태: 승인·구현 (사용자 결정: "EXAONE 메인, 오래 대기 시 A.X fallback, 실데이터 검증")
+- 결정: 배치 의도분석을 **EXAONE primary → A.X-K1 fallback**으로 전환. `llm.chat_completion_intent` 신설(EXAONE 우선, `max_retries=0`+`timeout=12s`로 429/지연 시 즉시 A.X 폴백 — 백오프로 오래 대기하지 않음). 프롬프트는 공정 재평가에서 EXAONE 과분할을 잡은 튜닝판을 **v4로 프로덕션 승격**(과분할 금지 블록 + title·purpose 강제). 요약·리랭킹용 `chat_completion_with_meta`(A.X primary)는 무변경.
+- 근거: 공정 재평가에서 품질 대등(EXAONE 배정 97.4%, 노이즈 제외 EXAONE 우세) + EXAONE 저비용. rate limit은 하이브리드로 흡수.
+- 실데이터 검증(139개 이벤트 재세션화): EXAONE 폴백 3건만 발생(대부분 EXAONE 처리, 폴백 즉시·배치 오류 0). 주제 뭉침 대폭 개선("여름음악+맥미니+브랜딩" → 3개로 분리). 잔여 한계: flight+mail 류 일부 뭉침 남음. v4 골든셋 무회귀(100%).
+- 남은 관측: `SyncBatch.model` 감사가 임의 1개만 기록해 폴백률이 안 보임(경미, 향후 개선). 골든셋 과적합 가능성은 실데이터에서 대체로 해소됐으나 flight+mail 뭉침은 추적 대상.
 
 ## 2026-08-05 — EXAONE dedicated → serverless 전환
 
