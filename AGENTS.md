@@ -2,6 +2,36 @@
 
 이 프로젝트에서 작업하는 모든 개발자와 AI 에이전트는 아래 규칙을 따른다.
 
+## 프로젝트 개요와 공식 명령
+
+Orbit은 브라우저 탐색 이벤트를 opt-in 상시 수집해 세션으로 자동 재구성하는
+Personal Exploration Memory 서비스다. 저장소는 세 파트로 구성된다.
+
+* `extension/` — Chrome MV3 사이드패널. WXT + React 19 + TypeScript + Tailwind v4.
+  이벤트 수집기·로컬 큐·동기화 엔진은 `lib/events`, `lib/sync`.
+* `backend/` — FastAPI + SQLAlchemy(async) + PostgreSQL + Qdrant. 이벤트 인제스트,
+  배치 세션화, 세션 API, AI 파이프라인(`app/services`).
+* `frontend/` — 웹 대시보드. React 19 + Vite + TypeScript + Tailwind v4.
+
+로컬 기동은 `./dev.sh`(Docker 포함 일괄) 또는 `./dev_conda.sh`를 사용한다.
+인프라(postgres, qdrant)는 `docker-compose.yml`로 관리한다.
+
+파트별 공식 검증 명령:
+
+```bash
+# Backend — pytest 사용 (unittest 아님)
+cd backend && python -m pytest -p no:asyncio
+
+# Extension — 타입 검사 + 빌드
+cd extension && pnpm compile && pnpm build
+
+# Frontend — 빌드에 타입 검사(tsc --noEmit) 포함
+cd frontend && pnpm build
+```
+
+`backend/eval/`의 평가 하네스(`python -m eval.run_eval`)는 실제 LLM API를 호출해
+비용이 발생하므로 사용자가 요청한 경우에만 실행한다.
+
 ## 1. 기본 원칙
 
 * 변경 전에 기존 코드, 문서, 프로젝트 구조를 먼저 확인한다.
@@ -26,6 +56,10 @@
 8. 변경 파일과 검증 결과를 최종 보고한다.
 
 조사와 오류 재현은 `Plan.md` 작성 전에도 가능하지만, 실제 코드 수정은 계획 작성 후 시작한다.
+
+오타 수정, 문서 수정, 한 파일 안의 소규모 버그 수정처럼 14장의 "큰 변경" 기준에
+해당하지 않는 작업은 `Plan.md` 작성·갱신을 생략할 수 있다. 이 경우에도 검증 실행과
+`WorkLog.md` 기록은 유지한다.
 
 ## 3. Plan.md
 
@@ -76,6 +110,13 @@
 누락된 문서는 관련 작업을 시작할 때 생성한다.
 
 `IA.md`, `UserScenarios.md`, `Personas.md`는 서로 합치지 않는다.
+
+현재 제품 방향과 설계의 기준은 다음 문서이며, 관련 영역을 변경하기 전에 먼저 확인한다.
+
+* `docs/product-direction-v2.md` — 제품 방향과 v2 전환 근거
+* `docs/target-architecture.md` — 목표 아키텍처
+* `docs/api-design-v2.md` — API 설계
+* `docs/data-model-v2.md` — 데이터 모델
 
 ## 6. 문서 기록 기준
 
@@ -220,14 +261,14 @@ docs(config): document provider settings
 
 ## 16. 환경 규칙
 
-Windows와 PowerShell 5.1 환경에서는 다음을 따른다.
+로컬 개발 환경은 Windows 11이다. 프로젝트 스크립트(`dev.sh`, `dev_conda.sh`)는
+bash(Git Bash) 전용이며, PowerShell 5.1에서는 `&&` 체이닝과 복잡한 큰따옴표 인자를
+피한다.
 
-```powershell
-.venv\Scripts\python.exe -m unittest discover -s tests
-```
-
+* Python 환경은 `backend/.venv`(dev.sh가 자동 감지) 또는 프로젝트 로컬
+  conda(`.conda`, dev_conda.sh 사용 시)를 쓰고, 둘 다 없으면 시스템 Python으로 동작한다.
+* 테스트·타입 검사·빌드는 "프로젝트 개요와 공식 명령"의 파트별 명령을 사용한다.
 * 공식 프로젝트 명령이 있으면 해당 명령을 우선한다.
-* 복잡한 큰따옴표 인자는 피한다.
 * 사용자 노출 CLI, 로그, 오류 메시지는 영어 ASCII를 우선한다.
 * 요청 처리 경로에서 블로킹 I/O를 직접 실행하지 않는다.
 * API 키는 로그, 오류, 응답, 대시보드에 노출하지 않는다.

@@ -274,3 +274,37 @@ M5(Analytics·평가 하네스) 순으로 진행했다. M2는 별도 항목(위 
 사용자 결정 필요 항목(신규 dev 의존성)으로 남긴다.
 
 수정 후 재검증: backend 테스트 205개 통과, extension compile/build 통과.
+
+## 2026-08-05 — AGENTS.md 실환경 정합 및 CLAUDE.md 단일화
+
+### 요청
+
+프로젝트 CLAUDE.md를 검토하고 개선점을 반영한다.
+
+### 조사
+
+- CLAUDE.md와 AGENTS.md가 바이트 단위 동일한 복사본 2개로 존재했다(드리프트 위험).
+- 16장 환경 규칙의 테스트 명령(`.venv\Scripts\python.exe -m unittest discover -s tests`)이
+  실제와 불일치 — 백엔드는 pytest(`pyproject.toml`의 `[tool.pytest.ini_options]`),
+  `.venv`는 루트/backend 어디에도 없고 dev.sh는 `backend/.venv` 자동 감지 후 시스템
+  Python 폴백, dev_conda.sh는 프로젝트 로컬 `.conda`를 사용한다.
+- 문서 전체가 범용 프로세스 규칙뿐이라 모노레포 구조·파트별 검증 명령 등 프로젝트
+  특화 정보가 없었다. docs/의 v2 설계 문서 4종도 문서 지도에 빠져 있었다.
+
+### 변경
+
+- `AGENTS.md` — "프로젝트 개요와 공식 명령" 섹션 신설(3파트 구조, dev 스크립트,
+  파트별 검증 명령, eval 하네스 비용 경고). 2장에 큰 변경 기준 미만의 작은 변경은
+  Plan.md 생략 가능 예외 추가. 5장에 v2 설계 기준 문서 4종 지도 추가. 16장을 실제
+  환경(pytest, bash 전용 스크립트, Python 환경 감지 순서)에 맞게 교체.
+- `CLAUDE.md` — 동일 복사본을 `@AGENTS.md` import 한 줄로 전환해 단일 소스 유지.
+
+### 오류와 해결
+
+- 없음.
+
+### 검증
+
+- `cd backend && python -m pytest -p no:asyncio --collect-only -q` — 205개 테스트
+  정상 수집(문서화한 명령이 이 머신에서 동작함을 확인). 전체 테스트 실행과
+  extension/frontend 빌드는 코드 변경이 없어 실행하지 않았다.
