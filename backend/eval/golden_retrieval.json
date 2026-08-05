@@ -1,0 +1,97 @@
+{
+  "sessions": [
+    {
+      "id": "tokyo_trip",
+      "title": "일본 도쿄 여행 준비",
+      "overview": "도쿄 항공권과 호텔을 비교하고 교통 패스와 여행 코스를 알아본 탐색입니다.",
+      "purpose": "도쿄 여행 일정과 예약 준비",
+      "highlights": ["스카이스캐너 항공권 비교", "아고다 호텔 예약", "도쿄 교통 패스"]
+    },
+    {
+      "id": "js_coding_study",
+      "title": "자바스크립트 배열 메서드 공부",
+      "overview": "MDN과 스택오버플로에서 Array reduce 사용법을 찾아보고 리트코드 문제를 푼 학습 세션입니다.",
+      "purpose": "자바스크립트 배열 조작 학습과 알고리즘 연습",
+      "highlights": ["Array.prototype.reduce 사용법", "리트코드 Two Sum", "MDN Array 문서"]
+    },
+    {
+      "id": "gpu_research",
+      "title": "RTX 5070 그래픽카드 구매 분석",
+      "overview": "RTX 5070 성능 벤치마크와 가격을 비교하며 구매를 검토한 탐색입니다.",
+      "purpose": "그래픽카드 구매 의사결정",
+      "highlights": ["RTX 5070 벤치마크", "다나와 가격 비교", "전력 요구사항 확인"]
+    },
+    {
+      "id": "job_hunt",
+      "title": "백엔드 개발자 이직 준비",
+      "overview": "원티드와 링크드인에서 백엔드 채용공고를 살펴보고 잡플래닛에서 회사 리뷰를 확인한 탐색입니다.",
+      "purpose": "이직할 회사 탐색과 채용공고 비교",
+      "highlights": ["토스 서버 개발자 공고", "잡플래닛 기업 리뷰", "링크드인 채용 검색"]
+    },
+    {
+      "id": "osaka_trip",
+      "title": "오사카 여행 준비",
+      "overview": "오사카 항공권과 호텔을 알아보고 주유패스와 난바역 위치를 확인한 탐색입니다.",
+      "purpose": "오사카 여행 예약과 동선 계획",
+      "highlights": ["서울-오사카 항공권", "오사카 주유패스", "난바역 지도 확인"]
+    },
+    {
+      "id": "react_state_study",
+      "title": "React 상태관리 라이브러리 학습",
+      "overview": "Zustand 슬라이스 패턴과 Redux Toolkit 마이그레이션 가이드를 비교하며 공부한 세션입니다.",
+      "purpose": "상태관리 라이브러리 선택 기준 정리",
+      "highlights": ["Zustand slices 패턴", "Redux Toolkit 마이그레이션", "TkDodo 블로그"]
+    },
+    {
+      "id": "laptop_shopping",
+      "title": "노트북 구매 비교 탐색",
+      "overview": "다나와와 쿠팡에서 노트북 가격을 비교하고 그램과 맥북 에어 리뷰 영상을 본 탐색입니다.",
+      "purpose": "새 노트북 기종 선택",
+      "highlights": ["LG 그램 16 상품 페이지", "그램 vs 맥북 에어 비교", "다나와 가격비교"]
+    },
+    {
+      "id": "kimchi_recipe",
+      "title": "김치찌개 레시피 탐색",
+      "overview": "백종원 김치찌개 레시피와 돼지고기 손질법을 찾아본 요리 탐색입니다.",
+      "purpose": "저녁 식사 요리 준비",
+      "highlights": ["백종원 김치찌개", "돼지고기 앞다리살 손질"]
+    },
+    {
+      "id": "tax_report",
+      "title": "종합소득세 신고 방법 알아보기",
+      "overview": "홈택스에서 종합소득세 신고 절차와 프리랜서 경비 처리 기준을 확인한 탐색입니다.",
+      "purpose": "5월 종소세 신고 준비",
+      "highlights": ["홈택스 신고 절차", "프리랜서 경비 인정 항목"]
+    },
+    {
+      "id": "camping_gear",
+      "title": "캠핑 장비 알아보기",
+      "overview": "초보 캠핑용 텐트와 타프를 비교하고 캠핑장 예약 사이트를 둘러본 탐색입니다.",
+      "purpose": "첫 캠핑 장비 구매 준비",
+      "highlights": ["4인용 텐트 비교", "타프 종류", "캠핑장 예약"]
+    }
+  ],
+  "positive_queries": [
+    { "query": "도쿄 여행 준비하던 탭 복원해줘", "expected": "tokyo_trip" },
+    { "query": "일본 항공권이랑 호텔 알아보던 거", "expected": "tokyo_trip" },
+    { "query": "자바스크립트 reduce 공부하던 기록", "expected": "js_coding_study" },
+    { "query": "리트코드 문제 풀던 세션", "expected": "js_coding_study" },
+    { "query": "그래픽카드 구매 알아보던 거 찾아줘", "expected": "gpu_research" },
+    { "query": "RTX 5070 벤치마크 보던 페이지", "expected": "gpu_research" },
+    { "query": "이직 준비하면서 보던 채용공고", "expected": "job_hunt" },
+    { "query": "토스 서버 개발자 공고 봤던 거", "expected": "job_hunt" },
+    { "query": "오사카 주유패스 알아보던 기록", "expected": "osaka_trip" },
+    { "query": "리액트 상태관리 라이브러리 비교하던 탭", "expected": "react_state_study" },
+    { "query": "Zustand랑 Redux 공부하던 세션", "expected": "react_state_study" },
+    { "query": "노트북 사려고 비교하던 페이지", "expected": "laptop_shopping" },
+    { "query": "김치찌개 끓이는 법 찾아봤던 거", "expected": "kimchi_recipe" },
+    { "query": "종소세 신고 방법 알아보던 기록", "expected": "tax_report" }
+  ],
+  "negative_queries": [
+    "부동산 청약 알아보던 기록",
+    "헬스장 PT 가격 비교하던 거",
+    "고양이 사료 추천 보던 탭",
+    "영어 회화 학원 알아본 거",
+    "주식 배당주 정리하던 세션"
+  ]
+}

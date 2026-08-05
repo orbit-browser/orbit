@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     # 데이터스토어
     database_url: str = "postgresql+asyncpg://orbit:orbit@localhost:5432/orbit"
     qdrant_url: str = "http://localhost:6333"
-    search_score_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
+    # 0.28 = 검색 골든셋 실측(eval/run_retrieval_eval.py, 2026-08-05) 기준
+    # 음성 질의 최고점(0.265)과 정답 최저점(0.289) 사이의 분리 구간 중앙값
+    search_score_threshold: float = Field(default=0.28, ge=0.0, le=1.0)
 
     # Auto Session 동기화 (M3 sync_pipeline에서 사용 — docs/implementation-roadmap.md M1-1)
     sync_interval_minutes: int = Field(default=0, ge=0)  # 0 = 주기 동기화 off
