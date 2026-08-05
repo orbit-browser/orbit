@@ -50,7 +50,7 @@ def _friendli_client() -> AsyncOpenAI:
 
 
 def _exaone_model_label() -> str:
-    """감사 필드용 모델명 — dedicated endpoint ID는 불투명하므로 접두어를 붙인다."""
+    """감사 필드용 모델명 — A.X와 구분되도록 접두어를 붙인다."""
     return f"exaone/{settings.exaone_model}"
 
 

@@ -15,11 +15,11 @@ class Settings(BaseSettings):
     axk1_base_url: str = "https://awf-gw.adot.ai"
     axk1_model: str = "A.X-K1"
 
-    # LG EXAONE (FriendliAI dedicated endpoint, OpenAI 호환) — 클러스터링 primary.
-    # exaone_model에는 FriendliAI dedicated endpoint ID를 넣는다.
+    # LG EXAONE (FriendliAI serverless, OpenAI 호환) — 클러스터링 primary.
+    # dedicated endpoint는 웜 상태에서도 ~60초/호출로 부적합해 serverless 채택(DecisionLog 2026-08-05).
     friendli_api_key: str = ""
-    friendli_base_url: str = "https://api.friendli.ai/dedicated/v1"
-    exaone_model: str = ""
+    friendli_base_url: str = "https://api.friendli.ai/serverless/v1"
+    exaone_model: str = "LGAI-EXAONE/K-EXAONE-236B-A23B"
 
     # Upstage — embedding 전용 (채팅 경로는 A.X-K1 ↔ EXAONE 상호 폴백으로 대체)
     upstage_api_key: str = ""

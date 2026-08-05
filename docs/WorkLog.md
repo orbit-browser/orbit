@@ -592,3 +592,32 @@ A.X를 쓰도록 재배정한다. 확인 질의로 결정: A.X는 기존 A.X-K1 
 - 실호출 스모크: A.X primary 정상, EXAONE 타임아웃 → A.X 폴백 정상(fail-open),
   A.X 강제 다운 → EXAONE 폴백 시도 확인(현재는 지연으로 타임아웃)
 - README 기술 스택 표·핵심 기능 서술 갱신
+
+## 2026-08-05 — EXAONE serverless 전환 (속도 재측정 결과)
+
+### 요청
+
+EXAONE 엔드포인트 속도를 재측정한다.
+
+### 측정
+
+- dedicated 재측정 5회: 54~70초/호출 — 변화 없음. 타이밍 분해로 원인 확정:
+  DNS 0.02초/연결 0.08초/TLS 0.14초/**첫 바이트 55.1초** → 전부 서버측 지연.
+- 같은 토큰의 serverless 모델 목록에서 `LGAI-EXAONE/K-EXAONE-236B-A23B` 발견
+  ($0.2/$0.8 per M). 3회 측정: **0.34~0.53초** + enable_thinking=false 정상 동작.
+- 사용자 결정: serverless 전환.
+
+### 변경
+
+- `app/config.py` — friendli_base_url 기본값 serverless로, exaone_model 기본값
+  `LGAI-EXAONE/K-EXAONE-236B-A23B`(공개 모델명이라 코드 기본값 가능).
+- `backend/.env` — dedicated endpoint ID 제거(기본값 사용). `.env.example` 정리.
+
+### 검증
+
+- backend pytest 205 passed
+- 실배선 스모크: EXAONE light 3회 0.38~2.27초(첫 호출만 클라이언트 초기화 포함),
+  A.X with_meta 0.52초, A.X 강제 다운 → EXAONE 폴백 3.25초 성공
+  (`model=exaone/LGAI-EXAONE/K-EXAONE-236B-A23B` 감사 라벨 확인).
+- 관찰: serverless는 버스트 rate limit 있음 — 테스트 연속 호출 중 429 1회, 45초 후
+  회복. 전역 0.5초 리미터로 통상 트래픽은 문제없다고 판단, DecisionLog에 기록.

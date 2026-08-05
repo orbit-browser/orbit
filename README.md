@@ -129,4 +129,4 @@ python -m eval.run_eval
 | 웹 대시보드 | React 19, Vite, TypeScript, Tailwind v4, TanStack Query, Zustand |
 | Backend | FastAPI, SQLAlchemy (async) + PostgreSQL, Pydantic v2 |
 | 벡터 검색 | Qdrant |
-| AI | SKT A.X-K1(요약·의도분석·리랭킹 primary), LG EXAONE(FriendliAI dedicated, 클러스터링 primary) — 상호 폴백, Upstage embedding-query(검색)/embedding-passage(저장) |
+| AI | SKT A.X-K1(요약·의도분석·리랭킹 primary), LG K-EXAONE(FriendliAI serverless, 클러스터링 primary) — 상호 폴백, Upstage embedding-query(검색)/embedding-passage(저장) |

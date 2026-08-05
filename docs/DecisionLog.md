@@ -136,6 +136,14 @@
 - 근거와 영향: 사용자 평가에서 EXAONE(클러스터링)/A.X(요약·리랭킹) 조합이 성능·비용 최적. 상호 폴백으로 채팅 경로의 Upstage 의존 제거. EXAONE 4.0은 hybrid reasoning 모델이라 `chat_template_kwargs.enable_thinking=false`를 항상 전달해야 content가 채워진다(실측).
 - **미해결 리스크**: 현재 FriendliAI dedicated endpoint가 웜 상태에서도 호출당 ~60초(4회 연속 실측)로, 25초 타임아웃에 걸려 클러스터링이 항상 A.X로 폴백된다. 엔드포인트 사양/상태 확인 전까지 EXAONE은 사실상 대기 상태 — FriendliAI 콘솔 확인 필요(열린 결정 표 참조).
 
+## 2026-08-05 — EXAONE dedicated → serverless 전환
+
+- 상태: 승인
+- 배경: dedicated endpoint가 웜 상태에서도 호출당 54~70초(첫 바이트까지 55초 — 전부 서버측 지연, 네트워크 정상)로 25초 타임아웃에 항상 걸려 클러스터링이 A.X로만 폴백되고 있었다.
+- 결정: FriendliAI serverless `LGAI-EXAONE/K-EXAONE-236B-A23B`로 전환(base_url/model 기본값 변경). 종량제 $0.2/$0.8 per M tokens.
+- 대안: dedicated 인스턴스 사양 상향(콘솔 확인·비용 증가), 클러스터링 A.X 회귀(모델 다양성 상실)
+- 근거와 영향: 실측 0.3~0.5초/호출로 170배 빠르고 실제 코드 경로(chat_completion_light) 스모크 통과. A.X 다운 시 EXAONE 폴백도 3.3초에 성공. 주의: serverless는 버스트에 민감한 rate limit이 있어(테스트 중 연속 호출로 429 1회 관찰, 45초 후 회복) 429 시 A.X 폴백(light 경로) 또는 오류 전파(with_meta 폴백 경로)로 처리된다 — 현행 0.5초 전역 리미터로 통상 트래픽에서는 문제없을 것으로 판단.
+
 ## 열린 결정
 
 | 항목 | 필요한 결정 | 구현 전 조건 | 상태 |
@@ -146,4 +154,4 @@
 | 외부 배포 보안 | 인증 방식과 허용 origin | 배포 환경 확정 | 미해결 |
 | 웹 복원 | 안내 CTA 또는 제한적 복원 | 제품 범위 확정 | 미해결 |
 | 노이즈 사전 필터 | 체류 임계(예: 30초) 미만 + SNS/광고성 도메인 이벤트를 LLM 무호출로 discard하는 서버측 결정 규칙 도입 여부 | 임계값·도메인 목록 정의, 데이터 처리 정책 합의 (프롬프트 v2로 노이즈 제외율은 개선됐으나 LLM 변동성이 잔존 — 2026-08-05 제안) | 미해결 |
-| EXAONE 엔드포인트 지연 | FriendliAI dedicated endpoint가 웜 상태에서도 ~60초/호출 — 인스턴스 사양·sleep 설정·리전 확인 후 유지/교체 결정 | FriendliAI 콘솔 확인 (2026-08-05 실측) | 미해결 |
+| EXAONE 엔드포인트 지연 | ~~dedicated ~60초/호출 문제~~ | serverless 전환으로 해소 | 결정됨 (2026-08-05, 아래 "EXAONE serverless 전환" 항목) |
