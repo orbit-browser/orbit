@@ -377,3 +377,49 @@ postgres/qdrant(기존 가동) + uvicorn으로 백엔드 기동. **9/9 PASS**:
 - 노이즈 제외율 50% 원인인 의도 분석 discard 기준 보강(프롬프트).
 - 검색 score threshold(0.35) 실측 튜닝 — 골든셋 확대 후 재평가.
 - 세션별 탐색 시간 "0분" 표시 정책 검토(분 미만 반올림).
+
+## 2026-08-05 — M6 검증(계속): SW 강제 종료 생존 + 유휴 트리거 E2E
+
+### 요청
+
+남은 실기기 검증 항목 중 SW 강제 종료와 유휴 트리거를 이어서 검증한다.
+
+### 방법
+
+Playwright E2E 스크립트 2탄(스크래치패드, 저장소 미포함). 새 프로필에 빌드 확장 로드,
+uvicorn + 기존 docker로 백엔드 기동. SW 종료는 브라우저 레벨 CDP
+`Target.closeTarget`으로 수행하고 종료 후 SW 타깃 부재를 재조회로 확인했다.
+
+### 결과 — 14/14 PASS
+
+**SW 강제 종료 생존:**
+- 방문 A 후 활성 세그먼트가 `chrome.storage.session`(`orbit:activeSegment`)에 열림
+- 8초 체류 후 SW 강제 종료 → 세그먼트가 동일 값(activeSince/eventId)으로 생존
+- 방문 B로 SW 재기동 → A finalize(pending) + **체류시간 11.8초 정산** — 세그먼트
+  열림→SW 사망 구간→B 방문까지 벽시계(14.8초) 내 전 구간 반영, 유실 없음
+- 탭 상태(`orbit:tabState`)도 생존 — B가 A를 previousEventId/referrerUrl로 정확히 체이닝
+
+**유휴 트리거:**
+- SW 재기동 인스턴스에서 `idle.onStateChanged`/`alarms.onAlarm` 리스너 등록 확인
+- collector가 유휴 진입 시 예약하는 것과 동일한 `orbit-idle-drain` 1회성 알람을 30초
+  뒤로 예약 → 실제 chrome.alarms 발화 → `drain('idle')` 실행 → pending(A)만 synced,
+  open(B)은 finalize되지 않음(설계 일치), 알람 소진(재예약 없음), lastSyncAt 갱신
+
+**검증 한계(정직 고지):** 실제 OS 유휴(60초 무입력)로 `idle.onStateChanged`가 발화하는
+구간은 사용 중인 기기에서 자동화 불가 — 리스너 등록 확인 + 알람→drain 체인 실발화로
+대체했고, "idle 진입 → 알람 예약" 10줄 리스너는 코드 리뷰로 갈음했다. 완전한 확인이
+필요하면 idleSyncMin=1로 두고 기기를 약 2.5분 방치하는 수동 테스트로 가능하다.
+
+### 오류와 해결
+
+- 1차 실행에서 "SW 종료 후 세그먼트 생존" FAIL — 테스트 스크립트가 SW를 죽이기 전에
+  `chrome://serviceworker-internals` 탭을 열어 `tabs.onActivated`가 세그먼트를 먼저
+  정산(제품의 정상 동작). CDP 전용 kill(탭/포커스 무변화)로 스크립트를 수정해 재실행,
+  제품 결함 아님.
+
+### 남은 일
+
+- SearchView 2그룹 렌더 실기기 확인(다음 세션에서 Playwright MCP로 가능).
+- 노이즈 제외율 50% — 의도 분석 discard 기준 프롬프트 보강.
+- 검색 score threshold(0.35) 실측 튜닝.
+- 세션별 탐색 시간 "0분" 표시 정책 검토.
