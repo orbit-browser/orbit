@@ -11,7 +11,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from ..ai.embedding import embed
 from ..config import settings
@@ -30,6 +30,9 @@ _MAX_GROUP_SIZE = 25
 _CANDIDATE_VECTOR_LIMIT = 3
 _CANDIDATE_RECENT_LIMIT = 5
 _CANDIDATE_RECENT_HOURS = 24
+# 벡터 유사 후보도 이 기간을 넘긴 세션이면 제외 — 주제가 비슷하다는 이유로
+# 오래전 끝난 탐색에 조용히 append되는 것을 막는다(도그푸딩 1차 피드백).
+_CANDIDATE_MAX_AGE_DAYS = 7
 _ERROR_MESSAGE_MAX_CHARS = 500
 
 _batch_lock = asyncio.Lock()
@@ -76,15 +79,19 @@ def _group_embedding_text(group: list[dict]) -> str:
 
 
 def _sessions_to_candidates(sessions: list[SessionModel]) -> list[dict]:
+    now = datetime.now(timezone.utc)
     candidates = []
     for s in sessions:
         summary = s.summary or {}
+        last_activity = s.last_activity_at or s.created_at
         candidates.append(
             {
                 "session_id": s.id,
                 "title": s.title,
                 "overview": summary.get("overview") or "",
                 "keywords": s.keywords or [],
+                # LLM이 "이어지는 탐색"인지 판단할 때 참고할 경과일 — 프롬프트에 표기됨
+                "last_activity_days_ago": max(0, (now - last_activity).days) if last_activity else None,
             }
         )
     return candidates
@@ -220,8 +227,15 @@ async def _fetch_candidates(vector: list[float]) -> list[dict]:
         if not combined_ids:
             return []
 
+        # recency 컷 — 벡터 후보에도 적용(최근 활동 후보는 24h 컷이라 항상 통과).
+        # last_activity_at이 없는 snapshot 세션은 created_at 기준으로 판정한다.
+        recency_floor = datetime.now(timezone.utc) - timedelta(days=_CANDIDATE_MAX_AGE_DAYS)
         sessions_result = await db.execute(
-            select(SessionModel).where(SessionModel.id.in_(combined_ids))
+            select(SessionModel).where(
+                SessionModel.id.in_(combined_ids),
+                func.coalesce(SessionModel.last_activity_at, SessionModel.created_at)
+                >= recency_floor,
+            )
         )
         sessions_by_id = {s.id: s for s in sessions_result.scalars().all()}
 

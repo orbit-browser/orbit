@@ -7,7 +7,13 @@
 
 - 모든 신규 엔드포인트는 `user_id`를 요청/응답에 노출하지 않는다(인증 미도입 — 서버가 내부적으로 `'local'` 고정값을 사용). 인증 도입 시점에 헤더/토큰 기반으로 대체한다(MVP 범위 밖).
 - 날짜/시간은 기존 `SessionDetail.created_at`과 동일하게 ISO 8601 문자열로 반환한다.
-- 목록형 응답은 기존 `GET /sessions`와 동일하게 최신순(내림차순) 정렬을 기본으로 한다.
+- 목록형 응답은 최신순(내림차순) 정렬을 기본으로 한다. `GET /sessions`의 정렬 키는
+  `coalesce(last_activity_at, created_at)`이다 — append로 성장한 세션이 마지막 활동
+  기준으로 위로 올라온다(2026-08-05 도그푸딩 피드백). `SessionDetail` 응답에
+  `last_activity_at`(nullable, snapshot 세션은 null)이 포함되며 클라이언트 timeLabel도
+  `last_activity_at ?? created_at`을 쓴다.
+- `DELETE /sessions/{id}`는 자식 행(`session_events`, `session_versions`)을 함께
+  삭제한다(FK에 ON DELETE 없음 — 애플리케이션 계층에서 정리).
 
 ## 1. `POST /events` — 배치 인제스트
 

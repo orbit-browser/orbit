@@ -638,3 +638,77 @@ main 병합 전, LLM 재배정에서 유일하게 실측이 빠졌던 스냅샷 
 
 이로써 재배정된 모든 LLM 경로(클러스터링=EXAONE, 요약·의도분석·리랭킹=A.X, 상호
 폴백)가 실측 검증됐다. 다음: main 병합.
+
+## 2026-08-05 — 도그푸딩 1차 피드백 수정 (세션 최신성·후보 recency·골든셋 실데이터화)
+
+### 요청
+
+도그푸딩 첫날 사용자 보고 2건을 조사·수정한다: ① 항공권 세션에 무관 방문(대학 포털
+로그인·Kaggle 홈)이 섞임 ② 새로 만들어진 세션이 옛 테스트 세션들 밑에 깔림. 조사 후
+사용자 승인으로 4개 항목(정렬 수정·후보 recency 컷·골든셋 확장·테스트 세션 삭제)을
+모두 진행했다.
+
+### 조사 결과
+
+- "밑에 깔린 새 세션"의 정체: 새 세션이 아니라 **7/3 테스트 세션에 append**된 것.
+  벡터 유사 후보에 시간 제한이 없어 한 달 전 세션이 후보로 올라갔고 LLM이 append했다.
+  목록 정렬·표시가 `created_at` 기준이라 append된 세션이 옛 날짜로 아래에 묻혔다
+  (`last_activity_at`은 정상 갱신되고 있었으나 정렬·표시에 미사용).
+- `DELETE /sessions/{id}`가 자식 행(`session_events`, `session_versions`)을 지우지
+  않아 버전이 있는 세션 삭제 시 FK IntegrityError가 나는 잠재 결함 발견(테스트 세션
+  삭제에 필요해 함께 수정).
+- 실데이터 체류시간은 골든셋 가정(분 단위)과 달리 초 단위(항공권 42s·5s, 검색 5s)로
+  훨씬 마진이 얇았다.
+
+### 변경
+
+- `backend/app/api/sessions.py` — 목록 정렬 `coalesce(last_activity_at, created_at) desc`,
+  `_to_detail`에 last_activity_at 포함, delete_session이 자식 행 정리 후 삭제.
+- `backend/app/schemas/session.py` — `SessionDetail.last_activity_at`(nullable) 추가.
+- `backend/app/services/sync_pipeline.py` — 후보 세션에 recency 컷 7일 적용
+  (벡터 후보 포함, `_CANDIDATE_MAX_AGE_DAYS`), 후보 dict에 `last_activity_days_ago`.
+- `backend/app/services/intent_analyzer.py` — 후보 프롬프트 라인에 "마지막 활동:
+  오늘/N일 전" 표기(없으면 생략, 골든셋 하위호환), PROMPT_VERSION v2→v3.
+- `backend/eval/golden/` — 실데이터 시나리오 2개 추가:
+  `flight_rebooking_with_stray_visits`(주제 맞는 후보 존재), 
+  `flight_search_vs_generic_candidate`(일반 제목 후보만 존재 — 라이브 실패 재현).
+- `extension/lib/api.ts`, `frontend/src/lib/api.ts` — timeLabel을
+  `last_activity_at ?? created_at` 기준으로. `SessionDetailView` 라벨 "저장"→"활동".
+- 테스트: `test_sync_pipeline.py` 후보 포맷 갱신, `test_intent_analyzer.py`에
+  후보 라인 표기/생략 테스트 추가.
+
+### 프롬프트 보강 시도와 반려 (중요 발견)
+
+- discard 예시 확대("사이트 홈·로그인 화면")와 "스침 방문 끼워넣기 금지" 지침을 각각
+  시도 → 둘 다 job_search 시나리오를 무너뜨림(정확도 100%→40%, 후자는 2회 재현).
+  **두 보강 모두 반려**하고 v3는 후보 최신활동 표기만 유지.
+- **A.X-K1은 temperature 0에서도 실행 간 판정이 흔들린다** — 같은 프롬프트로 전체
+  골든셋이 100% ↔ 실패 2건을 오감(서버측 비결정성). 특히 초 단위 체류의 경계 이벤트
+  (스침 방문)는 discard/hold/세션 혼입 사이를 오간다. 배정 정확도는 안정적으로 높음
+  (97~100%), 노이즈 제외율만 변동(0~100%). → 프롬프트 미세조정으로 해결 불가.
+  구조적 해법(노이즈 사전 필터)의 우선순위를 상향해 열린 결정에 반영.
+- 최종 확정 평가(9개 시나리오): 배정 정확도 97.4%, purity 97.9%, coverage 100%,
+  new/existing 100%, 노이즈 제외 69.2%(변동 구간).
+
+### 데이터 정리 (사용자 삭제 승인)
+
+- 테스트 세션 21개 삭제: 7/3 세션 17개 + 오늘 스모크 4개(example.com 3개 +
+  클러스터링 스모크 "상태 관리 전략 분석"). 수정된 DELETE로 FK 오류 없이 완료.
+- 항공권 실이벤트 5건 재세션화: LLM 재배치를 2회 시도했으나 매번 다른 형태로 뒤섞임
+  (1차: GitHub 세션에 전부 append, 2차: 한밭대가 GitHub 세션에 붙고 세션 제목까지
+  "한밭대 포털 로그인"으로 오염, 42초 핵심 방문은 discard). **LLM 재배치 중단** 후
+  결정적 수술로 복구: 한밭대(2건)·Kaggle 이벤트 분리·discard, 항공권 3건을 한 세션
+  ("제주 항공권 검색")으로 통합(오폐기 42초 방문은 `assigned_by='user'`로 복원),
+  `_resync_tabs`·통계 재계산·retry-summary로 마무리.
+- 최종 상태: 실사용 세션 3개(브라우저 탐색/가비아/제주 항공권 검색)만 남음.
+- 관찰: 배치가 discard로 마킹한 이벤트의 session_events 행이 남아 있는 사례 1건 발견
+  (원인 미상 — 재발 시 apply_assignments 트랜잭션 검토 필요).
+
+### 검증
+
+- backend `python -m pytest -p no:asyncio`: 207 passed
+- extension `pnpm test`(31 passed) + `pnpm compile` + `pnpm build`: 통과
+- frontend `pnpm build`(tsc 포함): 통과
+- 평가 `python -m eval.run_eval`: 위 "프롬프트 보강" 절 참조(사용자 승인 하 실행)
+- 라이브 확인: 세션 목록이 마지막 활동 기준 정렬로 반환, last_activity_at 필드 노출,
+  DELETE 자식 정리 21회 무오류

@@ -54,6 +54,9 @@ class SessionDetail(BaseModel):
     tabs: list[TabItemResponse]
     created_at: str
     updated_at: str
+    # Auto Session append 시 갱신되는 마지막 활동 시각 — 목록 정렬·표시 기준.
+    # origin='snapshot' 세션에는 없어 null(클라이언트는 created_at fallback).
+    last_activity_at: str | None = None
 
 
 class SessionEventItem(BaseModel):

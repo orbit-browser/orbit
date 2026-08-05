@@ -13,7 +13,7 @@ from ..ai.llm import chat_completion_with_meta
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 
 _VALID_ACTIONS = {"append", "create", "hold", "discard"}
 _CANDIDATE_LABEL_RE = re.compile(r"^S(\d+)$")
@@ -116,7 +116,11 @@ def _format_candidate_line(index: int, candidate: dict) -> str:
     title = candidate.get("title") or ""
     overview = (candidate.get("overview") or "")[:_MAX_OVERVIEW_CHARS]
     keywords = ", ".join(candidate.get("keywords") or [])
-    return f"[S{index}] {title} | {overview} | {keywords}"
+    line = f"[S{index}] {title} | {overview} | {keywords}"
+    days_ago = candidate.get("last_activity_days_ago")
+    if isinstance(days_ago, int):
+        line += f" | 마지막 활동: {'오늘' if days_ago == 0 else f'{days_ago}일 전'}"
+    return line
 
 
 def _build_prompt(group: list[dict], candidates: list[dict]) -> str:

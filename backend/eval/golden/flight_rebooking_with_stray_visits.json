@@ -1,0 +1,68 @@
+{
+  "name": "flight_rebooking_with_stray_visits",
+  "description": "도그푸딩 실데이터 오분류 케이스(2026-08-05, 실제 체류시간 반영) — 초 단위 체류의 항공권 탐색 흐름(검색어·동일 주제)은 기존 세션에 이어지고, 대학 포털 로그인(3초)·서비스 홈 스침(29초)은 noise로 걸러져야 한다.",
+  "events": [
+    {
+      "id": "a3f1c2d4-0001-4a01-9b01-d0gf00d00001",
+      "url": "https://my.hanbat.ac.kr/login.do",
+      "title": "한밭대학교",
+      "visited_at": "2026-08-05T08:49:00Z",
+      "active_duration_ms": 3000
+    },
+    {
+      "id": "a3f1c2d4-0002-4a02-9b02-d0gf00d00002",
+      "url": "https://www.kaggle.com/",
+      "title": "Kaggle: The World's AI Proving Ground",
+      "visited_at": "2026-08-05T08:49:10Z",
+      "active_duration_ms": 29000
+    },
+    {
+      "id": "a3f1c2d4-0003-4a03-9b03-d0gf00d00003",
+      "url": "https://search.naver.com/search.naver?where=nexearch&sm=top_hty&query=제주 항공권",
+      "title": "제주 항공권 : 네이버 검색",
+      "visited_at": "2026-08-05T08:50:00Z",
+      "active_duration_ms": 5000
+    },
+    {
+      "id": "a3f1c2d4-0004-4a04-9b04-d0gf00d00004",
+      "url": "https://flight.naver.com/flights/domestic/CJJ-CJU-20260829/CJU-CJJ-20260901?adult=1&fareType=Y",
+      "title": "네이버 항공권",
+      "visited_at": "2026-08-05T08:51:00Z",
+      "active_duration_ms": 42000
+    },
+    {
+      "id": "a3f1c2d4-0005-4a05-9b05-d0gf00d00005",
+      "url": "https://flight.naver.com/flights/domestic/detail/CJJ-CJU-20260812",
+      "title": "네이버 항공권",
+      "visited_at": "2026-08-05T08:53:30Z",
+      "active_duration_ms": 5000
+    }
+  ],
+  "existing_sessions": [
+    {
+      "session_id": "flight_booking",
+      "title": "항공권 예약 및 비교",
+      "overview": "제주 항공권 일정과 가격을 비교하며 예약을 검토하는 중입니다.",
+      "keywords": [
+        "항공권",
+        "제주",
+        "네이버 항공권"
+      ],
+      "last_activity_days_ago": 0
+    }
+  ],
+  "expected": {
+    "session_count": 1,
+    "assignments": {
+      "a3f1c2d4-0001-4a01-9b01-d0gf00d00001": "noise",
+      "a3f1c2d4-0002-4a02-9b02-d0gf00d00002": "noise",
+      "a3f1c2d4-0003-4a03-9b03-d0gf00d00003": "flight_booking",
+      "a3f1c2d4-0004-4a04-9b04-d0gf00d00004": "flight_booking",
+      "a3f1c2d4-0005-4a05-9b05-d0gf00d00005": "flight_booking"
+    },
+    "new_vs_existing": "existing",
+    "titles_hint": [
+      "항공권 예약 및 비교"
+    ]
+  }
+}

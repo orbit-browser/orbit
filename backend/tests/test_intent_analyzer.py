@@ -169,3 +169,22 @@ def test_assignments_not_a_list_falls_back_to_hold(monkeypatch):
     events = [_event()]
     result = asyncio.run(intent_analyzer.analyze(events, []))
     assert result[0].action == "hold"
+
+
+def test_candidate_line_includes_last_activity_when_present():
+    line = intent_analyzer._format_candidate_line(
+        0,
+        {"title": "제목", "overview": "개요", "keywords": ["k"], "last_activity_days_ago": 3},
+    )
+    assert line == "[S0] 제목 | 개요 | k | 마지막 활동: 3일 전"
+
+    today_line = intent_analyzer._format_candidate_line(
+        1, {"title": "제목", "overview": "개요", "keywords": [], "last_activity_days_ago": 0}
+    )
+    assert today_line.endswith("마지막 활동: 오늘")
+
+
+def test_candidate_line_omits_last_activity_when_absent():
+    # 평가 골든셋처럼 last_activity_days_ago가 없는 후보는 기존 포맷 유지
+    line = intent_analyzer._format_candidate_line(0, {"title": "제목", "overview": "개요", "keywords": []})
+    assert "마지막 활동" not in line

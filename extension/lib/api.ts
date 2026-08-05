@@ -38,6 +38,7 @@ interface BackendSession {
   tabs: BackendTab[];
   created_at: string;
   updated_at: string;
+  last_activity_at: string | null;
 }
 
 interface BackendTodayEvent {
@@ -108,7 +109,8 @@ function mapSession(b: BackendSession): Session {
     })),
     createdAt: b.created_at,
     updatedAt: b.updated_at,
-    timeLabel: formatTimeLabel(new Date(b.created_at)),
+    // append로 성장하는 Auto Session은 마지막 활동 시각이 사용자 기억과 맞는 기준
+    timeLabel: formatTimeLabel(new Date(b.last_activity_at ?? b.created_at)),
     summary: mapSummary(b.summary),
     summaryStatus: b.summary_status,
   };

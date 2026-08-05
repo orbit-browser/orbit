@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.clusterer import cluster_tabs
@@ -71,6 +71,9 @@ def _to_detail(session: SessionModel) -> SessionDetail:
         tabs=tabs,
         created_at=session.created_at.isoformat(),
         updated_at=session.updated_at.isoformat(),
+        last_activity_at=(
+            session.last_activity_at.isoformat() if session.last_activity_at else None
+        ),
     )
 
 
@@ -174,8 +177,12 @@ async def create_sessions_clustered(
 async def list_sessions(
     db: AsyncSession = Depends(get_db),
 ) -> list[SessionDetail]:
+    # append로 탭이 추가된 세션이 위로 올라오도록 마지막 활동 기준 정렬
+    # (last_activity_at이 없는 snapshot 세션은 created_at fallback)
     result = await db.execute(
-        select(SessionModel).order_by(SessionModel.created_at.desc())
+        select(SessionModel).order_by(
+            func.coalesce(SessionModel.last_activity_at, SessionModel.created_at).desc()
+        )
     )
     return [_to_detail(s) for s in result.scalars().all()]
 
@@ -281,6 +288,10 @@ async def delete_session(
     session = await db.get(SessionModel, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    # FK에 ON DELETE가 없어 자식 행을 먼저 지워야 한다(session_events는 origin='events',
+    # session_versions는 요약이 한 번이라도 성공한 모든 세션에 존재)
+    await db.execute(delete(SessionEvent).where(SessionEvent.session_id == session_id))
+    await db.execute(delete(SessionVersion).where(SessionVersion.session_id == session_id))
     await db.delete(session)
     await db.commit()
     await delete_point(session_id)  # Qdrant에서도 제거
