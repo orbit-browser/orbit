@@ -843,3 +843,45 @@ main 병합 전, LLM 재배정에서 유일하게 실측이 빠졌던 스냅샷 
 
 - `SyncBatch.model` 감사 필드가 그룹별 사용 모델 집합에서 임의 1개만 기록(`next(iter(...))`)해
   이번 배치가 EXAONE 위주였는데도 "A.X-K1"로 표기됨. 폴백률 관측을 위해 향후 개선 여지.
+
+## 2026-08-05 — 잔여 뭉침(flight+mail) 개선(프롬프트 v5) + 배치 감사 필드 개선
+
+### 요청
+
+하이브리드 전환 후 남은 flight+mail 뭉침을 개선하고, 폴백률이 안 보이던 감사 필드를 개선.
+
+### 조사
+
+"항공권 예약 및 결제 확인"(16개)을 뜯어보니 항공권(08:49~08:50)과 메일 확인
+(11:04~11:23, 약 2.5시간 뒤)이 한 세션. 원인은 그룹 내 뭉침이 아니라 **그룹 간 과잉
+append** — 나중 메일 그룹 처리 시 방금 만든 항공권 세션이 후보로 잡혀 LLM이 "결제 확인"
+으로 append. 나망 받은편지함 8건은 대부분 1~6초 습관성.
+
+### 변경
+
+- `app/services/intent_analyzer.py` — PROMPT_VERSION v4→v5. "받은편지함·메일 목록 같은
+  일반 메일 확인은 특정 작업의 확인 메일이 명백하지 않으면 무관한 세션에 append하지 말고
+  별도 '메일 확인' 세션(create)으로, 스침이면 discard" 지침 추가.
+- `app/services/sync_pipeline.py` — `_summarize_models()` 신설. 배치 `model` 감사 필드를
+  그룹별 사용 모델 카운트 요약으로 기록(예: `exaone:12,A.X-K1:3`). EXAONE 긴 라벨은
+  "exaone"으로 축약, String(50) 상한. `_process_batch`가 Counter로 집계.
+- `eval/golden/mail_browsing_not_appended_to_flight.json` — 신규. 항공권 후보 + 업무 메일
+  읽기(명확한 활동) → 별도 mail_check 세션으로 분리(항공권에 append 금지) 검증.
+- 테스트: `test_summarize_models_counts_and_shortens` 추가, `_process_batch` 모델 단언 갱신.
+
+### 검증
+
+- backend pytest: **232 passed**
+- 골든셋 전체(10개): 배정·순도·커버리지·노이즈 100%, 실패 0건. 신규 메일 시나리오 단독
+  2회 모두 100%(항공권에 안 붙고 별도 세션). (초기 시나리오는 15~26초 스침이라 noise/hold
+  경계로 불안정 → 명확한 메일 읽기 활동으로 개정해 안정화.)
+- **실데이터 재세션화(139개, v5)**:
+  - 감사 필드 `exaone:3,A.X-K1:1` — 4개 그룹 중 EXAONE 3 / A.X 폴백 1 관측 가능.
+  - flight+mail 뭉침 해소: 항공권 2세션(전부 flight.naver), 나망 메일 9건 → 독립 세션,
+    네이버 메일 2건 → 독립 세션, gmail/github 각각 분리. 15개 세션 모두 응집 도메인.
+
+### 남은 한계(경미)
+
+- 항공권이 시간 버스트에 따라 2세션으로 분리됨(둘 다 flight, 오분류 아님·경미한 과분할).
+- 나망 받은편지함 세션 제목이 내용 기반 "이메일 마케팅 자동화 분석"으로 다소 부정확(분리는
+  성공). 습관성 짧은 inbox 스침의 세션화 vs discard 경계는 추후 노이즈 필터 확장 후보.

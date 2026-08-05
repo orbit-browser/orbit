@@ -280,7 +280,23 @@ async def _process_group(group: list[dict], batch_id: str, touched: set[str]) ->
     touched.update(touched_ids)
 
     models_used = {a.model for a in assignments if a.model}
+    # 그룹당 LLM 호출 1회라 보통 원소 1개 — 배치가 그룹별로 모아 폴백률을 집계한다.
     return next(iter(models_used), None)
+
+
+def _summarize_models(counts: dict[str, int]) -> str | None:
+    """그룹별 사용 모델 카운트를 감사용 요약 문자열로(EXAONE/A.X 폴백률 관측). String(50) 상한.
+
+    예: {"exaone/LGAI-EXAONE/K-EXAONE-236B-A23B": 12, "A.X-K1": 3} → "exaone:12,A.X-K1:3"
+    """
+    if not counts:
+        return None
+
+    def _short(model: str) -> str:
+        return "exaone" if model.startswith("exaone/") else model
+
+    parts = [f"{_short(m)}:{n}" for m, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+    return ",".join(parts)[:50]
 
 
 async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
@@ -292,12 +308,13 @@ async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
         groups = group_by_time_gap(kept, gap_minutes=_GAP_MINUTES, max_group_size=_MAX_GROUP_SIZE)
 
         touched: set[str] = set()
-        batch_model: str | None = None
+        model_counts: dict[str, int] = {}
 
         for group in groups:
             try:
                 model = await _process_group(group, batch_id, touched)
-                batch_model = model or batch_model
+                if model:
+                    model_counts[model] = model_counts.get(model, 0) + 1
             except Exception as exc:
                 # 그룹 실패는 해당 그룹 이벤트만 pending 복귀 후 계속(배치 전체 중단 금지).
                 logger.warning("배치 그룹 처리 실패(batch_id=%s) — 이벤트 pending 복귀: %s", batch_id, exc)
@@ -309,7 +326,7 @@ async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
             except Exception as exc:
                 logger.warning("세션 재요약 실패(session_id=%s): %s", session_id, exc)
 
-        await _complete_batch(batch_id, event_count=len(claimed), model=batch_model)
+        await _complete_batch(batch_id, event_count=len(claimed), model=_summarize_models(model_counts))
     except Exception as exc:
         logger.error("배치 실행 실패(batch_id=%s): %s", batch_id, exc)
         await _fail_batch(batch_id, exc)

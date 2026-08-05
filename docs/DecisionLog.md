@@ -157,7 +157,15 @@
 - 결정: 배치 의도분석을 **EXAONE primary → A.X-K1 fallback**으로 전환. `llm.chat_completion_intent` 신설(EXAONE 우선, `max_retries=0`+`timeout=12s`로 429/지연 시 즉시 A.X 폴백 — 백오프로 오래 대기하지 않음). 프롬프트는 공정 재평가에서 EXAONE 과분할을 잡은 튜닝판을 **v4로 프로덕션 승격**(과분할 금지 블록 + title·purpose 강제). 요약·리랭킹용 `chat_completion_with_meta`(A.X primary)는 무변경.
 - 근거: 공정 재평가에서 품질 대등(EXAONE 배정 97.4%, 노이즈 제외 EXAONE 우세) + EXAONE 저비용. rate limit은 하이브리드로 흡수.
 - 실데이터 검증(139개 이벤트 재세션화): EXAONE 폴백 3건만 발생(대부분 EXAONE 처리, 폴백 즉시·배치 오류 0). 주제 뭉침 대폭 개선("여름음악+맥미니+브랜딩" → 3개로 분리). 잔여 한계: flight+mail 류 일부 뭉침 남음. v4 골든셋 무회귀(100%).
-- 남은 관측: `SyncBatch.model` 감사가 임의 1개만 기록해 폴백률이 안 보임(경미, 향후 개선). 골든셋 과적합 가능성은 실데이터에서 대체로 해소됐으나 flight+mail 뭉침은 추적 대상.
+- 남은 관측: 골든셋 과적합 가능성은 실데이터에서 대체로 해소.
+
+## 2026-08-05 — 프롬프트 v5(일반 메일 분리) + 배치 감사 필드 개선
+
+- 상태: 승인·구현·실데이터 검증 완료
+- 배경: 하이브리드 전환 후 실데이터에 flight+mail 잔여 뭉침. 원인은 그룹 간 과잉 append(2.5시간 뒤 메일 확인 그룹이 항공권 세션 후보에 append됨). 또 `SyncBatch.model` 감사가 임의 1개만 기록해 EXAONE/A.X 폴백률이 안 보였음.
+- 결정: ① 프롬프트 v5 — "일반 메일 확인(받은편지함)은 명확한 확인 메일이 아니면 무관한 세션에 append 금지, 별도 '메일 확인' 세션 또는 discard". ② `SyncBatch.model`을 그룹별 사용 모델 카운트 요약으로 기록(`_summarize_models`, 예 `exaone:3,A.X-K1:1`) — 스키마 변경 없이 기존 String(50) 재사용(Alembic 부재 대응).
+- 검증: 골든셋 10개 전 지표 100%·실패 0(무회귀), 신규 메일 시나리오 100%. 실데이터 139개 재세션화에서 flight/mail 완전 분리(항공권 2세션·나망메일·네이버메일·gmail·github 각각 독립), 감사 필드 `exaone:3,A.X-K1:1`로 폴백률 관측.
+- 남은 한계(경미): 시간 버스트로 항공권 2세션 분리(둘 다 flight), 습관성 짧은 inbox 스침의 세션화 vs discard 경계는 노이즈 필터 확장 후보.
 
 ## 2026-08-05 — EXAONE dedicated → serverless 전환
 

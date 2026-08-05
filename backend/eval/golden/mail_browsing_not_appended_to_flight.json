@@ -1,0 +1,46 @@
+{
+  "name": "mail_browsing_not_appended_to_flight",
+  "description": "도그푸딩 실데이터 잔여 뭉침 재현(2026-08-05) — 항공권 세션이 후보로 있어도, 한참 뒤의 업무 메일 확인은 항공권 세션에 append되지 말고 별도 '메일 확인' 세션으로 분리돼야 한다. 메일은 명확한 읽기 활동으로 구성.",
+  "events": [
+    {
+      "id": "c1d2e3f4-0001-4c01-8d01-a10000000001",
+      "url": "https://mail.console.nangman.cloud/mail/message/8821",
+      "title": "[인프라] 배포 승인 요청 - Nangman Mail",
+      "visited_at": "2026-08-05T11:22:00Z",
+      "active_duration_ms": 95000
+    },
+    {
+      "id": "c1d2e3f4-0002-4c02-8d02-a10000000002",
+      "url": "https://mail.console.nangman.cloud/mail/message/8822",
+      "title": "주간 팀 회의록 공유 - Nangman Mail",
+      "visited_at": "2026-08-05T11:24:00Z",
+      "active_duration_ms": 72000
+    },
+    {
+      "id": "c1d2e3f4-0003-4c03-8d03-a10000000003",
+      "url": "https://mail.console.nangman.cloud/mail/message/8823",
+      "title": "청구서 결제 안내 - Nangman Mail",
+      "visited_at": "2026-08-05T11:26:00Z",
+      "active_duration_ms": 60000
+    }
+  ],
+  "existing_sessions": [
+    {
+      "session_id": "flight_booking",
+      "title": "항공권 예약 및 비교",
+      "overview": "제주 항공권 일정과 가격을 비교하며 예약을 검토하는 중입니다.",
+      "keywords": ["항공권", "제주", "네이버 항공권"],
+      "last_activity_days_ago": 0
+    }
+  ],
+  "expected": {
+    "session_count": 1,
+    "assignments": {
+      "c1d2e3f4-0001-4c01-8d01-a10000000001": "mail_check",
+      "c1d2e3f4-0002-4c02-8d02-a10000000002": "mail_check",
+      "c1d2e3f4-0003-4c03-8d03-a10000000003": "mail_check"
+    },
+    "new_vs_existing": "new",
+    "titles_hint": ["메일 확인"]
+  }
+}

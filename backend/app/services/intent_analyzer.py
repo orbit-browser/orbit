@@ -13,7 +13,7 @@ from ..ai.llm import chat_completion_intent
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 
 _VALID_ACTIONS = {"append", "create", "hold", "discard"}
 _CANDIDATE_LABEL_RE = re.compile(r"^S(\d+)$")
@@ -53,6 +53,10 @@ _USER_TEMPLATE = """\
 - 같은 주제/작업 흐름에 속하는 이벤트는 event_indices에 함께 묶으세요.
 - 목록에 서로 다른 주제가 섞여 있으면(예: 여행 예약과 코딩 학습) 절대 하나로 묶지 말고
   주제별로 assignment를 분리하세요. 시간순으로 번갈아 나타나도 주제가 다르면 다른 세션입니다.
+- 받은편지함·메일 목록(inbox) 같은 일반적인 메일 확인은 그 자체가 하나의 활동입니다.
+  방금 수행한 작업의 확인 메일임이 명백하지 않으면 무관한 기존 세션(예: 항공권 예약)에
+  append하지 마세요. 여러 건이면 '메일 확인' 같은 별도 세션(create)으로 만들고,
+  짧은 스침 확인이면 discard하세요.
 - 정말 판단하기 어려운 경우에만 hold를 사용하세요.
 
 [매우 중요 — 과분할 금지]

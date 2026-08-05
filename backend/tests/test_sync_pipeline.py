@@ -203,7 +203,8 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
 
     assert (["a"], "pending") in calls["set_status"]
     assert calls["refresh"] == ["sess-ok"]
-    assert calls["complete"] == [("batch-1", 2, "model-x")]
+    # 감사 필드는 그룹별 모델 카운트 요약(성공 그룹 1개 → "model-x:1")
+    assert calls["complete"] == [("batch-1", 2, "model-x:1")]
 
 
 def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
@@ -246,6 +247,16 @@ def test_process_batch_exception_fails_batch(monkeypatch):
 
 
 # ── 순수 헬퍼 ──────────────────────────────────────────────
+
+
+def test_summarize_models_counts_and_shortens():
+    # EXAONE 긴 라벨은 "exaone"으로 축약, 카운트 내림차순
+    summary = sync_pipeline._summarize_models(
+        {"exaone/LGAI-EXAONE/K-EXAONE-236B-A23B": 12, "A.X-K1": 3}
+    )
+    assert summary == "exaone:12,A.X-K1:3"
+    assert sync_pipeline._summarize_models({}) is None
+    assert len(sync_pipeline._summarize_models({"exaone/x": 1, "A.X-K1": 1})) <= 50
 
 
 def test_group_embedding_text_joins_title_and_domain():
