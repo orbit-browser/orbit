@@ -1,0 +1,60 @@
+{
+  "name": "existing_session_with_noise",
+  "events": [
+    {
+      "id": "f1423010-20b9-45be-b32d-9dd6ddb3ad53",
+      "url": "https://docs.pmnd.rs/zustand/guides/slices-pattern",
+      "title": "Slices Pattern - Zustand",
+      "visited_at": "2026-08-03T14:00:00Z",
+      "active_duration_ms": 300000
+    },
+    {
+      "id": "221f6615-da5d-48d1-b060-e9f5617ad60c",
+      "url": "https://www.youtube.com/shorts/aBcDeFg1234",
+      "title": "YouTube Shorts",
+      "visited_at": "2026-08-03T14:05:30Z",
+      "active_duration_ms": 14000
+    },
+    {
+      "id": "2533fbe6-43ab-44a5-a42d-0b46df72d9c3",
+      "url": "https://redux-toolkit.js.org/usage/migrating-to-modern-redux",
+      "title": "Migrating to Modern Redux - Redux Toolkit",
+      "visited_at": "2026-08-03T14:06:00Z",
+      "active_duration_ms": 260000
+    },
+    {
+      "id": "1565c979-a7dc-4bc4-adba-0e6cbc88626d",
+      "url": "https://www.daum.net/",
+      "title": "Daum",
+      "visited_at": "2026-08-03T14:11:00Z",
+      "active_duration_ms": 8000
+    },
+    {
+      "id": "b506583b-6f7a-460d-a495-bf0e89adfbe9",
+      "url": "https://tkdodo.eu/blog/zustand-and-react-context",
+      "title": "Zustand and React Context - TkDodo's blog",
+      "visited_at": "2026-08-03T14:12:00Z",
+      "active_duration_ms": 220000
+    }
+  ],
+  "existing_sessions": [
+    {
+      "session_id": "react_state_study",
+      "title": "React 상태관리 라이브러리 학습",
+      "overview": "Zustand와 Redux를 비교하며 React 상태관리 패턴을 공부하는 중입니다.",
+      "keywords": ["React", "상태관리", "Zustand", "Redux"]
+    }
+  ],
+  "expected": {
+    "session_count": 1,
+    "assignments": {
+      "f1423010-20b9-45be-b32d-9dd6ddb3ad53": "react_state_study",
+      "221f6615-da5d-48d1-b060-e9f5617ad60c": "noise",
+      "2533fbe6-43ab-44a5-a42d-0b46df72d9c3": "react_state_study",
+      "1565c979-a7dc-4bc4-adba-0e6cbc88626d": "noise",
+      "b506583b-6f7a-460d-a495-bf0e89adfbe9": "react_state_study"
+    },
+    "new_vs_existing": "existing",
+    "titles_hint": ["React 상태관리 라이브러리 학습"]
+  }
+}

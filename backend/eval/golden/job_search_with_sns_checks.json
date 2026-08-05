@@ -1,0 +1,77 @@
+{
+  "name": "job_search_with_sns_checks",
+  "events": [
+    {
+      "id": "3a50f00b-3ce5-4db6-a7d8-bfdf646a1236",
+      "url": "https://www.wanted.co.kr/wdlist/518/872",
+      "title": "백엔드 개발자 채용공고 - 원티드",
+      "visited_at": "2026-08-03T09:00:00Z",
+      "active_duration_ms": 240000
+    },
+    {
+      "id": "5d4c7f09-ad74-4c49-b6ec-39be8cbabfae",
+      "url": "https://www.instagram.com/",
+      "title": "Instagram",
+      "visited_at": "2026-08-03T09:04:30Z",
+      "active_duration_ms": 12000
+    },
+    {
+      "id": "cc6a57ea-dae6-4aa7-b1e7-965a14e7d99a",
+      "url": "https://www.wanted.co.kr/wd/261340",
+      "title": "토스 서버 개발자 채용 상세 - 원티드",
+      "visited_at": "2026-08-03T09:05:00Z",
+      "active_duration_ms": 300000
+    },
+    {
+      "id": "8b6f8c58-746c-46b7-ba4b-0a2d0e551bb3",
+      "url": "https://www.jobplanet.co.kr/companies/334539/reviews",
+      "title": "토스(비바리퍼블리카) 기업 리뷰 - 잡플래닛",
+      "visited_at": "2026-08-03T09:11:00Z",
+      "active_duration_ms": 280000
+    },
+    {
+      "id": "984b82cd-93ba-4e0c-bc7e-38579e6b9e7f",
+      "url": "https://www.naver.com/",
+      "title": "NAVER",
+      "visited_at": "2026-08-03T09:16:00Z",
+      "active_duration_ms": 9000
+    },
+    {
+      "id": "e64d289f-dd40-4238-8bea-99a3b4854e3c",
+      "url": "https://www.linkedin.com/jobs/search/?keywords=backend%20engineer",
+      "title": "서버/백엔드 채용 검색 - LinkedIn",
+      "visited_at": "2026-08-03T09:17:00Z",
+      "active_duration_ms": 200000
+    },
+    {
+      "id": "113992c9-4df0-4db5-a8cf-6982faf53b6c",
+      "url": "https://x.com/home",
+      "title": "홈 / X",
+      "visited_at": "2026-08-03T09:21:30Z",
+      "active_duration_ms": 18000
+    },
+    {
+      "id": "8b382dc8-26e7-4244-ab05-e87a677abe2e",
+      "url": "https://career.programmers.co.kr/job?job_position%5B%5D=2",
+      "title": "백엔드 개발자 채용 - 프로그래머스",
+      "visited_at": "2026-08-03T09:23:00Z",
+      "active_duration_ms": 220000
+    }
+  ],
+  "existing_sessions": [],
+  "expected": {
+    "session_count": 1,
+    "assignments": {
+      "3a50f00b-3ce5-4db6-a7d8-bfdf646a1236": "job_hunt",
+      "5d4c7f09-ad74-4c49-b6ec-39be8cbabfae": "noise",
+      "cc6a57ea-dae6-4aa7-b1e7-965a14e7d99a": "job_hunt",
+      "8b6f8c58-746c-46b7-ba4b-0a2d0e551bb3": "job_hunt",
+      "984b82cd-93ba-4e0c-bc7e-38579e6b9e7f": "noise",
+      "e64d289f-dd40-4238-8bea-99a3b4854e3c": "job_hunt",
+      "113992c9-4df0-4db5-a8cf-6982faf53b6c": "noise",
+      "8b382dc8-26e7-4244-ab05-e87a677abe2e": "job_hunt"
+    },
+    "new_vs_existing": "new",
+    "titles_hint": ["백엔드 개발자 이직 준비"]
+  }
+}

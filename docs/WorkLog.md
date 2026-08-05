@@ -468,3 +468,47 @@ coverage 100/100/100, noise **100/50/100**(기준선: 항상 50), new_vs_existin
   → LLM 무호출 discard) 도입 검토 — 데이터 처리 정책 변경이라 사용자 결정 필요.
 - 검색 score threshold(0.35) 실측 튜닝, 세션별 탐색 시간 "0분" 표시 정책 검토(기존 항목 유지).
 - 골든셋 확대(현재 노이즈 이벤트 2개뿐이라 노이즈 지표가 50%p 단위로만 움직임).
+
+## 2026-08-05 — 평가 골든셋 확대 (3→7개 시나리오, 노이즈 2→9개)
+
+### 요청
+
+노이즈 사전 필터는 열린 결정으로 남기고(DecisionLog 표에 등록), 골든셋을 확대한다.
+
+### 변경
+
+`backend/eval/golden/`에 시나리오 4개 추가:
+
+- `job_search_with_sns_checks.json` — 이직 준비 탐색 사이에 습관적 스침 3개
+  (Instagram 12초, 네이버 홈 9초, X 홈 18초). 인터리브 노이즈의 discard 검증.
+- `trip_flow_with_tool_visits.json` — 여행 준비 흐름 속 짧은 도구성 방문
+  (구글 지도 45초, 번역 40초, 검색어 있는 30초 방문). 노이즈 0개 — discard
+  과교정을 잡는 가드 시나리오.
+- `existing_session_with_noise.json` — 기존 세션 append와 discard 혼합
+  (YouTube Shorts 14초, 다음 홈 8초 + React 상태관리 학습 이어가기).
+- `shopping_with_ad_and_error_noise.json` — 광고 배너 랜딩(5초, utm 파라미터)과
+  404 오류 페이지(4초) 노이즈. 유형별 discard 기준 검증.
+
+이벤트 id ↔ expected.assignments 키 일치를 스크립트로 확인했다.
+
+### 평가 결과 (프롬프트 v2 + temp 0, 전체 7개 시나리오 42이벤트)
+
+- 3회 연속 전체 실행: **5개 지표 모두 100% × 3회** (assignment/purity/coverage/
+  noise/new_vs_existing).
+- 노이즈 지표 해상도가 이벤트 2개(50%p 단위) → 9개(11%p 단위)로 개선.
+- 단, 단일 시나리오 예비 실행 1회에서 낮은 점수(accuracy 0.4) 후 재실행 정상 —
+  temp 0에서도 API 측 변동성이 잔존함을 재확인. 평가는 단일 실행이 아니라 3회
+  이상 반복으로 판단해야 한다.
+
+### 검증
+
+- 골든셋 무결성 검사(7파일 전부 events↔expected 키 일치) 통과
+- `python -m eval.run_eval` 전체 3회 실 LLM 실행 — 위 수치
+- 코드 변경 없음(데이터 추가만) — backend pytest 재실행 생략
+
+### 남은 일
+
+- 검색 score threshold(0.35) 실측 튜닝 — 골든셋이 확대됐으므로 이제 착수 가능.
+- 평가 반복 실행 자동화(`--runs N` 플래그 등)는 CLI 변경이라 필요 시 별도 결정.
+- 세션별 탐색 시간 "0분" 표시 정책 검토(기존 항목 유지).
+- main 병합.
