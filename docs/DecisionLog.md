@@ -136,6 +136,15 @@
 - 근거와 영향: 사용자 평가에서 EXAONE(클러스터링)/A.X(요약·리랭킹) 조합이 성능·비용 최적. 상호 폴백으로 채팅 경로의 Upstage 의존 제거. EXAONE 4.0은 hybrid reasoning 모델이라 `chat_template_kwargs.enable_thinking=false`를 항상 전달해야 content가 채워진다(실측).
 - **미해결 리스크**: 현재 FriendliAI dedicated endpoint가 웜 상태에서도 호출당 ~60초(4회 연속 실측)로, 25초 타임아웃에 걸려 클러스터링이 항상 A.X로 폴백된다. 엔드포인트 사양/상태 확인 전까지 EXAONE은 사실상 대기 상태 — FriendliAI 콘솔 확인 필요(열린 결정 표 참조).
 
+## 2026-08-05 — 의도분석 모델 재확인: A.X 유지 (EXAONE 비교평가 결과)
+
+- 상태: 확정 (실측 비교로 기존 "의도분석 A.X 유지" 결정 재확인)
+- 배경: "분류는 EXAONE이 해야 하지 않나"라는 재질문에, 배치 의도분석(append/create/hold/discard)을 A.X→EXAONE으로 바꿀 경우를 골든셋 9개×각 3회로 비교평가했다(코드 변경 없이 eval 하네스의 chat_completion_with_meta만 EXAONE으로 몽키패치, 노이즈 사전 필터는 공통 적용).
+- 결과: 배정 정확도 A.X 100% vs EXAONE 32.5%, 커버리지 100% vs 33%, 실패 평균 1건 vs 28건. EXAONE의 순도 100%는 "거의 배정을 안 해서 소수만 순수"한 고순도·저커버리지 붕괴 패턴이라 오해 소지가 있다.
+- 원인: EXAONE(reasoning, thinking off, temp 0)이 한국어 구조화 JSON 다중 assignment 형식을 A.X만큼 못 따른다. 프롬프트 v3가 A.X 기준으로 튜닝된 영향도 있다.
+- 결정: 배치 의도분석은 A.X 유지. EXAONE은 수동 스냅샷 저장 시 탭 클러스터링(cluster_tabs, 단순 그룹핑)에만 사용. EXAONE으로 전환하려면 프롬프트 전면 재작성이 필요하고 그래도 동등성 보장 불가 — 비용 대비 효익 없음.
+- 참고: 상시 수집→자동 세션화 경로는 EXAONE 클러스터러를 쓰지 않는다(시간 그룹핑 + A.X 의도분석). EXAONE 클러스터링은 수동 스냅샷 경로 전용.
+
 ## 2026-08-05 — EXAONE dedicated → serverless 전환
 
 - 상태: 승인
