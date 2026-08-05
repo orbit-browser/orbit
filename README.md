@@ -19,7 +19,7 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
 - **Exploration Analytics** — 주제별 탐색 시간, 자주 보는 도메인, 반복 방문/검색어,
   일별 탐색량 추이를 사이드패널 요약 카드와 웹 대시보드에서 확인
 - **기존 스냅샷 저장/복원 유지** — "지금 열린 탭 저장"(`POST /sessions/cluster`), 세션
-  검색·복원, AI 요약(A.X-K1 → Solar Pro 3 fallback), 임베딩 + Qdrant 벡터 검색, 민감
+  검색·복원, AI 요약(A.X-K1 ↔ EXAONE 상호 폴백), 임베딩 + Qdrant 벡터 검색, 민감
   도메인 자동 제외는 전환 이전과 동일하게 동작
 
 세부 설계와 결정 근거는 [`docs/product-direction-v2.md`](./docs/product-direction-v2.md),
@@ -129,4 +129,4 @@ python -m eval.run_eval
 | 웹 대시보드 | React 19, Vite, TypeScript, Tailwind v4, TanStack Query, Zustand |
 | Backend | FastAPI, SQLAlchemy (async) + PostgreSQL, Pydantic v2 |
 | 벡터 검색 | Qdrant |
-| AI | SKT A.X-K1(요약 primary) → Upstage Solar Pro 3(fallback), Solar Mini(클러스터링·의도분석·리랭킹 등 경량 작업), Upstage embedding-query(검색)/embedding-passage(저장) |
+| AI | SKT A.X-K1(요약·의도분석·리랭킹 primary), LG EXAONE(FriendliAI dedicated, 클러스터링 primary) — 상호 폴백, Upstage embedding-query(검색)/embedding-passage(저장) |

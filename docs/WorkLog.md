@@ -554,3 +554,41 @@ coverage 100/100/100, noise **100/50/100**(기준선: 항상 50), new_vs_existin
 - 분리 폭이 0.024로 좁다 — 검색 골든셋을 확대하면 재검증 필요(스크립트로 재실행만 하면 됨).
 - 세션별 탐색 시간 "0분" 표시 정책 검토(기존 항목 유지).
 - main 병합.
+
+## 2026-08-05 — LLM 재배정 (클러스터링=EXAONE, 요약·의도분석·리랭킹=A.X)
+
+### 요청
+
+사용자 자체 평가 결과에 따라 클러스터링은 LG EXAONE, 세션 요약·채팅·리랭킹은 SK
+A.X를 쓰도록 재배정한다. 확인 질의로 결정: A.X는 기존 A.X-K1 유지, 의도분석도 A.X
+유지, 폴백은 상호 폴백(A.X ↔ EXAONE).
+
+### 변경
+
+- `app/config.py` — FriendliAI 설정 3종 추가(friendli_api_key/base_url/exaone_model),
+  Solar 채팅 모델 설정 제거(Upstage는 임베딩 전용).
+- `app/ai/llm.py` — `chat_completion_light`: EXAONE 우선 → A.X-K1 폴백.
+  `chat_completion(_with_meta)`: A.X-K1 우선 → EXAONE 폴백. EXAONE 호출에
+  `chat_template_kwargs.enable_thinking=false` 상시 전달(아래 실측 참조), 감사용
+  모델명은 `exaone/<endpoint id>` 라벨.
+- `app/ai/reranker.py` — light → `chat_completion`(A.X 경로) 전환, temperature 0.1 유지.
+- `tests/test_reranker.py` — monkeypatch 대상 갱신.
+- `.env.example` — FriendliAI 항목 추가, SEARCH_SCORE_THRESHOLD 0.28 정정.
+  실 키는 `backend/.env`에만 추가(커밋 안 됨).
+
+### 실측과 발견
+
+- EXAONE 4.0은 hybrid reasoning 모델 — thinking을 끄지 않으면 max_tokens를 추론
+  트레이스에 소모하고 `message.content`가 null로 온다. `enable_thinking=false`로 해결.
+- **엔드포인트 지연 문제(미해결)**: FriendliAI dedicated endpoint가 웜 상태 연속
+  4회 호출에서 57~62초/호출. 25초 타임아웃에 걸려 클러스터링이 항상 A.X로 폴백된다
+  (시스템은 정상 동작하나 EXAONE 미활용 + 호출당 25초 낭비). 콜드스타트가 아님을
+  확인(연속 호출 동일). FriendliAI 콘솔에서 인스턴스 사양/sleep 설정 확인 필요 —
+  DecisionLog 열린 결정 등록.
+
+### 검증
+
+- backend `python -m pytest -p no:asyncio`: 205 passed
+- 실호출 스모크: A.X primary 정상, EXAONE 타임아웃 → A.X 폴백 정상(fail-open),
+  A.X 강제 다운 → EXAONE 폴백 시도 확인(현재는 지연으로 타임아웃)
+- README 기술 스택 표·핵심 기능 서술 갱신
