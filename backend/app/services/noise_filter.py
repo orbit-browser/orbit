@@ -12,6 +12,8 @@ sync_status='discarded'로만 표시된다 — Timeline에는 "제외됨" 뱃지
 import re
 from urllib.parse import urlsplit
 
+from .event_filter import _is_ai_chat_host
+
 # 임계값(ms) — 근거는 DecisionLog 2026-08-05 "노이즈 사전 필터" 항목.
 # 실데이터에서 의미 있는 탐색도 5~42초였으므로 체류시간 단독으로는 절대 버리지 않고,
 # 아래 규칙(경로/도메인 신호)과 결합해서만 쓴다.
@@ -24,6 +26,10 @@ _ISOLATED_ROOT_DWELL_MAX_MS = 30_000
 _AUTH_PATH_RE = re.compile(
     r"/(login|signin|sign-in|logon|logout|sso|auth|2fa)[^/]*(/|$)", re.IGNORECASE
 )
+
+# AI 챗 진입 화면 — 대화 id가 없는 루트/새 대화 화면(chatgpt.com/, claude.ai/new).
+# 대화 페이지(/c/<id>, /chat/<id>)는 이 정규식에 걸리지 않아 살아남는다.
+_AI_CHAT_ENTRY_PATH_RE = re.compile(r"^/(new|chats?)?/?$", re.IGNORECASE)
 
 # 규칙 2 — 습관적 확인 도메인: 피드/쇼츠/포털 홈. (host 정규식, path 정규식) 쌍으로
 # 정의해 서비스 내 검색·글 상세 같은 의미 있는 방문(딥 경로)은 잡지 않는다.
@@ -61,19 +67,28 @@ def _is_root_path(path: str) -> bool:
 
 def is_noise(event: dict, domain_counts: dict[str, int]) -> bool:
     """그룹 문맥(domain_counts) 안에서 이벤트 하나의 노이즈 여부를 판정한다."""
-    # 구제 조건 — 하나라도 해당하면 규칙과 무관하게 LLM에 보낸다.
+    # 최우선 구제 — 검색어/체류 미측정이면 어떤 규칙보다 우선해 LLM에 보낸다.
     if event.get("search_query"):
         return False
     dwell = _dwell_ms(event)
     if dwell is None:
         return False  # 체류 미측정 — 불확실하면 버리지 않는다
-    domain = (event.get("domain") or "").lower()
-    if domain and domain_counts.get(domain, 0) >= 2:
-        return False  # 같은 도메인 반복 = 주제 흐름일 가능성
 
     try:
-        path = urlsplit(event.get("url") or "").path
+        parts = urlsplit(event.get("url") or "")
     except ValueError:
+        return False
+    path = parts.path
+    host = (parts.hostname or "").lower()
+    domain = (event.get("domain") or "").lower()
+
+    # AI 챗 진입 화면은 도메인 반복 구제보다 우선해서 걸러낸다 — AI 챗은 도메인 반복이
+    # 흔해서(대화 여러 개) 구제 조건이 진입 화면까지 살려버리기 때문(도그푸딩 2차 피드백).
+    if _is_ai_chat_host(host) and _AI_CHAT_ENTRY_PATH_RE.match(path) and dwell < _HABITUAL_DWELL_MAX_MS:
+        return True
+
+    # 같은 도메인 반복 = 주제 흐름일 가능성 → 구제
+    if domain and domain_counts.get(domain, 0) >= 2:
         return False
 
     if _is_auth_visit(path) and dwell < _AUTH_DWELL_MAX_MS:

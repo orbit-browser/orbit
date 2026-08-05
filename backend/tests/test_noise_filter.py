@@ -134,6 +134,40 @@ def test_flight_group_keeps_flight_discards_strays():
     assert kept_ids == {"search", "flight1", "flight2"}
 
 
+# ── AI 챗 진입 화면 (도메인 반복 구제보다 우선) ──────────
+
+
+def test_ai_chat_root_is_noise_even_with_domain_repeat():
+    # chatgpt.com/ 진입 화면은 그룹에 chatgpt.com 대화가 여럿이어도 노이즈로 걸린다
+    group = [
+        _event("https://chatgpt.com/", duration_ms=31_000, eid="root"),
+        _event("https://chatgpt.com/c/aaa", duration_ms=200_000, eid="conv1"),
+        _event("https://chatgpt.com/c/bbb", duration_ms=200_000, eid="conv2"),
+    ]
+    kept, noise_ids = split_noise(group)
+    assert noise_ids == ["root"]
+    assert {e["id"] for e in kept} == {"conv1", "conv2"}
+
+
+def test_claude_new_short_is_noise():
+    group = [
+        _event("https://claude.ai/new", duration_ms=5_000, eid="new"),
+        _event("https://claude.ai/chat/xyz", duration_ms=200_000, eid="conv"),
+    ]
+    _kept, noise_ids = split_noise(group)
+    assert noise_ids == ["new"]
+
+
+def test_claude_new_long_dwell_survives():
+    # /new에서 오래 머물면(새 대화 작성 중) 버리지 않는다
+    assert not _single(_event("https://claude.ai/new", duration_ms=314_000))
+
+
+def test_ai_chat_conversation_page_never_entry_noise():
+    # 대화 페이지(/c/<id>)는 진입 화면 규칙에 걸리지 않는다(짧아도)
+    assert not _single(_event("https://chatgpt.com/c/6a73028c", duration_ms=3_000))
+
+
 # ── is_short_stray (hold 상한 처분) ─────────────────────
 
 

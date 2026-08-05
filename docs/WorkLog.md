@@ -760,3 +760,45 @@ main 병합 전, LLM 재배정에서 유일하게 실측이 빠졌던 스냅샷 
 - 골든셋 평가 2회(사용자 승인 범위): **노이즈 제외율 69%(변동) → 100%(결정적)**,
   배정 정확도·purity·coverage 100% 고정, 실패 0건. 남은 new/existing 변동(88.9%↔100%)은
   append vs create LLM 판단으로 이 필터 범위 밖.
+
+## 2026-08-05 — AI 챗 대화 URL 정규화 + 노이즈 필터 진입화면 규칙 + 재세션화
+
+### 요청
+
+세션에 이질 주제가 뒤섞이는 도그푸딩 2차 피드백("여름 음악에 명함") 조사·수정.
+사용자 승인: ①(AI 챗 URL 정규화)+③(노이즈 필터 보강) 후 재세션화.
+
+### 조사 결과
+
+- `chatgpt.com/c/<id>` 대화 하나가 SPA nav로 최대 5~6개 이벤트로 수집됨. 같은
+  normalized_url인데도 여러 배치에 흩어져 dedup을 못 거쳐 여러 세션으로 파편화.
+- 노이즈 필터 "도메인 반복" 구제가 `chatgpt.com/`(진입 화면)을 살려버림.
+- **추가 발견(범위 밖)**: LLM이 시간 인접한 이질 주제(음악·맥미니 구매·브랜딩)를
+  한 세션에 뭉치고, 그룹 간 append로 확산. 이건 ①③으로 해결 안 되는 별개 문제.
+
+### 변경
+
+- `backend/app/services/event_filter.py` — `_AI_CHAT_HOSTS` 상수·`_is_ai_chat_host`,
+  normalize_url이 AI 챗 도메인은 query를 통째로 제거(휘발성 messageId 등 제거).
+- `backend/app/services/noise_filter.py` — AI 챗 진입 화면(대화 id 없는 루트·/new)을
+  도메인 반복 구제보다 우선해 discard(검색어·체류 미측정 구제는 유지).
+- 테스트: `test_event_filter.py` 정규화 4케이스, `test_noise_filter.py` 진입화면 4케이스.
+
+### 재세션화
+
+- 오염 세션(event-origin 4개) 삭제, 전체 이벤트 normalized_url 재계산·pending 복귀
+  후 수동 sync 1배치. **주의**: 1차 시도는 구코드 서버(b05cbaa)로 돌아 진입화면
+  규칙이 미적용됐다 — 서버를 현재 코드로 재기동 후 재실행해 바로잡음.
+
+### 검증
+
+- backend `python -m pytest -p no:asyncio`: **231 passed**
+- 골든셋 평가 1회: 전 지표 100%, 실패 0건(회귀 없음)
+- 재세션화 결과:
+  - ✅ 대화 파편화 해소: 6a6b4e7b 5→1, 6a73028c 6→1 이벤트로 dedup.
+  - ✅ `chatgpt.com/`(31s) 진입 화면 discard됨(구코드에선 생존했던 것).
+  - ✅ 항공권 세션은 08:49·11:02 방문이 깔끔히 한 세션으로.
+  - ❌ **미해결**: LLM이 "여름 음악 및 맥미니 구매"(음악+구매+브랜딩+명함 9개),
+    "메일 및 브라우저 분석"(메일+로고+옛 위키 6개)처럼 이질 주제를 여전히 뭉침.
+    노이즈 필터는 스침만 제거하고 주제 분리는 LLM 몫인데 A.X가 실패 — 별도 과제.
+  - 잔여: 옛 테스트 이벤트(example.com, Web browser Wikipedia 06:45)가 재유입돼 오염.
