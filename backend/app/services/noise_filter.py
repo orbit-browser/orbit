@@ -31,6 +31,19 @@ _AUTH_PATH_RE = re.compile(
 # 대화 페이지(/c/<id>, /chat/<id>)는 이 정규식에 걸리지 않아 살아남는다.
 _AI_CHAT_ENTRY_PATH_RE = re.compile(r"^/(new|chats?)?/?$", re.IGNORECASE)
 
+# 메일 목록/폴더 보기 — 받은편지함·폴더 새로고침은 탐색 기억 대상이 아니다(사용자 결정
+# 2026-08-05: "실제로 읽은 메일만 기억"). 개별 메일 읽기(/message/<id>, /read/<id>)는
+# 보존해 LLM이 판단하게 한다. 웹메일 호스트에서만 적용하며 도메인 반복 구제보다 우선한다
+# (받은편지함 새로고침은 같은 도메인으로 여러 건 쌓여 구제 조건에 걸리기 때문).
+# gmail은 정규화 후 경로가 /mail/u/N/ 하나라 목록/읽기 구분이 불가능 → 목록 규칙에 안 걸려
+# 보존(LLM 판단)된다.
+_MAIL_HOST_RE = re.compile(r"(^|\.)mail\.|(^|\.)outlook\.", re.IGNORECASE)
+_MAIL_MESSAGE_PATH_RE = re.compile(r"/(messages?|read|msg|view)/", re.IGNORECASE)
+_MAIL_LIST_PATH_RE = re.compile(
+    r"/(inbox|folders?|sent|drafts?|spam|junk|trash|archive|starred|important|all|label)(/|$)",
+    re.IGNORECASE,
+)
+
 # 규칙 2 — 습관적 확인 도메인: 피드/쇼츠/포털 홈. (host 정규식, path 정규식) 쌍으로
 # 정의해 서비스 내 검색·글 상세 같은 의미 있는 방문(딥 경로)은 잡지 않는다.
 _HABITUAL_PATTERNS: list[tuple[re.Pattern[str], re.Pattern[str]]] = [
@@ -65,14 +78,20 @@ def _is_root_path(path: str) -> bool:
     return path in ("", "/")
 
 
+def _is_mail_list_view(host: str, path: str) -> bool:
+    """웹메일의 받은편지함·폴더 목록 보기 여부. 개별 메일 읽기는 제외(보존)한다."""
+    if not _MAIL_HOST_RE.search(host):
+        return False
+    if _MAIL_MESSAGE_PATH_RE.search(path):
+        return False
+    return bool(_MAIL_LIST_PATH_RE.search(path))
+
+
 def is_noise(event: dict, domain_counts: dict[str, int]) -> bool:
     """그룹 문맥(domain_counts) 안에서 이벤트 하나의 노이즈 여부를 판정한다."""
-    # 최우선 구제 — 검색어/체류 미측정이면 어떤 규칙보다 우선해 LLM에 보낸다.
+    # 최우선 구제 — 검색어가 있으면 어떤 규칙보다 우선해 LLM에 보낸다.
     if event.get("search_query"):
         return False
-    dwell = _dwell_ms(event)
-    if dwell is None:
-        return False  # 체류 미측정 — 불확실하면 버리지 않는다
 
     try:
         parts = urlsplit(event.get("url") or "")
@@ -81,6 +100,15 @@ def is_noise(event: dict, domain_counts: dict[str, int]) -> bool:
     path = parts.path
     host = (parts.hostname or "").lower()
     domain = (event.get("domain") or "").lower()
+
+    # 메일 목록/폴더 보기 — 체류·도메인 반복과 무관하게 discard(사용자 결정: 목록 새로고침은
+    # 기억 안 함). 개별 메일 읽기는 _is_mail_list_view가 걸러 보존한다.
+    if _is_mail_list_view(host, path):
+        return True
+
+    dwell = _dwell_ms(event)
+    if dwell is None:
+        return False  # 체류 미측정 — 불확실하면 버리지 않는다
 
     # AI 챗 진입 화면은 도메인 반복 구제보다 우선해서 걸러낸다 — AI 챗은 도메인 반복이
     # 흔해서(대화 여러 개) 구제 조건이 진입 화면까지 살려버리기 때문(도그푸딩 2차 피드백).

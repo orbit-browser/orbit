@@ -168,6 +168,43 @@ def test_ai_chat_conversation_page_never_entry_noise():
     assert not _single(_event("https://chatgpt.com/c/6a73028c", duration_ms=3_000))
 
 
+# ── 메일 목록 보기 vs 개별 메일 읽기 ─────────────────────
+
+
+def test_mail_inbox_list_is_noise():
+    # 받은편지함·폴더 목록 보기는 체류 무관 discard(목록 새로고침은 기억 안 함)
+    assert _single(_event("https://mail.console.nangman.cloud/mail/inbox", duration_ms=26_000))
+    assert _single(_event("https://mail.naver.com/v2/folders/0/all", duration_ms=90_000))
+    assert _single(_event("https://mail.console.nangman.cloud/mail/inbox?box=work", duration_ms=3_000))
+
+
+def test_mail_message_read_survives():
+    # 개별 메일 읽기는 보존해 LLM이 판단
+    assert not _single(_event("https://mail.console.nangman.cloud/mail/message/8821", duration_ms=95_000))
+
+
+def test_gmail_root_ambiguous_survives():
+    # gmail은 정규화 후 경로 구분 불가(/mail/u/1/) → 목록 규칙에 안 걸려 보존
+    assert not _single(_event("https://mail.google.com/mail/u/1/", duration_ms=4_000))
+
+
+def test_mail_list_bypasses_domain_repeat_rescue():
+    # 받은편지함이 버스트로 여러 건이어도(도메인 반복) 목록 보기는 전부 discard
+    group = [
+        _event("https://mail.console.nangman.cloud/mail/inbox", duration_ms=5_000, eid="m1"),
+        _event("https://mail.console.nangman.cloud/mail/inbox?box=a", duration_ms=6_000, eid="m2"),
+        _event("https://mail.console.nangman.cloud/mail/inbox?box=b", duration_ms=4_000, eid="m3"),
+    ]
+    kept, noise_ids = split_noise(group)
+    assert kept == []
+    assert set(noise_ids) == {"m1", "m2", "m3"}
+
+
+def test_non_mail_host_unaffected():
+    # 메일 호스트가 아니면 목록 규칙과 무관
+    assert not _single(_event("https://flight.naver.com/flights/domestic/inbox", duration_ms=5_000))
+
+
 # ── is_short_stray (hold 상한 처분) ─────────────────────
 
 

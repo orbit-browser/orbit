@@ -1,0 +1,54 @@
+{
+  "name": "mail_inbox_refresh_is_noise",
+  "description": "사용자 결정(2026-08-05): 받은편지함·폴더 목록 새로고침은 기억 대상 아님. 항공권 세션이 후보로 있어도 목록 보기는 append도 세션화도 되지 말고 모두 discard(노이즈 사전 필터가 LLM 전에 처리).",
+  "events": [
+    {
+      "id": "d4e5f6a7-0001-4d01-8e01-b20000000001",
+      "url": "https://mail.console.nangman.cloud/mail/inbox",
+      "title": "받은편지함 | Nangman Mail",
+      "visited_at": "2026-08-05T11:22:00Z",
+      "active_duration_ms": 26000
+    },
+    {
+      "id": "d4e5f6a7-0002-4d02-8e02-b20000000002",
+      "url": "https://mail.console.nangman.cloud/mail/inbox?box=work",
+      "title": "받은편지함 | Nangman Mail",
+      "visited_at": "2026-08-05T11:22:40Z",
+      "active_duration_ms": 6000
+    },
+    {
+      "id": "d4e5f6a7-0003-4d03-8e03-b20000000003",
+      "url": "https://mail.console.nangman.cloud/mail/inbox?box=notice",
+      "title": "받은편지함 | Nangman Mail",
+      "visited_at": "2026-08-05T11:23:10Z",
+      "active_duration_ms": 2000
+    },
+    {
+      "id": "d4e5f6a7-0004-4d04-8e04-b20000000004",
+      "url": "https://mail.naver.com/v2/folders/0/all",
+      "title": "받은메일함(7028) : 네이버 메일",
+      "visited_at": "2026-08-05T11:24:00Z",
+      "active_duration_ms": 15000
+    }
+  ],
+  "existing_sessions": [
+    {
+      "session_id": "flight_booking",
+      "title": "항공권 예약 및 비교",
+      "overview": "제주 항공권 일정과 가격을 비교하며 예약을 검토하는 중입니다.",
+      "keywords": ["항공권", "제주", "네이버 항공권"],
+      "last_activity_days_ago": 0
+    }
+  ],
+  "expected": {
+    "session_count": 0,
+    "assignments": {
+      "d4e5f6a7-0001-4d01-8e01-b20000000001": "noise",
+      "d4e5f6a7-0002-4d02-8e02-b20000000002": "noise",
+      "d4e5f6a7-0003-4d03-8e03-b20000000003": "noise",
+      "d4e5f6a7-0004-4d04-8e04-b20000000004": "noise"
+    },
+    "new_vs_existing": "new",
+    "titles_hint": []
+  }
+}
