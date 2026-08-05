@@ -1,0 +1,61 @@
+{
+  "name": "shopping_with_ad_and_error_noise",
+  "events": [
+    {
+      "id": "a62b333d-d335-41c9-b518-58ae9fe8cd40",
+      "url": "https://prod.danawa.com/list/?cate=112758",
+      "title": "노트북 가격비교 - 다나와",
+      "visited_at": "2026-08-03T20:00:00Z",
+      "active_duration_ms": 280000
+    },
+    {
+      "id": "c7ab3f6d-e6f6-476a-8103-1b168776e723",
+      "url": "https://event.11st.co.kr/display/banner?utm_source=da&utm_medium=display",
+      "title": "11번가 기획전 배너",
+      "visited_at": "2026-08-03T20:05:00Z",
+      "active_duration_ms": 5000
+    },
+    {
+      "id": "fd2c130c-67c6-46ea-b17e-2e2d45b8ede0",
+      "url": "https://www.coupang.com/vp/products/7335882014",
+      "title": "LG전자 그램 16 노트북 - 쿠팡",
+      "visited_at": "2026-08-03T20:06:00Z",
+      "active_duration_ms": 320000
+    },
+    {
+      "id": "bbd8eed5-4c56-48d7-a10d-0adb468a3183",
+      "url": "https://blog.example.com/laptop-review-2026",
+      "title": "404 Not Found",
+      "visited_at": "2026-08-03T20:12:00Z",
+      "active_duration_ms": 4000
+    },
+    {
+      "id": "ce0fe65e-b872-4922-ba07-e8cfc3de2ad9",
+      "url": "https://www.youtube.com/watch?v=laptopreview99",
+      "title": "2026 그램 vs 맥북 에어 비교 리뷰 - YouTube",
+      "visited_at": "2026-08-03T20:13:00Z",
+      "active_duration_ms": 400000
+    },
+    {
+      "id": "d4eab784-62cc-4558-af39-e63b045d50c0",
+      "url": "https://search.naver.com/search.naver?query=%EA%B7%B8%EB%9E%A8+vs+%EB%A7%A5%EB%B6%81+%EC%97%90%EC%96%B4",
+      "title": "그램 vs 맥북 에어 - 네이버 검색",
+      "visited_at": "2026-08-03T20:20:00Z",
+      "active_duration_ms": 90000
+    }
+  ],
+  "existing_sessions": [],
+  "expected": {
+    "session_count": 1,
+    "assignments": {
+      "a62b333d-d335-41c9-b518-58ae9fe8cd40": "laptop_shopping",
+      "c7ab3f6d-e6f6-476a-8103-1b168776e723": "noise",
+      "fd2c130c-67c6-46ea-b17e-2e2d45b8ede0": "laptop_shopping",
+      "bbd8eed5-4c56-48d7-a10d-0adb468a3183": "noise",
+      "ce0fe65e-b872-4922-ba07-e8cfc3de2ad9": "laptop_shopping",
+      "d4eab784-62cc-4558-af39-e63b045d50c0": "laptop_shopping"
+    },
+    "new_vs_existing": "new",
+    "titles_hint": ["노트북 구매 비교 탐색"]
+  }
+}

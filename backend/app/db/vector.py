@@ -65,3 +65,20 @@ async def search_similar(query_vector: list[float], limit: int = 5) -> list[str]
         score_threshold=settings.search_score_threshold,
     )
     return [str(p.id) for p in result.points]
+
+
+async def search_similar_with_scores(
+    query_vector: list[float],
+    limit: int = 5,
+    score_threshold: float | None = None,
+) -> list[tuple[str, float]]:
+    """유사 세션을 (session_id, score) 쌍으로 반환 (Auto Session 배치의 후보 세션 검색용)."""
+    client = get_qdrant()
+    threshold = settings.search_score_threshold if score_threshold is None else score_threshold
+    result = await client.query_points(
+        collection_name=COLLECTION,
+        query=query_vector,
+        limit=limit,
+        score_threshold=threshold,
+    )
+    return [(str(p.id), p.score) for p in result.points]

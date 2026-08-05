@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import { SessionCard } from '../components/SessionCard';
 import { StatePlaceholder } from '../components/StatePlaceholder';
-import { useSearch } from '../hooks/useSearch';
+import { TimelineItem } from '../components/timeline/TimelineItem';
+import { searchMemory } from '../../../lib/api';
 import { useSettingsStore } from '../store/settings';
 import { useUIStore } from '../store/ui';
 
@@ -26,9 +28,16 @@ export function SearchView() {
   const isActive = query.trim().length > 0;
 
   const rerankEnabled = useSettingsStore((s) => s.rerankEnabled);
-  const { data: results, isFetching, isError } = useSearch(query);
+  const trimmedQuery = query.trim();
+  const { data: results, isFetching, isError } = useQuery({
+    queryKey: ['search-memory', trimmedQuery, rerankEnabled],
+    queryFn: () => searchMemory(trimmedQuery, rerankEnabled),
+    enabled: trimmedQuery.length > 0,
+  });
   const topResults = results?.sessions.slice(0, TOP_N) ?? [];
+  const eventResults = results?.events ?? [];
   const degraded = results?.degraded ?? false;
+  const totalCount = topResults.length + eventResults.length;
 
   // Claude-style rolling placeholder text
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
@@ -102,28 +111,56 @@ export function SearchView() {
               <Sparkles size={13} className="text-orbit-primary animate-pulse" />
               <span>
                 {isFetching
-                  ? rerankEnabled ? 'AI가 결과를 정렬 중…' : '유사한 세션 검색 중…'
+                  ? rerankEnabled ? 'AI가 결과를 정렬 중…' : '탐색 기억을 검색 중…'
                   : isError
                     ? '백엔드에 연결할 수 없어요. 서버 상태를 확인해 주세요.'
                   : degraded
-                    ? topResults.length > 0
-                      ? `간단 검색 결과 ${topResults.length}개 (백엔드 미연결)`
+                    ? totalCount > 0
+                      ? `간단 검색 결과 ${totalCount}개 (백엔드 미연결)`
                       : '백엔드에 연결할 수 없어요 — 간단 검색으로도 찾지 못했어요'
-                    : topResults.length > 0
-                      ? `유사한 세션 ${topResults.length}개${rerankEnabled ? ' (AI 정렬 완료)' : ''}`
-                      : '관련 세션을 찾지 못했어요'}
+                    : totalCount > 0
+                      ? `관련 결과 ${totalCount}개${rerankEnabled ? ' (AI 정렬 완료)' : ''}`
+                      : '관련 기억을 찾지 못했어요'}
               </span>
             </div>
             <StatePlaceholder
               loading={isFetching}
               error={!isFetching && isError}
-              empty={!isFetching && !isError && topResults.length === 0}
+              empty={!isFetching && !isError && totalCount === 0}
               emptyText="다른 키워드로 다시 검색해 보세요"
             >
-              <div className="grid grid-cols-1 min-[500px]:grid-cols-2 min-[750px]:grid-cols-3 gap-3">
-                {topResults.map((session) => (
-                  <SessionCard key={session.id} session={session} showRestoreButton={true} />
-                ))}
+              <div className="space-y-5">
+                {topResults.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="px-1 text-xs font-semibold text-orbit-muted">세션</p>
+                    <div className="grid grid-cols-1 min-[500px]:grid-cols-2 min-[750px]:grid-cols-3 gap-3">
+                      {topResults.map((session) => (
+                        <SessionCard key={session.id} session={session} showRestoreButton={true} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {eventResults.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="px-1 text-xs font-semibold text-orbit-muted">관련 기록</p>
+                    <div className="space-y-0.5 rounded-xl border border-orbit-border bg-orbit-surface p-1">
+                      {eventResults.map((ev) => (
+                        <TimelineItem
+                          key={ev.eventId}
+                          compact
+                          event={{
+                            id: ev.eventId,
+                            url: ev.url,
+                            title: ev.title,
+                            domain: ev.domain,
+                            visitedAt: ev.visitedAt,
+                            durationMs: 0,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </StatePlaceholder>
           </section>

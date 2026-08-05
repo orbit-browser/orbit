@@ -1,9 +1,15 @@
+import { handlePageContentReady, initCollector } from '../lib/events/collector';
+import { initTriggers } from '../lib/sync/triggers';
 import type { PageContent } from '../lib/types';
 
 // 탭 ID → 추출된 페이지 콘텐츠 캐시 (서비스 워커 생존 동안 유지)
 const pageContentCache = new Map<number, PageContent | null>();
 
 export default defineBackground(() => {
+  // 컴포지션 루트 — 상시 수집기와 동기화 엔진의 리스너를 SW 최초 tick에 동기적으로 등록한다.
+  initCollector();
+  initTriggers();
+
   chrome.sidePanel
     ?.setPanelBehavior({ openPanelOnActionClick: true })
     .catch((err) => console.error('[Orbit] sidePanel 설정 실패', err));
@@ -33,9 +39,13 @@ export default defineBackground(() => {
       return true;
     }
 
-    // content script → 페이지 추출 완료, 캐시에 저장
+    // content script → 페이지 추출 완료, 캐시 갱신 + 큐 부착
     if (message?.type === 'PAGE_CONTENT_READY' && sender.tab?.id != null) {
-      pageContentCache.set(sender.tab.id, message.content ?? null);
+      const tabId = sender.tab.id;
+      pageContentCache.set(tabId, message.content ?? null);
+      handlePageContentReady(tabId, message.content ?? null).catch((err) =>
+        console.error('[Orbit] handlePageContentReady 실패', err),
+      );
       return false;
     }
 

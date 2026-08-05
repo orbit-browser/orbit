@@ -1,7 +1,7 @@
 import logging
 
 from .json_utils import extract_json
-from .llm import chat_completion_light
+from .llm import chat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,8 @@ async def rerank(query: str, sessions: list) -> list:
     user_msg = _USER_TEMPLATE.format(query=query, lines="\n".join(lines))
 
     try:
-        raw = await chat_completion_light(_SYSTEM, user_msg, max_tokens=80)
+        # 리랭킹은 A.X 경로 사용(DecisionLog 2026-08-05). temperature는 기존 light 경로와 동일하게 유지.
+        raw = await chat_completion(_SYSTEM, user_msg, temperature=0.1, max_tokens=80)
         data = extract_json(raw)
 
         ranked: list[int] = [

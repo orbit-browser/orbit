@@ -1,5 +1,10 @@
 # Orbit — AI 파이프라인 구현 계획
 
+> **이 문서는 2026-06 초기 구현 기록이다.** 2026-08 Personal Exploration Memory 방향
+> 전환 이후의 현재 아키텍처는 `docs/target-architecture.md`를 참고한다. 아래 내용은
+> 상시 이벤트 수집·Auto Session 이전, "탭 스냅샷을 저장·분류"하던 시점의 계획과 구현
+> 기록이며, 역사 기록으로 보존한다.
+
 > **상태: 1~3단계 구현 완료 (2026-06-29 `feat/backend-ai-pipeline` 병합).**
 > 아래 계획 본문은 구현 착수 전 설계 기록으로 남겨두고, 실제 결과와 달라진 부분은
 > 문서 맨 끝 [실제 구현 결과 — 계획 대비 차이](#실제-구현-결과--계획-대비-차이)에 정리했다.
@@ -316,9 +321,13 @@ Week 3
 - **LLM 리랭킹 추가 기능**: `GET /search?rerank=true`로 Qdrant 유사도 검색 결과 상위 후보를
   `solar-mini`가 쿼리 관련성 순으로 재정렬한다. Extension 설정 화면의 "더 정확한 결과 보기"
   토글과 연결되어 있다.
-- **미완성으로 남은 부분**: Extension 설정 화면에 "민감 도메인 제외" 토글(`excludeSensitive`,
-  기본값 on)이 있지만, 실제 필터링 로직은 구현되지 않았다. `extension/lib/chrome-bridge.ts`는
-  `chrome://`, `chrome-extension://` URL만 제외할 뿐 금융·의료 등 도메인 블랙리스트는 없다.
-  주의사항 3에서 언급한 "민감 정보 필터링 로직"은 UI만 준비된 상태.
-- **Redis**: `docker-compose.yml`과 `.env.example`에는 남아 있지만 백엔드 코드에서는
-  어디서도 사용하지 않는다. 세션 저장이 순차 처리로 충분하다는 계획의 전제가 유지되고 있다.
+- **민감 도메인 필터링 (2026-08 갱신)**: 이 항목은 초기 기록 당시 미구현 상태였으나 이후
+  실제로 구현되었다. `extension/lib/sensitive-domains.ts`가 은행·증권·정부·결제 도메인과
+  로그인/결제 경로를 판정해 매칭 시 본문만 제외(제목·URL은 유지)하고, 2026-08 이벤트
+  파이프라인 도입 이후로는 `backend/app/services/event_filter.py`가 서버측에서 동일 판정을
+  이중으로 재검사한다(`docs/DecisionLog.md` 2026-07-05/2026-07-12/2026-08-03 항목 참고).
+- **Redis (2026-08 갱신)**: 이 문서 작성 시점에는 `docker-compose.yml`과 `.env.example`에
+  Redis가 남아 있었지만, 실제로 사용된 적이 없어 이후 정리되었다. 현재
+  `docker-compose.yml`에는 `postgres`·`qdrant`만 있고 Redis는 없다. 배치 세션화 파이프라인도
+  별도 큐/워커 없이 in-process `asyncio.Lock`으로 직렬화한다(`docs/DecisionLog.md` 2026-08-03
+  "배치 실행" 항목 참고).

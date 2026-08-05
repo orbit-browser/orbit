@@ -10,6 +10,7 @@ import {
 } from '../../../lib/api';
 import type { TabItem } from '../../../lib/types';
 import { useUIStore } from '../store/ui';
+import { useSettingsStore } from '../store/settings';
 
 export function useSessions() {
   return useQuery({
@@ -30,8 +31,9 @@ export function useSession(id: string | null) {
 export function useSaveSessionsClustered() {
   const queryClient = useQueryClient();
   const addPending = useUIStore((s) => s.addPendingSession);
+  const excludeSensitive = useSettingsStore((s) => s.excludeSensitive);
   return useMutation({
-    mutationFn: (tabs: TabItem[]) => saveSessionsClustered(tabs),
+    mutationFn: (tabs: TabItem[]) => saveSessionsClustered(tabs, { excludeSensitive }),
     onSuccess: (sessions) => {
       sessions.forEach((s) => addPending(s.id));
       queryClient.invalidateQueries({ queryKey: ['sessions'] });

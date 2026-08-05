@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Search, Archive, Sparkles, Layers } from 'lucide-react';
 import { useSessions, useSearch } from '../hooks/useSessions';
 import { SessionCard } from '../components/SessionCard';
+import { AnalyticsSection } from '../components/analytics/AnalyticsSection';
 
 type LocalMode = 'sessions' | 'search';
 
@@ -183,6 +184,8 @@ export function HomeView() {
           )}
         </div>
       </div>
+
+      <AnalyticsSection />
 
       {/* ── Suggested tasks (스크롤해야 보임) ── */}
       <div className="mt-20 w-full max-w-[860px]">

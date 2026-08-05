@@ -1,7 +1,15 @@
 import { getTabPageContent } from './chrome-bridge';
+import type { WireEvent } from './events/types';
 import { isSensitiveUrl } from './sensitive-domains';
-import { useSettingsStore } from '../entrypoints/sidepanel/store/settings';
-import type { Session, SessionSummary, TabItem } from './types';
+import type {
+  MemoryEvent,
+  MemorySearchResult,
+  Session,
+  SessionSummary,
+  SessionTimelineEvent,
+  TabItem,
+  TodayEvent,
+} from './types';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -30,6 +38,45 @@ interface BackendSession {
   tabs: BackendTab[];
   created_at: string;
   updated_at: string;
+}
+
+interface BackendTodayEvent {
+  event_id: string;
+  url: string;
+  title: string;
+  domain: string;
+  visited_at: string;
+  active_duration_ms: number;
+  session_id: string | null;
+  session_title: string | null;
+}
+
+interface BackendSessionTimelineEvent {
+  event_id: string;
+  url: string;
+  title: string;
+  domain: string;
+  visited_at: string;
+  active_duration_ms: number;
+  relevance_score: number | null;
+  sequence_order: number;
+}
+
+interface BackendMemoryEvent {
+  event_id: string;
+  url: string;
+  title: string;
+  domain: string;
+  visited_at: string;
+  active_duration_ms: number;
+  session_id: string | null;
+  session_title: string | null;
+  matched_by: 'session' | 'keyword';
+}
+
+interface BackendMemorySearchResponse {
+  sessions: BackendSession[];
+  events: BackendMemoryEvent[];
 }
 
 // ── 타입 변환 ────────────────────────────────────────
@@ -67,6 +114,46 @@ function mapSession(b: BackendSession): Session {
   };
 }
 
+function mapTodayEvent(b: BackendTodayEvent): TodayEvent {
+  return {
+    eventId: b.event_id,
+    url: b.url,
+    title: b.title,
+    domain: b.domain,
+    visitedAt: b.visited_at,
+    durationMs: b.active_duration_ms,
+    sessionId: b.session_id,
+    sessionTitle: b.session_title,
+  };
+}
+
+function mapSessionTimelineEvent(b: BackendSessionTimelineEvent): SessionTimelineEvent {
+  return {
+    eventId: b.event_id,
+    url: b.url,
+    title: b.title,
+    domain: b.domain,
+    visitedAt: b.visited_at,
+    durationMs: b.active_duration_ms,
+    relevanceScore: b.relevance_score,
+    sequenceOrder: b.sequence_order,
+  };
+}
+
+function mapMemoryEvent(b: BackendMemoryEvent): MemoryEvent {
+  return {
+    eventId: b.event_id,
+    url: b.url,
+    title: b.title,
+    domain: b.domain,
+    visitedAt: b.visited_at,
+    durationMs: b.active_duration_ms,
+    sessionId: b.session_id,
+    sessionTitle: b.session_title,
+    matchedBy: b.matched_by,
+  };
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
@@ -94,8 +181,23 @@ export async function fetchSession(id: string): Promise<Session | undefined> {
   }
 }
 
-async function enrichTabs(tabs: TabItem[]) {
-  const excludeSensitive = useSettingsStore.getState().excludeSensitive;
+/**
+ * 세션 상세의 "탐색 타임라인" 섹션용 (docs/api-design-v2.md §6).
+ * `origin='snapshot'` 세션(이벤트 연결 없음)은 빈 배열을 반환하고, 조회 자체가 실패해도
+ * (백엔드 미연결 등) 섹션을 조용히 숨길 수 있도록 빈 배열로 완화한다 — 기존 화면과
+ * 독립적으로 배포 가능해야 한다는 계약(docs/IA.md 세션 상세)에 따른 처리.
+ */
+export async function fetchSessionEvents(sessionId: string): Promise<SessionTimelineEvent[]> {
+  try {
+    const data = await request<BackendSessionTimelineEvent[]>(`/sessions/${sessionId}/events`);
+    return data.map(mapSessionTimelineEvent).sort((a, b) => a.sequenceOrder - b.sequenceOrder);
+  } catch {
+    return [];
+  }
+}
+
+async function enrichTabs(tabs: TabItem[], opts: { excludeSensitive: boolean }) {
+  const { excludeSensitive } = opts;
 
   return Promise.all(
     tabs.map(async (tab) => {
@@ -126,8 +228,11 @@ async function enrichTabs(tabs: TabItem[]) {
   );
 }
 
-export async function saveSessionsClustered(tabs: TabItem[]): Promise<Session[]> {
-  const enriched = await enrichTabs(tabs);
+export async function saveSessionsClustered(
+  tabs: TabItem[],
+  opts: { excludeSensitive: boolean },
+): Promise<Session[]> {
+  const enriched = await enrichTabs(tabs, opts);
   const data = await request<BackendSession[]>('/sessions/cluster', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -153,6 +258,43 @@ export async function renameSession(id: string, title: string): Promise<void> {
 
 export async function deleteSession(id: string): Promise<void> {
   await request(`/sessions/${id}`, { method: 'DELETE' });
+}
+
+// ── 이벤트 배치 동기화 (docs/api-design-v2.md §1) ──────────────────
+
+export interface EventBatchResponse {
+  accepted: number;
+  duplicates: number;
+  filtered: number;
+  pending_total: number;
+}
+
+export async function postEventBatch(
+  deviceId: string,
+  events: WireEvent[],
+): Promise<EventBatchResponse> {
+  return request<EventBatchResponse>('/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId, events }),
+  });
+}
+
+export type ServerSyncTrigger = 'manual' | 'periodic' | 'event_count' | 'idle';
+
+/**
+ * 서버 배치 세션화 트리거. 202(시작)/200(pending 없음)은 성공,
+ * 409(이미 실행 중)도 정상 흐름이므로 예외로 취급하지 않는다.
+ */
+export async function triggerServerSync(triggerType: ServerSyncTrigger): Promise<void> {
+  const res = await fetch(`${BASE}/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trigger_type: triggerType }),
+  });
+  if (!res.ok && res.status !== 409) {
+    throw new Error(`[Orbit API] POST /sync ${res.status}`);
+  }
 }
 
 export async function checkHealth(): Promise<boolean> {
@@ -190,4 +332,103 @@ export async function searchSessions(query: string, rerank = false): Promise<Sea
     );
     return { sessions: filtered, degraded: true };
   }
+}
+
+// ── Timeline / Memory 검색 (M4, docs/api-design-v2.md §3, §8, §10) ─────
+
+/** Timeline 홈용 — 서버에 이미 동기화된 오늘자 이벤트만 반환한다(미동기화분은 로컬 IDB에서 읽음). */
+/** date는 'today' 또는 'YYYY-MM-DD' — 백엔드 GET /events가 둘 다 지원한다. */
+export async function fetchEventsByDate(date: string): Promise<TodayEvent[]> {
+  const data = await request<BackendTodayEvent[]>(`/events?date=${encodeURIComponent(date)}`);
+  return data.map(mapTodayEvent);
+}
+
+/**
+ * scope=memory 검색 — 세션/이벤트 두 그룹을 함께 반환한다.
+ * 실패 시 기존 searchSessions와 동일한 substring fallback을 쓰되, 이벤트 그룹은 항상 비운다
+ * (로컬에는 세션 텍스트만 있고 이벤트 인덱스가 없어 fallback으로 재현할 수 없음).
+ */
+export async function searchMemory(query: string, rerank = false): Promise<MemorySearchResult> {
+  const q = query.trim();
+  if (!q) return { sessions: [], events: [], degraded: false };
+  try {
+    const params = new URLSearchParams({ q, scope: 'memory' });
+    if (rerank) params.set('rerank', 'true');
+    const data = await request<BackendMemorySearchResponse>(`/search?${params}`);
+    return {
+      sessions: data.sessions.map(mapSession),
+      events: data.events.map(mapMemoryEvent),
+      degraded: false,
+    };
+  } catch {
+    const sessions = await fetchSessions();
+    const lower = q.toLowerCase();
+    const filtered = sessions.filter(
+      (s) =>
+        s.title.toLowerCase().includes(lower) ||
+        s.summary.overview.toLowerCase().includes(lower) ||
+        s.tabs.some((t) => t.title.toLowerCase().includes(lower)),
+    );
+    return { sessions: filtered, events: [], degraded: true };
+  }
+}
+
+/** 개인정보 통제 목적 — 서버에 이미 저장된 이벤트를 개별 삭제한다 (docs/api-design-v2.md §10). */
+export async function deleteServerEvent(eventId: string): Promise<void> {
+  await request(`/events/${eventId}`, { method: 'DELETE' });
+}
+
+// ── Exploration Analytics (docs/api-design-v2.md §9) ──────────────────
+// TimelineView 하단 요약 카드용 — 세션별 탐색 시간/도메인 방문 수만 사용한다.
+// 집계 쿼리만 수행하는 엔드포인트라 AI 호출은 없고, 배열 필드는 백엔드 구현
+// 상황에 따라 없을 수 있어 옵셔널로 두고 빈 배열로 정규화한다.
+
+export interface AnalyticsSessionDuration {
+  sessionId: string;
+  title: string;
+  totalActiveDurationMs: number;
+}
+
+export interface AnalyticsDomainCount {
+  domain: string;
+  visitCount: number;
+}
+
+export interface AnalyticsOverview {
+  periodDays: number;
+  topSessionsByDuration: AnalyticsSessionDuration[];
+  topDomains: AnalyticsDomainCount[];
+}
+
+interface BackendAnalyticsSessionDuration {
+  session_id: string;
+  title: string;
+  total_active_duration_ms: number;
+}
+
+interface BackendAnalyticsDomainCount {
+  domain: string;
+  visit_count: number;
+}
+
+interface BackendAnalyticsOverview {
+  period_days?: number;
+  top_sessions_by_duration?: BackendAnalyticsSessionDuration[];
+  top_domains?: BackendAnalyticsDomainCount[];
+}
+
+export async function fetchAnalyticsOverview(days: number): Promise<AnalyticsOverview> {
+  const data = await request<BackendAnalyticsOverview>(`/analytics/overview?days=${days}`);
+  return {
+    periodDays: data.period_days ?? days,
+    topSessionsByDuration: (data.top_sessions_by_duration ?? []).map((s) => ({
+      sessionId: s.session_id,
+      title: s.title,
+      totalActiveDurationMs: s.total_active_duration_ms,
+    })),
+    topDomains: (data.top_domains ?? []).map((d) => ({
+      domain: d.domain,
+      visitCount: d.visit_count,
+    })),
+  };
 }

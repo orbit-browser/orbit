@@ -22,7 +22,7 @@ def test_rerank_restores_order_and_recovers_missing_index(monkeypatch):
     async def fake_llm(*_a, **_k):
         return '{"ranked": [2, 0]}'
 
-    monkeypatch.setattr(reranker, "chat_completion_light", fake_llm)
+    monkeypatch.setattr(reranker, "chat_completion", fake_llm)
 
     result = asyncio.run(reranker.rerank("query", sessions))
     # 인덱스 1(b)은 LLM 응답에서 빠졌으므로 뒤에 회수됨
@@ -33,7 +33,7 @@ def test_rerank_single_session_skips_llm(monkeypatch):
     async def boom(*_a, **_k):
         raise AssertionError("세션이 1개 이하면 LLM을 호출하지 않아야 함")
 
-    monkeypatch.setattr(reranker, "chat_completion_light", boom)
+    monkeypatch.setattr(reranker, "chat_completion", boom)
 
     sessions = [FakeSession("only")]
     result = asyncio.run(reranker.rerank("q", sessions))
@@ -44,7 +44,7 @@ def test_rerank_failure_keeps_original_order(monkeypatch):
     async def boom(*_a, **_k):
         raise RuntimeError("fail")
 
-    monkeypatch.setattr(reranker, "chat_completion_light", boom)
+    monkeypatch.setattr(reranker, "chat_completion", boom)
 
     sessions = [FakeSession("a"), FakeSession("b")]
     result = asyncio.run(reranker.rerank("q", sessions))

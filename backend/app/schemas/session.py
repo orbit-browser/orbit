@@ -54,3 +54,34 @@ class SessionDetail(BaseModel):
     tabs: list[TabItemResponse]
     created_at: str
     updated_at: str
+
+
+class SessionEventItem(BaseModel):
+    """Session Timeline 항목 (docs/api-design-v2.md §6)."""
+
+    event_id: str
+    url: str
+    title: str | None = None
+    domain: str | None = None
+    visited_at: str
+    active_duration_ms: int | None = None
+    relevance_score: float | None = None
+    sequence_order: int
+
+
+class SessionVersionItem(BaseModel):
+    """세션 요약 이력 항목 (docs/api-design-v2.md §7).
+
+    prompt_version은 내부 감사용이라 노출하지 않는다(§7). model은 doc 예시에는
+    있으나 구현 계약 문구에는 빠져 있어 optional로 추가한다(superset 정책, §11).
+    """
+
+    version: int
+    title: str | None = None
+    overview: str | None = None
+    purpose: str | None = None
+    highlights: list[str] = []
+    todos: list[str] = []
+    next_actions: list[str] = []
+    model: str | None = None
+    created_at: str

@@ -10,23 +10,34 @@ _ENV_FILE = Path(__file__).parent.parent / ".env"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
-    # A.X-K1 (SKT, primary LLM)
+    # A.X-K1 (SKT) — 요약·의도분석·리랭킹·채팅 primary (DecisionLog 2026-08-05)
     axk1_api_key: str = ""
     axk1_base_url: str = "https://awf-gw.adot.ai"
     axk1_model: str = "A.X-K1"
 
-    # Upstage (solar-pro3 fallback + embedding)
+    # LG EXAONE (FriendliAI serverless, OpenAI 호환) — 클러스터링 primary.
+    # dedicated endpoint는 웜 상태에서도 ~60초/호출로 부적합해 serverless 채택(DecisionLog 2026-08-05).
+    friendli_api_key: str = ""
+    friendli_base_url: str = "https://api.friendli.ai/serverless/v1"
+    exaone_model: str = "LGAI-EXAONE/K-EXAONE-236B-A23B"
+
+    # Upstage — embedding 전용 (채팅 경로는 A.X-K1 ↔ EXAONE 상호 폴백으로 대체)
     upstage_api_key: str = ""
     upstage_base_url: str = "https://api.upstage.ai/v1"
-    solar_model: str = "solar-pro3"
-    solar_mini_model: str = "solar-mini"
     embedding_model: str = "embedding-query"       # 검색 쿼리 임베딩
     embedding_passage_model: str = "embedding-passage"  # 저장 문서(요약) 임베딩
 
     # 데이터스토어
     database_url: str = "postgresql+asyncpg://orbit:orbit@localhost:5432/orbit"
     qdrant_url: str = "http://localhost:6333"
-    search_score_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
+    # 0.28 = 검색 골든셋 실측(eval/run_retrieval_eval.py, 2026-08-05) 기준
+    # 음성 질의 최고점(0.265)과 정답 최저점(0.289) 사이의 분리 구간 중앙값
+    search_score_threshold: float = Field(default=0.28, ge=0.0, le=1.0)
+
+    # Auto Session 동기화 (M3 sync_pipeline에서 사용 — docs/implementation-roadmap.md M1-1)
+    sync_interval_minutes: int = Field(default=0, ge=0)  # 0 = 주기 동기화 off
+    sync_event_threshold: int = Field(default=30, ge=1)  # 개수 트리거 기준
+    sync_max_events_per_batch: int = Field(default=150, ge=1)  # 배치당 claim 상한
 
 
 settings = Settings()

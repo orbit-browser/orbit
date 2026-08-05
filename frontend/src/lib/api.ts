@@ -1,4 +1,4 @@
-import type { Session, SessionSummary } from './types';
+import type { AnalyticsOverview, Session, SessionSummary } from './types';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -127,6 +127,81 @@ export async function searchSessions(query: string): Promise<Session[]> {
         s.tabs.some((t) => t.title.toLowerCase().includes(lower)),
     );
   }
+}
+
+// ── Exploration Analytics (docs/api-design-v2.md §9) ──────────────────
+// 집계 쿼리만 수행하는 엔드포인트 — AI 호출 없음. 각 배열 필드는 백엔드 구현
+// 상황에 따라 없을 수 있어 옵셔널로 두고 빈 배열로 정규화한다.
+
+interface BackendAnalyticsSessionDuration {
+  session_id: string;
+  title: string;
+  total_active_duration_ms: number;
+}
+
+interface BackendAnalyticsDomainCount {
+  domain: string;
+  visit_count: number;
+}
+
+interface BackendAnalyticsRepeatVisit {
+  normalized_url: string;
+  title: string;
+  visit_count: number;
+}
+
+interface BackendAnalyticsRepeatSearchQuery {
+  search_query: string;
+  count: number;
+}
+
+interface BackendAnalyticsDailyTrendPoint {
+  date: string;
+  event_count: number;
+  total_active_duration_ms: number;
+}
+
+interface BackendAnalyticsOverview {
+  period_days?: number;
+  top_sessions_by_duration?: BackendAnalyticsSessionDuration[];
+  top_domains?: BackendAnalyticsDomainCount[];
+  repeat_visits?: BackendAnalyticsRepeatVisit[];
+  repeat_search_queries?: BackendAnalyticsRepeatSearchQuery[];
+  daily_trend?: BackendAnalyticsDailyTrendPoint[];
+}
+
+function mapAnalyticsOverview(b: BackendAnalyticsOverview, days: number): AnalyticsOverview {
+  return {
+    periodDays: b.period_days ?? days,
+    topSessionsByDuration: (b.top_sessions_by_duration ?? []).map((s) => ({
+      sessionId: s.session_id,
+      title: s.title,
+      totalActiveDurationMs: s.total_active_duration_ms,
+    })),
+    topDomains: (b.top_domains ?? []).map((d) => ({
+      domain: d.domain,
+      visitCount: d.visit_count,
+    })),
+    repeatVisits: (b.repeat_visits ?? []).map((v) => ({
+      normalizedUrl: v.normalized_url,
+      title: v.title,
+      visitCount: v.visit_count,
+    })),
+    repeatSearchQueries: (b.repeat_search_queries ?? []).map((q) => ({
+      searchQuery: q.search_query,
+      count: q.count,
+    })),
+    dailyTrend: (b.daily_trend ?? []).map((d) => ({
+      date: d.date,
+      eventCount: d.event_count,
+      totalActiveDurationMs: d.total_active_duration_ms,
+    })),
+  };
+}
+
+export async function fetchAnalyticsOverview(days: number): Promise<AnalyticsOverview> {
+  const data = await request<BackendAnalyticsOverview>(`/analytics/overview?days=${days}`);
+  return mapAnalyticsOverview(data, days);
 }
 
 export async function checkHealth(): Promise<boolean> {

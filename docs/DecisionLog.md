@@ -55,12 +55,103 @@
 - 대안: 고정 상수 사용, threshold 없이 리랭커만 사용
 - 영향: 무관한 결과를 줄일 수 있지만 실제 골든셋에 따라 누락률이 증가할 수 있다. 기존 포인트는 별도 재색인이 필요하다.
 
+## 2026-08-03 — 제품 방향 전환: 탭 스냅샷 분류 → 상시 이벤트 수집 + 배치 세션화
+
+- 상태: 승인
+- 배경: 열린 탭을 분류·요약해 저장하는 것 자체는 지속적인 사용자 가치가 아니며, 탐색 중 사고의 흐름(Context)이 시간이 지나면 사라지는 문제가 더 근본적이다. 기존 요약(`generate_summary`), 임베딩 검색(Qdrant), 복원, 민감 도메인 필터 파이프라인은 이미 검증되어 재사용 가능하다.
+- 결정: Orbit을 "탭 스냅샷 분류" 도구에서 "상시 이벤트 수집 + 배치 세션화" 기반 Personal Exploration Memory로 전환한다. 방문 이벤트마다 LLM을 호출하지 않고, 로컬 큐에 모은 이벤트를 동기화 트리거(수동/주기/개수/유휴) 시점에 배치로 분석해 세션을 자동 생성·갱신한다(Auto Session). 세션 분류 단위는 고정 규칙이 아니라 배치마다 LLM 의도 분석이 이벤트 그룹별로 append(기존 세션에 추가)·create(신규 세션 생성)·hold(보류)·discard(제외) 중 하나로 판단한다. 세션 간 자동 병합(merge)은 후순위로 미루고 스키마만 예약한다.
+- 대안: 기존 탭 스냅샷 분류 방식 유지, 전면 리라이트(기존 파이프라인 폐기 후 처음부터 재설계)
+- 근거와 영향: 탭 관리 자체는 사용자 가치가 아니라는 판단과, 기존 파이프라인을 최대한 재사용할 수 있다는 점에서 점진적 확장을 선택했다. 데이터 모델에 이벤트 계층(`exploration_events` 등)이 추가되고, Extension에 신규 권한(webNavigation 등)이 필요하다.
+
+## 2026-08-03 — DB 마이그레이션: 1회 리셋 + 멱등 ALTER 러너
+
+- 상태: 승인
+- 배경: Alembic 등 정식 마이그레이션 도구 없이 `create_all`만 사용하고 있었고, 이벤트/세션 관련 신규 테이블·컬럼 추가가 필요했다.
+- 결정: 1회 `docker compose down -v` 리셋 + `create_all` + 멱등 ALTER 러너(`app/db/migrations.py`, ~25줄)를 도입한다. Alembic 도입은 대회 이후로 미룬다.
+- 대안: Alembic 즉시 도입, `create_all`만 유지(스키마 변경마다 반복 리셋 필요)
+- 근거와 영향: 대회 일정 내 최소 비용으로 스키마 변경을 반영하기 위한 임시 조치다. 로컬/데모 데이터는 1회 소실되며, 이후 안정화 단계에서 Alembic 전환이 필요하다.
+
+## 2026-08-03 — 방문 감지: webNavigation 중심, history 권한 미사용
+
+- 상태: 승인
+- 배경: 상시 이벤트 수집을 위해 브라우저 방문을 감지할 방법이 필요했다. `history` 권한은 설치 시 새로운 경고를 유발할 수 있고, `chrome.history.onVisited`는 tabId/windowId/리다이렉트 판별 정보가 부족하다.
+- 결정: `webNavigation.onCommitted`(frameId 0 = 방문 원천) + `onHistoryStateUpdated`(SPA 내비게이션) + `tabs.onUpdated`(제목 보강)를 중심으로 방문을 감지한다. `history` 권한은 사용하지 않는다(과거 기록 백필은 추후 opt-in 옵션으로만 검토).
+- 대안: `history` 권한 + `chrome.history.onVisited` 사용
+- 근거와 영향: `webNavigation` 권한의 설치 경고는 기존 `tabs` 권한과 동일한 수준이라 사용자에게 새로운 경고가 노출되지 않는다. `onCommitted`/`onHistoryStateUpdated`는 tabId/windowId/리다이렉트 여부가 이벤트에 포함되어 있어 체류시간 세그먼트·리다이렉트 치환 등 상관관계 계산에 유리하다. 새 경고를 유발하지 않는 권한만 사용하기로 해 최소 권한 원칙과 조화시켰다.
+
+## 2026-08-03 — 로컬 큐: IndexedDB + idb
+
+- 상태: 승인
+- 배경: 방문 이벤트를 실시간으로 로컬에 쌓고 SW 종료/재시작에도 유실 없이 보존해야 한다.
+- 결정: IndexedDB + `idb`(~1.2KB, 신규 의존성 1개)로 로컬 Persistent Queue를 구현한다. 사이드패널이 같은 DB를 SW를 깨우지 않고 직접 열람할 수 있다.
+- 대안: `chrome.storage.local`
+- 근거와 영향: `chrome.storage.local`은 read-modify-write 경합(동시 쓰기 시 덮어쓰기 위험)이 있어 이벤트 스트림처럼 빈번한 append 작업에 부적합하다. IndexedDB는 트랜잭션 기반이라 유실·경합 위험이 낮고, 사이드패널이 큐를 직접 읽어 미동기화 이벤트도 즉시 렌더링할 수 있다.
+
+## 2026-08-03 — 세션 요약 저장: summary JSONB 유지, session_versions만 개별 컬럼
+
+- 상태: 승인
+- 배경: 새 방향 초안은 세션 요약 필드를 개별 컬럼으로 승격하는 안을 제시했으나, 기존 프론트/검색/임베딩 코드는 `summary` JSONB 구조에 맞춰져 있다.
+- 결정: `summary` JSONB 구조를 그대로 유지한다. 버전 이력만 `session_versions` 테이블에 개별 컬럼(title/overview/purpose/highlights/todos/next_actions 등)으로 저장한다.
+- 대안: 스펙대로 `summary` 필드를 개별 컬럼으로 승격
+- 근거와 영향: 개별 컬럼 승격은 기존 프론트엔드 타입, 검색 임베딩 입력 조합, 요약 파싱 로직을 모두 바꿔야 해 호환 비용이 크다. JSONB를 유지하면 기존 코드가 무변경으로 동작하고, 버전 이력만 별도 테이블로 분리해 이력 조회 요구를 충족한다.
+
+## 2026-08-03 — 배치 실행: in-process asyncio + asyncio.Lock
+
+- 상태: 승인
+- 배경: 배치 세션화 파이프라인은 동시 실행 방지와 재시작 안전성이 필요하지만, 대회 일정상 신규 인프라(큐/워커) 도입은 과도하다.
+- 결정: in-process `asyncio` + 모듈 레벨 `asyncio.Lock`으로 배치를 직렬화한다. `sync_batches.status='running'` 행을 재시작 안전망으로 사용하고, 시작 시 `running→failed`, `processing→pending`으로 복구한다(기존 `recover_pending_sessions` 확장). Redis나 별도 워커는 도입하지 않는다.
+- 대안: Celery, ARQ 등 별도 워커/큐 인프라 도입
+- 근거와 영향: 현재 서비스 규모와 대회 일정에서는 별도 인프라 없이도 단일 프로세스 락과 DB 상태 행으로 동시 실행 방지와 재시작 복구를 충분히 처리할 수 있다. 향후 다중 인스턴스 배포 시에는 분산 락으로 전환이 필요하다.
+
+## 2026-08-05 — Extension 단위 테스트: vitest + fake-indexeddb 도입
+
+- 상태: 승인 (사용자 승인, 2026-08-05)
+- 배경: `lib/events`·`lib/sync`는 M2 완료 게이트 리뷰에서 단위 테스트 부재가 지적됐으나, 테스트 프레임워크 도입이 신규 dev 의존성이라 사용자 결정 대기로 보류돼 있었다.
+- 결정: `vitest` + `fake-indexeddb`를 devDependency로 추가한다. WxtVitest 플러그인 없이 plain vitest 구성으로 `wxt/testing`의 `fakeBrowser`만 chrome.* 전역 대역으로 사용한다. 검증 명령은 `pnpm test`.
+- 대안: WxtVitest 플러그인 전체 구성(자동 import·vite 플러그인 체인 포함), jest
+- 근거와 영향: lib 코드는 wxt 모듈이 아닌 chrome 전역과 IndexedDB 전역을 직접 사용하므로 WXT 플러그인 기계 없이 전역 대역 2개(fakeBrowser, fake-indexeddb)로 충분하다. 구성이 단순할수록 WXT 버전 업그레이드와 독립적이다. E2E는 Playwright(MCP 등록 완료)로 별도 수행한다.
+
+## 2026-08-05 — 의도 분석 프롬프트 v2 + temperature 0
+
+- 상태: 승인
+- 배경: 평가 하네스에서 노이즈 제외율이 50%에 고정 — 짧은 SNS 스침 방문을 discard하지 않고 별도 세션으로 create했다. 또한 temperature 미지정(기본 0.3)으로 실행마다 판정이 흔들려 평가 재현성이 낮았다.
+- 결정: `intent_analyzer.py` 프롬프트를 v2로 올린다 — ① discard 기준에 "체류 약 1분 미만 + 어떤 주제와도 무관한 스침 방문(SNS 피드·쇼츠/릴스·포털 홈)" 명시 ② 도구성 방문(번역기·지도 등)이 주제 흐름에 속하면 보호 ③ 서로 다른 주제는 assignment 분리 강제 ④ JSON 예시를 다중 assignment(append+create+discard)로 확장. LLM 호출에 `temperature=0.0`을 명시한다.
+- 대안: 체류시간 기반 서버측 사전 필터(LLM 무호출 discard 규칙), temperature 유지(0.3)
+- 근거와 영향: temperature 0 단독은 "전부 한 세션으로 뭉치는" 나쁜 greedy 경로에 결정적으로 고정됐고(3회 동일: coverage 0.75, noise 50%), 다중 assignment 예시 앵커링과 주제 분리 지침을 더하자 greedy 경로가 교정됐다(3회 중 2회 전 지표 100%, 1회 noise 50% — API 측 잔여 비결정성). 결정적 사전 필터(예: 30초 미만 SNS 도메인 즉시 discard)는 데이터 처리 정책 변경이므로 별도 사용자 결정 항목으로 남긴다.
+
+## 2026-08-05 — 검색 score threshold 0.35 → 0.28 (실측 튜닝)
+
+- 상태: 승인
+- 배경: 2026-07-12 결정에서 0.35는 "초기 기본값이며 골든셋 실측 후 조정" 조건부였다. 검색 골든셋(`eval/golden_retrieval.json`: 세션 10, 긍정 질의 14, 음성 질의 5)과 평가 스크립트(`eval/run_retrieval_eval.py`)를 만들어 실측했다.
+- 결정: `search_score_threshold` 기본값을 0.28로 낮춘다.
+- 대안: 0.35 유지(긍정 질의 2개 유실 — "리트코드 문제 풀던 세션" 0.289, "일본 항공권·호텔" 0.320), 0.25(음성 질의 1개 유입 — "헬스장 PT" 0.265→laptop_shopping), 0.30(긍정 1개 유실)
+- 근거와 영향: 음성 질의 최고점(0.2648)과 정답 최저점(0.2888) 사이에 깨끗한 분리 구간이 있어 그 중앙(0.28)에서 이 골든셋 기준 Recall@1 100% + 음성 차단 100%를 동시에 달성한다. 분리 폭이 0.024로 좁으므로 골든셋을 더 확대하면 재검증이 필요하다. 이 threshold는 `/search`와 sync_pipeline의 후보 세션 검색이 공유한다 — 후보 검색에는 관련 세션이 조금 더 넓게 잡히는 방향(완화)이라 append 판단은 LLM이 최종 결정하므로 위험이 낮다.
+
+## 2026-08-05 — LLM 재배정: 클러스터링=EXAONE, 요약·의도분석·리랭킹·채팅=A.X (상호 폴백)
+
+- 상태: 승인 (사용자 자체 평가 결과 성능·비용 최적 조합)
+- 배경: 기존 배선은 A.X-K1(요약·의도분석) + Solar Mini(클러스터링·리랭킹) + Solar Pro 3(공용 폴백)였다.
+- 결정: `chat_completion_light` = EXAONE(FriendliAI dedicated endpoint) 우선 → A.X-K1 폴백(클러스터링). `chat_completion(_with_meta)` = A.X-K1 우선 → EXAONE 폴백(요약·의도분석·리랭킹·향후 채팅). 리랭커는 light → chat_completion으로 전환(temperature 0.1 유지). Solar 채팅 모델 설정 제거, Upstage는 임베딩 전용으로 유지. 의도분석은 A.X 유지(프롬프트 v2가 A.X 기준으로 튜닝·평가됨).
+- 대안: Solar Pro 3 폴백 유지(3사 의존), 폴백 없음
+- 근거와 영향: 사용자 평가에서 EXAONE(클러스터링)/A.X(요약·리랭킹) 조합이 성능·비용 최적. 상호 폴백으로 채팅 경로의 Upstage 의존 제거. EXAONE 4.0은 hybrid reasoning 모델이라 `chat_template_kwargs.enable_thinking=false`를 항상 전달해야 content가 채워진다(실측).
+- **미해결 리스크**: 현재 FriendliAI dedicated endpoint가 웜 상태에서도 호출당 ~60초(4회 연속 실측)로, 25초 타임아웃에 걸려 클러스터링이 항상 A.X로 폴백된다. 엔드포인트 사양/상태 확인 전까지 EXAONE은 사실상 대기 상태 — FriendliAI 콘솔 확인 필요(열린 결정 표 참조).
+
+## 2026-08-05 — EXAONE dedicated → serverless 전환
+
+- 상태: 승인
+- 배경: dedicated endpoint가 웜 상태에서도 호출당 54~70초(첫 바이트까지 55초 — 전부 서버측 지연, 네트워크 정상)로 25초 타임아웃에 항상 걸려 클러스터링이 A.X로만 폴백되고 있었다.
+- 결정: FriendliAI serverless `LGAI-EXAONE/K-EXAONE-236B-A23B`로 전환(base_url/model 기본값 변경). 종량제 $0.2/$0.8 per M tokens.
+- 대안: dedicated 인스턴스 사양 상향(콘솔 확인·비용 증가), 클러스터링 A.X 회귀(모델 다양성 상실)
+- 근거와 영향: 실측 0.3~0.5초/호출로 170배 빠르고 실제 코드 경로(chat_completion_light) 스모크 통과. A.X 다운 시 EXAONE 폴백도 3.3초에 성공. 주의: serverless는 버스트에 민감한 rate limit이 있어(테스트 중 연속 호출로 429 1회 관찰, 45초 후 회복) 429 시 A.X 폴백(light 경로) 또는 오류 전파(with_meta 폴백 경로)로 처리된다 — 현행 0.5초 전역 리미터로 통상 트래픽에서는 문제없을 것으로 판단.
+
 ## 열린 결정
 
-| 항목 | 필요한 결정 | 구현 전 조건 |
-|---|---|---|
-| 세션 분류 단위 | 큰 주제 또는 완결된 세부 작업 | 대표 예시와 골든셋 합의 |
-| 기존 세션 병합 | 제안만 할지, 병합 범위와 취소 방식 | 사용자 확인 흐름 정의 |
-| 페이지 본문 보관 | 보관 기간과 재요약 가능 기간 | 개인정보 정책 합의 |
-| 외부 배포 보안 | 인증 방식과 허용 origin | 배포 환경 확정 |
-| 웹 복원 | 안내 CTA 또는 제한적 복원 | 제품 범위 확정 |
+| 항목 | 필요한 결정 | 구현 전 조건 | 상태 |
+|---|---|---|---|
+| 세션 분류 단위 | 큰 주제 또는 완결된 세부 작업 | 대표 예시와 골든셋 합의 | 결정됨 (2026-08-03, 위 "제품 방향 전환" 항목 참조 — 배치 LLM 의도 분석이 그룹별로 판단) |
+| 기존 세션 병합 | 제안만 할지, 병합 범위와 취소 방식 | 사용자 확인 흐름 정의 | 결정됨 (2026-08-03, 위 "제품 방향 전환" 항목 참조 — append 지원, merge는 후순위·스키마만 예약) |
+| 페이지 본문 보관 | 보관 기간과 재요약 가능 기간 | 개인정보 정책 합의 | 미해결 |
+| 외부 배포 보안 | 인증 방식과 허용 origin | 배포 환경 확정 | 미해결 |
+| 웹 복원 | 안내 CTA 또는 제한적 복원 | 제품 범위 확정 | 미해결 |
+| 노이즈 사전 필터 | 체류 임계(예: 30초) 미만 + SNS/광고성 도메인 이벤트를 LLM 무호출로 discard하는 서버측 결정 규칙 도입 여부 | 임계값·도메인 목록 정의, 데이터 처리 정책 합의 (프롬프트 v2로 노이즈 제외율은 개선됐으나 LLM 변동성이 잔존 — 2026-08-05 제안) | 미해결 |
+| EXAONE 엔드포인트 지연 | ~~dedicated ~60초/호출 문제~~ | serverless 전환으로 해소 | 결정됨 (2026-08-05, 아래 "EXAONE serverless 전환" 항목) |

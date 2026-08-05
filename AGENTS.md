@@ -22,8 +22,8 @@ Personal Exploration Memory 서비스다. 저장소는 세 파트로 구성된�
 # Backend — pytest 사용 (unittest 아님)
 cd backend && python -m pytest -p no:asyncio
 
-# Extension — 타입 검사 + 빌드
-cd extension && pnpm compile && pnpm build
+# Extension — 단위 테스트(vitest) + 타입 검사 + 빌드
+cd extension && pnpm test && pnpm compile && pnpm build
 
 # Frontend — 빌드에 타입 검사(tsc --noEmit) 포함
 cd frontend && pnpm build
