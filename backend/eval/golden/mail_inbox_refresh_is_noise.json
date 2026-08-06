@@ -29,6 +29,20 @@
       "title": "받은메일함(7028) : 네이버 메일",
       "visited_at": "2026-08-05T11:24:00Z",
       "active_duration_ms": 15000
+    },
+    {
+      "id": "d4e5f6a7-0005-4d05-8e05-b20000000005",
+      "url": "https://mail.google.com/mail/u/1/#inbox",
+      "title": "받은편지함 (4,308) - donggun465@gmail.com - Gmail",
+      "visited_at": "2026-08-05T11:24:30Z",
+      "active_duration_ms": 4000
+    },
+    {
+      "id": "d4e5f6a7-0006-4d06-8e06-b20000000006",
+      "url": "https://mail.naver.com/",
+      "title": "받은메일함(7028) : 네이버 메일",
+      "visited_at": "2026-08-05T11:25:00Z",
+      "active_duration_ms": 1000
     }
   ],
   "existing_sessions": [
@@ -46,7 +60,9 @@
       "d4e5f6a7-0001-4d01-8e01-b20000000001": "noise",
       "d4e5f6a7-0002-4d02-8e02-b20000000002": "noise",
       "d4e5f6a7-0003-4d03-8e03-b20000000003": "noise",
-      "d4e5f6a7-0004-4d04-8e04-b20000000004": "noise"
+      "d4e5f6a7-0004-4d04-8e04-b20000000004": "noise",
+      "d4e5f6a7-0005-4d05-8e05-b20000000005": "noise",
+      "d4e5f6a7-0006-4d06-8e06-b20000000006": "noise"
     },
     "new_vs_existing": "new",
     "titles_hint": []
