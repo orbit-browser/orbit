@@ -2,6 +2,118 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-08-06 — 메일 노이즈 규칙 title 보강 + 세션 병합 설계 (feat/subcluster-append-gating 이어서)
+
+### 요청
+
+실데이터 검수 후속: (1) gmail·naver 받은편지함 스침이 세션에 새어드는 문제를 노이즈 규칙으로 보강,
+(2) 같은 주제 과분할·중복 세션에 대한 merge 설계.
+
+### 조사
+
+- 새어든 메일 이벤트 실 URL 확인: gmail `/mail/u/1/#inbox`→정규화 `/mail/u/1/`(경로에 inbox 신호 소멸),
+  naver 루트 `mail.naver.com/`(folders 경로 아님). 둘 다 **title은 "받은편지함/받은메일함"으로 시작**.
+  개별 메일 읽기는 title이 메일 제목이라 구분 가능. naver `/v2/folders/0/all`는 기존 folders 경로 규칙으로
+  이미 discard(그래서 root 1s만 샜음).
+- merge: models에 merge 필드 없음. 기존 원칙 "자동 병합 금지 + 사용자 확인 UI"(improvement-report,
+  ProjectContext) 확인 → 제안+확인+가역 방향으로 설계.
+
+### 변경
+
+- `app/services/noise_filter.py` — `_MAIL_LIST_TITLE_RE`(`^(받은편지함|받은메일함)`) 추가,
+  `_is_mail_list_view(host, path, title)`로 시그니처 확장(목록 경로 OR 받은편지함 title). `is_noise`가 title 전달.
+- `tests/test_noise_filter.py` — `_event`에 title 파라미터, 신규 테스트 3종(gmail/naver 받은편지함 noise,
+  개별 읽기 보존). 기존 `test_gmail_root_ambiguous_survives`(title 없음)는 그대로 통과.
+- `eval/golden/mail_inbox_refresh_is_noise.json` — gmail `/mail/u/1/#inbox`·naver 루트 케이스 2건 추가.
+- `docs/merge-design.md`(신규) — 세션 병합 설계(제안+확인+가역, 다중 신호 탐지, soft-delete+undo,
+  스키마·API 3단계·로드맵·열린 결정).
+
+### 검증
+
+- `pytest tests/test_noise_filter.py` 통과, 전체 **259 passed**.
+- 골든 `mail_inbox_refresh_is_noise` 단독 실행: 노이즈 제외율 100%, 실패 0(gmail/naver 루트 discard 확인).
+
+### 남은 일
+
+- merge는 설계만. `merge-design.md` §9 열린 결정(임계값·생존 선택·노출 시점·UI) 합의 후 P1(읽기 전용 제안)부터 착수.
+
+## 2026-08-06 — 그룹 내 서브클러스터링 + append 게이팅 (feat/subcluster-append-gating)
+
+### 요청
+
+Auto Session 재세션화의 "그룹 간 과잉 append" 구조적 불안정을 1+2(임베딩 서브클러스터링 +
+append 게이팅)로 해결. 계약부터 잡고 골든셋으로 검증.
+
+### 조사
+
+- `_process_group` 흐름 확인: 그룹 전체 1회 임베딩 → 후보검색 → analyze(그룹 전체) → apply.
+  다주제 그룹이 한 임베딩·한 LLM 호출로 들어가 뭉침 여지. `search_similar_with_scores`는 score를
+  계산하나 `_fetch_candidates`가 버림(게이팅에 재활용 가능).
+- numpy 2.2.6 사용 가능, Upstage 임베딩 배열 입력(배치) 가능 확인.
+- 골든 이벤트 임베딩 코사인 분포 실측(진단 스크립트) → subcluster_threshold 안전 밴드 도출.
+
+### 변경
+
+- `app/services/subclusterer.py`(신규) — average-linkage 응집 서브클러스터링 순수 함수.
+- `app/ai/embedding.py` — `embed_many`(배열 배치 임베딩, 순서 보존) 추가.
+- `app/services/sync_pipeline.py` — `_process_group` 재작성(embed_many→subcluster→클러스터별
+  후보검색/analyze/게이트→collect-then-apply). `_event_embedding_text`·`_centroid`·`_gate_appends`·
+  `_append_blocked` 추가. `_fetch_candidates`/`_sessions_to_candidates`가 벡터 score 노출.
+  `_process_group` 반환을 모델 목록으로 변경, `_process_batch`가 이를 카운트.
+- `app/config.py` — `subcluster_threshold`(0.31)·`append_score_floor`(0.35)·`append_max_age_days`(3).
+- `eval/run_eval.py` — 서브클러스터링 경로 반영(embed_many+subcluster, 클러스터별 analyze),
+  임베딩 record/replay 추가(call_key에 cluster_index), `_scenario_paths`가 `_`접두 파일 제외.
+- `tests/test_subclusterer.py`·`test_embedding.py`(신규), `test_sync_pipeline.py`(게이트·하드스플릿·
+  score 케이스 갱신).
+
+### 오류와 해결
+
+- **replay `KeyError('name')`**: 기록 파일을 `eval/golden/`에 저장했더니 시나리오 glob(`*.json`)이
+  기록 파일을 시나리오로 로드하려다 실패. 원인=파일 위치와 glob 충돌. 해결=`_scenario_paths`가
+  `_`접두 파일(기록 산출물)을 제외(docstring의 `_recorded.json` 컨벤션과 일치).
+
+### 설계 결정
+
+- 조건부 하드 스플릿(사용자 승인): 클러스터 2개 이상일 때만 분리 → 뭉침 구조적 차단, 단일주제 그룹은
+  호출 1회 유지. collect-then-apply로 재병합 방지.
+- subcluster_threshold=0.31: 골든 코사인 실측 안전 밴드 [0.30,0.32] 중앙(과분할 경고 존중).
+- 게이트는 append→create 강등만(순수 함수), 실패 시 session_updater fallback 제목 사용.
+
+### 검증
+
+- `python -m pytest -p no:asyncio` → **256 passed**.
+- 골든 11개(실 LLM+임베딩): Assignment/Purity/Coverage **100%**, 노이즈 94.1%, New-vs-Existing 81.8%.
+  mixed_topics가 travel/coding 2 클러스터로 정확 분리(교차주제 메가 뭉침 소멸).
+- New/existing 2건 미스매치는 서브클러스터링 회귀 아님을 실증: 단일 클러스터라 LLM 입력이 기존과 동일,
+  재실행 시 append↔create 뒤집힘(비결정성) + EXAONE create-bias. 클러스터링 품질 지표는 100% 유지.
+- 백엔드 전용 변경이라 extension/frontend 무영향.
+
+### 실데이터 검증 (재세션화 2회, 사용자 승인)
+
+- 대상: 라이브 DB 이벤트 150개(2026-08-05). 사전 DB 백업(pg_dump 463KB, 복구용). 이벤트 pending 복귀
+  + event-origin 세션 삭제 + 단일 배치 재구성을 2회 반복(각 배치 후 남은 hold는 드레인 배치로 해소).
+- **핵심 개선 확인**: before의 메가 뭉침("여행 계획 및 항공권 검색" 18개가 항공권+브랜드로고+여름음악
+  +맥미니+행성궤도를 흡수, "이터널 리턴" 33개)이 **두 run 모두에서 재발하지 않음**. 여행/항공권이
+  무관 주제를 흡수하지 않고, 여름음악(2)·맥미니(2)·행성궤도(2)·Tailscale(13)·강의(2)가 독립 세션으로
+  안정 재현. 150개 전부 처리(0 pending, discarded 16~19).
+- **잔여 변동(경미)**: 하나의 일관된 주제 영역 *내부* 세분화가 run별로 다름(이터널리턴 20+12+2+1 ↔ 32+2,
+  항공권 6+5 ↔ 9+3). 교차주제 오염이 아니라 클러스터 내 LLM 판단 + EXAONE create-bias(중복 제목
+  "나어나이 이터널 리턴" 2건) — merge(후순위) 영역.
+- **게이트는 이 데이터셋에서 사실상 미발동**: 전부 같은 날(08-05)이라 배치 내 새 세션은 recent-24h
+  경로(score None)로 후보에 올라 유사도 게이트를 우회하고 age(3일)도 0일이라 안 걸린다. 즉 이번 개선은
+  거의 전부 서브클러스터링 효과이며, append 게이트(유사도 하한/시간 근접)의 실효 검증은 교차-일(cross-day)
+  ·오래된 후보가 있는 데이터가 필요하다(현재는 단위 테스트로만 검증).
+- **부수 관측(기존 취약점, 본 작업 무관)**: 일부 배치에서 EXAONE serverless rate limit(→A.X 폴백) 다발 +
+  `extract_json`의 greedy `_JSON_OBJ_RE`가 JSON 뒤 추가 텍스트에 "Extra data"로 실패→그룹 hold. 재시도
+  (다음 배치)로 자연 해소돼 최종 결과에는 영향 없음. 파서 강건화(raw_decode)는 별도 소과제 후보.
+
+### 남은 일
+
+- append 게이트 임계값 실효 검증·튜닝은 cross-day/오래된 후보가 있는 실데이터 필요(단일일 데이터로는 미발동).
+- EXAONE create-bias 중복 세션(같은 주제 재생성)은 merge(후순위) 영역 — 별도 결정.
+- (선택) `extract_json` raw_decode 강건화로 "Extra data" hold 감소.
+- 현재 DB는 재세션화 결과 상태(17 세션). 원상복구가 필요하면 scratchpad의 백업 SQL로 복원 가능.
+
 ## 2026-07-12 — 필수 프로젝트 문서 초기 세팅
 
 ### 요청
