@@ -9,20 +9,23 @@
 
 import asyncio
 import logging
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
 
-from ..ai.embedding import embed
+from ..ai.embedding import embed_many
 from ..config import settings
 from ..db.models import ExplorationEvent, Session as SessionModel, SyncBatch, SyncBatchEvent
 from ..db.session import AsyncSessionLocal
 from ..db.vector import search_similar_with_scores
 from ..services import intent_analyzer
 from ..services.event_filter import is_system_url
+from ..services.intent_analyzer import Assignment
 from ..services.noise_filter import split_noise
 from ..services.grouper import dedupe_events, group_by_time_gap
 from ..services.session_updater import apply_assignments, refresh_session_ai
+from ..services.subclusterer import subcluster
 
 logger = logging.getLogger(__name__)
 
@@ -74,13 +77,24 @@ def _event_to_dict(row: ExplorationEvent) -> dict:
     }
 
 
-def _group_embedding_text(group: list[dict]) -> str:
-    parts = [f"{e.get('title') or ''} {e.get('domain') or ''}".strip() for e in group]
-    return " ".join(p for p in parts if p)
+def _event_embedding_text(event: dict) -> str:
+    """서브클러스터링용 이벤트 텍스트 — 제목 + 도메인 + 검색어(있으면)."""
+    parts = [event.get("title") or "", event.get("domain") or "", event.get("search_query") or ""]
+    return " ".join(p for p in (s.strip() for s in parts) if p)
 
 
-def _sessions_to_candidates(sessions: list[SessionModel]) -> list[dict]:
+def _centroid(vectors: list[list[float]]) -> list[float]:
+    """클러스터 후보검색용 대표 벡터(성분별 평균). Qdrant가 코사인 정규화하므로 방향만 유지하면 된다."""
+    count = len(vectors)
+    dim = len(vectors[0])
+    return [sum(v[i] for v in vectors) / count for i in range(dim)]
+
+
+def _sessions_to_candidates(
+    sessions: list[SessionModel], scores_by_id: dict[str, float] | None = None
+) -> list[dict]:
     now = datetime.now(timezone.utc)
+    scores = scores_by_id or {}
     candidates = []
     for s in sessions:
         summary = s.summary or {}
@@ -93,6 +107,8 @@ def _sessions_to_candidates(sessions: list[SessionModel]) -> list[dict]:
                 "keywords": s.keywords or [],
                 # LLM이 "이어지는 탐색"인지 판단할 때 참고할 경과일 — 프롬프트에 표기됨
                 "last_activity_days_ago": max(0, (now - last_activity).days) if last_activity else None,
+                # 벡터 매치 점수(append 게이팅용). 최근-only 후보는 매치가 아니므로 None.
+                "score": scores.get(s.id),
             }
         )
     return candidates
@@ -199,9 +215,11 @@ async def _fetch_candidates(vector: list[float]) -> list[dict]:
             vector, limit=_CANDIDATE_VECTOR_LIMIT, score_threshold=settings.search_score_threshold
         )
         vector_ids = [session_id for session_id, _score in scored]
+        scores_by_id = {session_id: score for session_id, score in scored}
     except Exception as exc:
         logger.warning("후보 세션 벡터 검색 실패(%s) — 벡터 후보 없이 진행", exc)
         vector_ids = []
+        scores_by_id = {}
 
     async with AsyncSessionLocal() as db:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=_CANDIDATE_RECENT_HOURS)
@@ -241,16 +259,56 @@ async def _fetch_candidates(vector: list[float]) -> list[dict]:
         sessions_by_id = {s.id: s for s in sessions_result.scalars().all()}
 
     ordered_sessions = [sessions_by_id[sid] for sid in combined_ids if sid in sessions_by_id]
-    return _sessions_to_candidates(ordered_sessions)
+    return _sessions_to_candidates(ordered_sessions, scores_by_id)
 
 
 # ── 그룹/배치 처리 ──────────────────────────────────────────────
 
 
-async def _process_group(group: list[dict], batch_id: str, touched: set[str]) -> str | None:
-    """그룹 하나를 임베딩 → 후보 검색 → 의도 분석 → apply_assignments까지 처리한다.
+def _append_blocked(candidate: dict) -> bool:
+    """append 게이트 — 후보가 유사도 하한 미달이거나 시간 근접을 벗어나면 True(강등 대상)."""
+    score = candidate.get("score")
+    # 벡터 매치 후보만 유사도로 판정(최근-only 후보는 score None → 유사도 게이트 우회, recency로만).
+    if isinstance(score, (int, float)) and score < settings.append_score_floor:
+        return True
+    days_ago = candidate.get("last_activity_days_ago")
+    if isinstance(days_ago, int) and days_ago > settings.append_max_age_days:
+        return True
+    return False
 
-    반환값은 이 그룹에서 실제 사용된 LLM model명(감사용, 없으면 None).
+
+def _gate_appends(assignments: list[Assignment], candidates: list[dict]) -> list[Assignment]:
+    """append 게이팅(순수 함수) — 유사도 하한/시간 근접 미달 후보로의 append를 create로 강등한다.
+
+    오래됐거나 안 비슷한 후보 세션에 조용히 이어붙는 그룹 간 과잉 append를 결정적으로 막는다
+    (DecisionLog 2026-08-05). 강등 시 title/purpose는 그대로 두고(append는 보통 빈 값)
+    session_updater가 fallback 제목을 붙인다.
+    """
+    meta = {c["session_id"]: c for c in candidates if c.get("session_id")}
+    gated: list[Assignment] = []
+    for assignment in assignments:
+        if assignment.action == "append" and assignment.target:
+            candidate = meta.get(assignment.target)
+            if candidate is not None and _append_blocked(candidate):
+                logger.info(
+                    "append 게이트 — 후보 %s로의 append를 create로 강등(score=%s, days_ago=%s)",
+                    assignment.target,
+                    candidate.get("score"),
+                    candidate.get("last_activity_days_ago"),
+                )
+                gated.append(replace(assignment, action="create", target=None))
+                continue
+        gated.append(assignment)
+    return gated
+
+
+async def _process_group(group: list[dict], batch_id: str, touched: set[str]) -> list[str]:
+    """그룹 하나를 노이즈 필터 → 서브클러스터링 → (클러스터별) 후보검색·의도분석·게이트 →
+    apply_assignments까지 처리한다.
+
+    조건부 하드 스플릿: 서브클러스터가 2개 이상이면 클러스터별로 후보검색+LLM을 분리해
+    이질 주제 뭉침을 구조적으로 막는다. 단일주제 그룹은 클러스터 1개 → 호출 1회(기존과 동일).
+    반환값은 이 그룹에서 실제 사용된 LLM model명 목록(감사용, 없으면 []).
     """
     # event_filter 재검사(방어) — 인제스트 이후 상태가 바뀌었을 수 있는 시스템 URL을 다시 거른다.
     filtered_group = [e for e in group if not is_system_url(e["url"])]
@@ -266,22 +324,33 @@ async def _process_group(group: list[dict], batch_id: str, touched: set[str]) ->
         await _set_status(discarded_ids, "discarded")
 
     if not filtered_group:
-        return None
+        return []
 
-    # 기존 세션(embedding-passage로 저장됨)을 검색하는 쿼리이므로 비대칭 임베딩 규칙에 따라
-    # embedding-query(기본값)를 쓴다(api/search.py의 검색 쿼리 임베딩과 동일한 규칙).
-    vector = await embed(_group_embedding_text(filtered_group))
-    candidates = await _fetch_candidates(vector)
+    # 이벤트별 임베딩(1회 배치 요청) — 서브클러스터링과 클러스터 centroid 후보검색에 재사용한다.
+    # 기존 세션(embedding-passage 저장)을 검색하는 쿼리 벡터이므로 embedding-query(기본값)를 쓴다.
+    embeddings = await embed_many([_event_embedding_text(e) for e in filtered_group])
+    clusters_idx = subcluster(embeddings, settings.subcluster_threshold)
 
-    assignments = await intent_analyzer.analyze(filtered_group, candidates)
+    # phase 1 — 클러스터별 후보검색 + 의도분석 + 게이트. apply 전에 모두 수행해, 클러스터가
+    # 서로가 방금 만든 세션을 후보로 잡아 쪼갠 주제를 다시 붙이는 것(재병합)을 막는다.
+    pending: list[tuple[list[dict], list[Assignment]]] = []
+    models_used: list[str] = []
+    for idx_group in clusters_idx:
+        cluster_events = [filtered_group[i] for i in idx_group]
+        centroid = _centroid([embeddings[i] for i in idx_group])
+        candidates = await _fetch_candidates(centroid)
+        assignments = await intent_analyzer.analyze(cluster_events, candidates)
+        assignments = _gate_appends(assignments, candidates)
+        pending.append((cluster_events, assignments))
+        models_used.extend(a.model for a in assignments if a.model)
 
-    async with AsyncSessionLocal() as db:
-        touched_ids = await apply_assignments(db, filtered_group, assignments, batch_id)
-    touched.update(touched_ids)
+    # phase 2 — 세션 생성/갱신 반영
+    for cluster_events, assignments in pending:
+        async with AsyncSessionLocal() as db:
+            touched_ids = await apply_assignments(db, cluster_events, assignments, batch_id)
+        touched.update(touched_ids)
 
-    models_used = {a.model for a in assignments if a.model}
-    # 그룹당 LLM 호출 1회라 보통 원소 1개 — 배치가 그룹별로 모아 폴백률을 집계한다.
-    return next(iter(models_used), None)
+    return models_used
 
 
 def _summarize_models(counts: dict[str, int]) -> str | None:
@@ -312,8 +381,8 @@ async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
 
         for group in groups:
             try:
-                model = await _process_group(group, batch_id, touched)
-                if model:
+                models = await _process_group(group, batch_id, touched)
+                for model in models:
                     model_counts[model] = model_counts.get(model, 0) + 1
             except Exception as exc:
                 # 그룹 실패는 해당 그룹 이벤트만 pending 복귀 후 계속(배치 전체 중단 금지).

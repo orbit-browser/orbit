@@ -39,5 +39,14 @@ class Settings(BaseSettings):
     sync_event_threshold: int = Field(default=30, ge=1)  # 개수 트리거 기준
     sync_max_events_per_batch: int = Field(default=150, ge=1)  # 배치당 claim 상한
 
+    # 서브클러스터링/append 게이팅 (DecisionLog 2026-08-06 "그룹 간 과잉 append").
+    # subcluster_threshold: 골든셋 임베딩 실측 결과 안전 밴드 [0.30, 0.32]의 중앙값 0.31.
+    #   <0.30이면 이질 주제가 병합(under-split), >0.32면 단일 주제가 과분할.
+    subcluster_threshold: float = Field(default=0.31, ge=0.0, le=1.0)  # 낮을수록 덜 쪼갬
+    # append_score_floor/max_age_days: 라이브 Qdrant 점수 미측정 상태의 보수적 잠정값 —
+    #   실데이터 재세션화로 튜닝 필요(검색 positive-floor 0.289보다 소폭 위).
+    append_score_floor: float = Field(default=0.35, ge=0.0, le=1.0)  # 검색 0.28보다 높게
+    append_max_age_days: int = Field(default=3, ge=0)  # 후보 recency 7일보다 타이트
+
 
 settings = Settings()
