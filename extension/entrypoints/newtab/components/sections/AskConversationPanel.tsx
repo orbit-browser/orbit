@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { RotateCcw, Sparkles, Square, Trash2 } from 'lucide-react';
 import type { AskTurn } from '../../../shared/hooks/useAskConversation';
 import type { Session } from '../../../../lib/types';
@@ -9,6 +10,16 @@ interface AskConversationPanelProps {
   onStartNewConversation: () => void;
   onRetry: (query: string) => void;
   onOpenSource: (session: Session) => void;
+  onSelectTabCandidate: (turnId: string, tabId: string) => void;
+}
+
+function tabLocation(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname.replace(/^www\./, '')}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+  } catch {
+    return url;
+  }
 }
 
 export function AskConversationPanel({
@@ -18,7 +29,20 @@ export function AskConversationPanel({
   onStartNewConversation,
   onRetry,
   onOpenSource,
+  onSelectTabCandidate,
 }: AskConversationPanelProps) {
+  const conversationEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      conversationEndRef.current?.scrollIntoView({
+        behavior: turns.at(-1)?.status === 'streaming' ? 'auto' : 'smooth',
+        block: 'end',
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [turns]);
+
   return (
     <main className="ask-conversation" aria-live="polite">
       <div className="ask-conversation__toolbar">
@@ -47,6 +71,28 @@ export function AskConversationPanel({
                 {turn.answer}
                 {turn.status === 'streaming' && <span className="ask-turn__cursor" />}
               </p>
+              {turn.tabCandidates.length > 0 && (
+                <div className="ask-tab-candidates" aria-label="이동할 탭 후보">
+                  {turn.tabCandidates.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      className="ask-tab-candidate"
+                      onClick={() => onSelectTabCandidate(turn.id, tab.id)}
+                    >
+                      {tab.favIconUrl ? <img src={tab.favIconUrl} alt="" /> : <i />}
+                      <span>
+                        <strong>{tab.title}</strong>
+                        <small>{tabLocation(tab.url)}</small>
+                      </span>
+                      <b>이동</b>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {turn.tabCandidateError && (
+                <p className="ask-tab-candidate-error" role="alert">{turn.tabCandidateError}</p>
+              )}
               {turn.error && (
                 <div className="ask-turn__error" role="alert">
                   <span>{turn.error}</span>
@@ -87,6 +133,7 @@ export function AskConversationPanel({
             )}
           </article>
         ))}
+        <div ref={conversationEndRef} aria-hidden="true" />
       </div>
     </main>
   );

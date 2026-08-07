@@ -58,12 +58,18 @@ uvicorn app.main:app --reload
 | POST | `/sessions/{id}/retry-summary` | AI 요약 실패(`summary_status=failed`) 세션 재시도 |
 | DELETE | `/sessions/{id}` | 세션 삭제 (Qdrant 포인트도 함께 삭제) |
 | GET | `/search?q=&rerank=` | 자연어 검색. score threshold 적용 후 `rerank=true`면 후보를 더 넓게 가져와 LLM으로 재정렬 |
+| POST | `/assistant/route` | Ask 입력을 탭 이동·세션 찾기·전체/특정 세션 내용 검색으로 판별 |
+| POST | `/ask/stream` | 의도별 세션 범위와 질문 관련 페이지를 근거로 SSE 답변 생성 |
+| POST | `/tab-actions/resolve` | 열린 탭 후보 중 이동 대상을 의미 검색하고 낮은 신뢰도는 실행 보류 |
 
 검색 관련 설정:
 
 | 환경변수 | 기본값 | 설명 |
 |---|---|---|
-| `SEARCH_SCORE_THRESHOLD` | `0.35` | Qdrant cosine 검색의 최소 유사도. 실제 골든셋에 맞춰 `0.0`~`1.0` 범위에서 조정 |
+| `SEARCH_SCORE_THRESHOLD` | `0.28` | Qdrant cosine 검색의 최소 유사도. 실제 골든셋에 맞춰 `0.0`~`1.0` 범위에서 조정 |
+| `ASSISTANT_ROUTE_NAVIGATION_FLOOR` | `0.14` | Ask 라우터가 탭 이동을 선택할 최소 점수 |
+| `ASSISTANT_ROUTE_NAVIGATION_MARGIN` | `0.02` | 탭 이동과 다음 의도의 최소 점수 격차 |
+| `ASSISTANT_ROUTE_RETRIEVAL_MARGIN` | `0.015` | 이보다 모호한 검색 의도는 전체 기록 검색으로 fallback |
 
 검색 임베딩 timeout은 504, 연결 실패는 503, upstream/응답 형식 오류는 502로 반환한다.
 Qdrant 검색 장애는 503으로 반환하며 내부 예외 상세는 API 응답에 포함하지 않는다.

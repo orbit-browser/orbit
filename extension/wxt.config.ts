@@ -34,6 +34,7 @@ export default defineConfig({
     //   search   — 검색창이 사용자가 크롬에 설정한 기본 검색엔진을 그대로 쓴다.
     //   topSites — 바로가기의 초기 목록(자주 방문한 사이트). 사용자가 편집하면 더 읽지 않는다.
     //   favicon  — 바로가기 아이콘을 확장 내장 파비콘으로 그린다(외부 요청 없음).
+    //   bookmarks — 사용자가 선택한 열린 탭만 Chrome 기본 북마크에 추가한다.
     permissions: [
       'tabs',
       'storage',
@@ -44,6 +45,7 @@ export default defineConfig({
       'search',
       'topSites',
       'favicon',
+      'bookmarks',
       // identity — 구글 로그인. 크롬 프로필 계정의 access token 을 받는다.
       'identity',
     ],

@@ -230,7 +230,8 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
 
 - `sessions` 배열: 기존 Qdrant 벡터 검색 + 선택적 리랭크(무변경 재사용, `rerank` 쿼리 파라미터도 그대로 유효).
 - `events` 배열은 두 출처를 합친 것이다: ① 매칭된 세션의 `session_events` 상위(relevance×duration) — `match_reason: "session_relevance"`, ② `title`/`search_query`/`domain` ILIKE 직접 매칭 — `match_reason: "text_match"`(세션에 배정되지 않은 이벤트까지 커버).
-- 이벤트별 임베딩은 MVP에서 도입하지 않는다(§ current-state-audit.md, target-architecture.md §7).
+- 이벤트 벡터는 영구 저장하지 않는다. Ask 답변 생성에서는 선택된 세션의 이벤트 후보를 요청 시점에
+  `embedding-passage` batch로 계산해 현재 질문과 가까운 페이지를 고른다.
 
 ### 8.1 `POST /ask/stream` — 탐색 기록 기반 스트리밍 답변
 
@@ -243,13 +244,17 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
 {
   "query": "지난주 보험 비교 기록에서 가격이 가장 낮았던 선택지는?",
   "session_id": null,
-  "rerank": true
+  "rerank": true,
+  "intent": "search_memory"
 }
 ```
 
 - `query`: 공백 제외 1~2,000자.
 - `session_id`: 지정하면 해당 세션만 근거로 사용한다. 생략하면 기존 벡터 검색으로 최대 3개를 찾는다.
 - `rerank`: 검색 후보의 LLM 재정렬 여부. 기본 `true`.
+- `intent`: `find_sessions`, `search_memory`, `search_session` 중 하나. 기본은 하위 호환을 위한
+  `search_memory`다. `find_sessions`는 최대 5개 세션을 반환하고 답변 LLM을 호출하지 않으며,
+  `search_session`은 지정 세션 또는 가장 가까운 세션 1개만 사용한다.
 
 클라이언트는 여러 질문과 답변을 UI에 누적 표시할 수 있지만, 그 목록은 다음 요청 본문에 포함하지 않는다.
 
@@ -273,13 +278,96 @@ data: {"model":"A.X-K1"}
 `{"code":"stream_interrupted|generation_failed","partial":true|false,"retryable":true}` 형식이다.
 검색/DB 오류처럼 스트림 시작 전 실패는 기존 HTTP 오류 계약을 따른다.
 
-답변 컨텍스트는 관련 세션 최대 3개의 요약과 세션별 관련 이벤트 최대 4개의
-`content_excerpt`로 제한한다. 미할당 이벤트는 포함하지 않으며, 페이지 본문 안의 지시문은
+답변 컨텍스트는 관련 세션 최대 3개의 요약과 세션별 질문 관련 이벤트 최대 4개의
+`content_excerpt`로 제한한다. 세션별 기존 relevance 상위 12개를 후보로 제한한 뒤 질문에는
+`embedding-query`, 이벤트 passage에는 `embedding-passage`를 사용한다. 임베딩 장애 시에는 기존
+relevance×체류 시간 순위로 fallback한다. 미할당 이벤트는 포함하지 않으며, 페이지 본문 안의 지시문은
 신뢰하지 않는 데이터로 취급한다. 답변은 근거 세션을 `[1]`, `[2]`처럼 표시한다.
 
 모델은 A.X-K1 스트리밍을 우선 사용한다. 첫 토큰 전에 연결·rate limit·지원 상태 오류가 나면
 EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
 `stream_interrupted`를 보낸다.
+
+### 8.2 `POST /assistant/route` — Ask AI 통합 의도 판별
+
+명시적인 로컬 탭 매칭에 실패한 모든 Ask 입력을 다음 네 의도 중 하나로 분류한다.
+
+```json
+{"query":"리액트 공부했던 세션 찾아줘","session_id":null}
+```
+
+```json
+{
+  "intent":"find_sessions",
+  "confidence":1.0,
+  "margin":1.0,
+  "reason":"rule"
+}
+```
+
+- 의도: `navigate_tab`, `find_sessions`, `search_memory`, `search_session`.
+- 명확한 결과 형태는 규칙으로 먼저 구분하고 나머지는 query/passage prototype 임베딩으로 판별한다.
+- retrieval 상위 의도의 격차가 작으면 `search_memory`로 fallback한다.
+- `navigate_tab`은 별도 score/margin을 통과해도 아래 탭 후보 resolver를 추가로 통과해야 실행된다.
+- `reason`은 `rule`, `semantic`, `fallback` 중 하나다. 요청·벡터는 저장하지 않는다.
+
+### 8.3 `POST /tab-actions/resolve` — 열린 탭 자연어 의미 매칭
+
+통합 라우터가 `navigate_tab`을 반환했거나 명시적 이동 문장의 로컬 매칭이 실패했을 때 호출하는
+비저장 resolver다. 열린 탭 후보는
+요청 처리 중 임베딩에만 사용하며 PostgreSQL·Qdrant·로그에 저장하지 않는다.
+
+```json
+{
+  "query": "아까 보던 영상으로 돌아가자",
+  "candidates": [
+    {
+      "id": "42",
+      "title": "Building a Chrome Extension with React - YouTube",
+      "url": "https://www.youtube.com/watch?v=orbit-demo",
+      "active": false
+    }
+  ]
+}
+```
+
+- `query`: 공백 제외 1~500자.
+- `candidates`: 1~100개. 시크릿 탭은 extension 조회 단계에서 제외한다.
+- 후보 passage는 제목·호스트·URL path와 알려진 사이트의 일반 용도로 구성한다.
+  query string과 fragment는 임베딩 텍스트에서 제외한다.
+- query에는 `embedding-query`, 의도 prototype과 후보에는 `embedding-passage`를 사용한다.
+- 탭 이동 의도 점수·다른 의도와의 격차, 후보 top-1 점수·top-2 격차를 모두 통과해야 한다.
+
+```json
+{
+  "action": "navigate_tab",
+  "reason": "matched",
+  "tab_id": "42",
+  "score": 0.397971,
+  "margin": 0.212456
+}
+```
+
+`reason`은 `matched`, `non_navigation`, `low_confidence` 중 하나다. 자동 이동이 안전하지 않으면
+`action="ask"`, `tab_id=null`을 반환한다. extension은 응답 ID가 현재 탭 목록에 여전히 있는지
+검증한 뒤에만 창 포커스와 탭 활성화를 실행한다.
+
+후보 top-1 점수는 기준을 통과했지만 top-2 격차가 작으면 `low_confidence` 응답에 가까운 후보를
+최대 3개 포함한다. 절대 점수 기준을 통과하지 못한 경우에는 관련 없는 탭 노출을 막기 위해 빈 배열이다.
+
+```json
+{
+  "action":"ask",
+  "reason":"low_confidence",
+  "tab_id":null,
+  "score":0.41,
+  "margin":0.01,
+  "candidates":[
+    {"tab_id":"43","score":0.41},
+    {"tab_id":"42","score":0.40}
+  ]
+}
+```
 
 ## 9. `GET /analytics/overview?days=7`
 

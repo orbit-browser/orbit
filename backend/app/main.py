@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Depends
 
 from .api.analytics import router as analytics_router
+from .api.assistant import router as assistant_router
 from .api.ask import router as ask_router
 from .api.auth import router as auth_router
 from .api.deps import get_current_user
@@ -23,6 +24,7 @@ from .api.sessions import recover_pending_sessions
 from .api.sessions import router as sessions_router
 from .api.settings import router as settings_router
 from .api.sync import router as sync_router
+from .api.tab_actions import router as tab_actions_router
 from .config import settings
 from .db.session import init_db
 from .db.vector import init_collection
@@ -73,6 +75,9 @@ app.include_router(analytics_router, dependencies=_authenticated)
 app.include_router(recommendations_router, dependencies=_authenticated)
 # ask 는 사용자의 세션 내용을 읽어 답을 만든다 — 반드시 인증 뒤에 둔다.
 app.include_router(ask_router, dependencies=_authenticated)
+# 열린 탭 제목·URL과 의도 임베딩도 사용자 입력이므로 인증된 확장에서만 호출한다.
+app.include_router(tab_actions_router, dependencies=_authenticated)
+app.include_router(assistant_router, dependencies=_authenticated)
 
 
 @app.get("/health")

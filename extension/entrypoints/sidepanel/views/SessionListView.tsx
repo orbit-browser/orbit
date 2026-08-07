@@ -1,10 +1,12 @@
-import { Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import { useSessions, usePendingSessionPoller } from '../hooks/useSessions';
 import { useUIStore } from '../store/ui';
 import { CurrentSessionCard } from '../components/CurrentSessionCard';
 import { SessionCard } from '../components/SessionCard';
 import { StatePlaceholder } from '../components/StatePlaceholder';
 import { MergeSuggestionsSection } from '../components/MergeSuggestionsSection';
+import { OpenTabsPanel } from '../components/OpenTabsPanel';
 
 function ClusteringCard() {
   return (
@@ -21,6 +23,7 @@ function ClusteringCard() {
 }
 
 export function SessionListView() {
+  const [openTabsExpanded, setOpenTabsExpanded] = useState(false);
   usePendingSessionPoller();
   const { data: sessions, isLoading, isError } = useSessions();
   const isClustering = useUIStore((s) => s.isClustering);
@@ -30,6 +33,27 @@ export function SessionListView() {
       <section className="space-y-2">
         <p className="text-xs font-semibold text-orbit-muted">현재 세션</p>
         <CurrentSessionCard />
+      </section>
+
+      <section className="space-y-2">
+        <button
+          type="button"
+          aria-expanded={openTabsExpanded}
+          aria-controls="open-tabs-panel"
+          onClick={() => setOpenTabsExpanded((expanded) => !expanded)}
+          className="flex w-full cursor-pointer items-center justify-between rounded-lg px-1 py-1 text-xs font-semibold text-orbit-muted transition hover:text-orbit-text"
+        >
+          <span>열린 탭 찾기 · 북마크</span>
+          <ChevronDown
+            size={15}
+            className={`transition-transform ${openTabsExpanded ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {openTabsExpanded && (
+          <div id="open-tabs-panel">
+            <OpenTabsPanel />
+          </div>
+        )}
       </section>
 
       <MergeSuggestionsSection />

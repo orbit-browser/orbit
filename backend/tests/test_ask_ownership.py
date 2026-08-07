@@ -53,8 +53,13 @@ def _session(user_id=_OWNER, status="active"):
     )
 
 
-def _body(session_id=None, query="질문"):
-    return SimpleNamespace(session_id=session_id, query=query, rerank=False)
+def _body(session_id=None, query="질문", intent="search_memory"):
+    return SimpleNamespace(
+        session_id=session_id,
+        query=query,
+        rerank=False,
+        intent=intent,
+    )
 
 
 # ── _resolve_sources ──────────────────────────────────────────
@@ -131,5 +136,5 @@ def test_context_loading_skips_query_when_no_sessions():
 
     models, events = asyncio.run(ask_service._load_context_records(db, [], _OWNER))
 
-    assert models == {} and events == {}
+    assert models == {} and events == []
     assert db.executed == []

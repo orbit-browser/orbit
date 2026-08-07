@@ -1,0 +1,38 @@
+{
+  "candidates": [
+    {"id": "t1", "title": "YouTube", "url": "https://www.youtube.com/", "active": false},
+    {"id": "t2", "title": "Building a Chrome Extension with React - YouTube", "url": "https://www.youtube.com/watch?v=orbit-demo", "active": false},
+    {"id": "t3", "title": "orbit-browser/orbit: Personal Exploration Memory", "url": "https://github.com/orbit-browser/orbit", "active": false},
+    {"id": "t4", "title": "Product Roadmap | Notion", "url": "https://www.notion.so/workspace/product-roadmap", "active": false},
+    {"id": "t5", "title": "받은편지함 (3) - Gmail", "url": "https://mail.google.com/mail/u/0/#inbox", "active": false},
+    {"id": "t6", "title": "React Reference Overview", "url": "https://react.dev/reference/react", "active": false},
+    {"id": "t7", "title": "Orbit Dashboard – Figma", "url": "https://www.figma.com/design/orbit-dashboard", "active": false},
+    {"id": "t8", "title": "orbit-team - Slack", "url": "https://app.slack.com/client/workspace/orbit-team", "active": false},
+    {"id": "t9", "title": "ChatGPT", "url": "https://chatgpt.com/", "active": false},
+    {"id": "t10", "title": "서울특별시청 - Google 지도", "url": "https://maps.google.com/?q=seoul", "active": false},
+    {"id": "t11", "title": "오늘의 주요 뉴스", "url": "https://news.naver.com/main", "active": false}
+  ],
+  "cases": [
+    {"id": "1", "query": "지금 열려있는 유튜브 홈으로 이동해줘", "expected_tab_id": "t1"},
+    {"id": "2", "query": "아까 보던 크롬 익스텐션 영상으로 돌아가자", "expected_tab_id": "t2"},
+    {"id": "3", "query": "오빗 코드 보던 데로 가줘", "expected_tab_id": "t3"},
+    {"id": "4", "query": "제품 로드맵 정리하던 페이지 열어줘", "expected_tab_id": "t4"},
+    {"id": "5", "query": "메일 확인하던 곳 띄워줘", "expected_tab_id": "t5"},
+    {"id": "6", "query": "리액트 레퍼런스 문서로 전환해줘", "expected_tab_id": "t6"},
+    {"id": "7", "query": "오빗 대시보드 디자인 화면으로 가줘", "expected_tab_id": "t7"},
+    {"id": "8", "query": "팀 채팅하던 데로 돌아가자", "expected_tab_id": "t8"},
+    {"id": "9", "query": "AI랑 대화하던 화면 다시 열어줘", "expected_tab_id": "t9"},
+    {"id": "10", "query": "서울 시청 지도 보던 곳으로 가줘", "expected_tab_id": "t10"},
+    {"id": "11", "query": "오늘 뉴스 읽던 페이지 띄워줘", "expected_tab_id": "t11"},
+    {"id": "12", "query": "유튜브에서 본 영상 내용을 요약해줘", "expected_tab_id": null},
+    {"id": "13", "query": "지난주에 찾아본 항공권 자료가 뭐였지", "expected_tab_id": null},
+    {"id": "14", "query": "리액트와 뷰의 차이를 설명해줘", "expected_tab_id": null},
+    {"id": "15", "query": "유튜브에서 고양이 영상을 새로 찾아줘", "expected_tab_id": null},
+    {"id": "16", "query": "오늘 뉴스 핵심만 정리해줘", "expected_tab_id": null},
+    {"id": "17", "query": "깃허브 저장소 코드에서 문제점을 찾아줘", "expected_tab_id": null},
+    {"id": "18", "query": "브라우저 탭 이동 기능이 어떻게 동작해?", "expected_tab_id": null},
+    {"id": "19", "query": "항공권 예약하던 페이지로 돌아가자", "expected_tab_id": null},
+    {"id": "20", "query": "쇼핑 장바구니로 가줘", "expected_tab_id": null},
+    {"id": "21", "query": "어제 듣던 음악 사이트 다시 열어줘", "expected_tab_id": null}
+  ]
+}

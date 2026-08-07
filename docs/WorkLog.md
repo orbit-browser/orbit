@@ -2,6 +2,165 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-08-07 — PR #11 최신 main 인증 변경 통합
+
+- PR 생성 직후 원격 `main`의 Google 로그인·사용자별 데이터 격리·추천 세션 변경과 충돌한 것을 확인했다.
+- Ask 의도별 검색 개수와 페이지 의미 랭킹을 유지하면서 세션 검색·컨텍스트 로딩에 요청 사용자 ID를 전달하도록 계약을 결합했다.
+- `/assistant/route`, `/tab-actions/resolve`, `/ask/stream`과 extension 스트리밍 호출을 인증 경계 안에 두고 `identity`·`bookmarks` 권한을 모두 보존했다.
+- 첫 backend 실행은 최신 의존성 `PyJWT`가 로컬 환경에 없어 수집 단계에서 실패했고 `python -m pip install -e .`로 프로젝트 의존성을 갱신한 뒤 재실행했다.
+- 통합 후 backend **461 passed**, extension **105 passed (13 files)**, TypeScript 검사와 Chrome MV3 빌드 통과(829.79 kB).
+
+## 2026-08-07 — Ask AI 입력 포커스와 최신 답변 자동 스크롤
+
+- 질문 전송 버튼이 스트리밍 중단 버튼으로 교체될 때 입력 포커스가 사라지는 문제를 입력 ref와 `preventScroll` 포커스 복원으로 수정했다.
+- 새 탭 대시보드는 최신 대화 하단 marker로, 사이드패널은 내부 스크롤 영역의 `scrollHeight`로 새 질문과 스트리밍 답변을 따라가도록 했다.
+- 포커스 복원이 대시보드의 문서 스크롤을 입력창으로 되돌리지 않도록 스크롤과 포커스를 분리했다.
+- extension 전체 테스트 **87 passed**, TypeScript 검사와 Chrome MV3 프로덕션 빌드 통과(810.72 kB).
+
+## 2026-08-07 — Ask AI 복수 탭 후보 선택
+
+- 두 개 이상의 로컬 정확 일치는 자동 이동을 중단하고 최대 3개 후보로 변환했다.
+- backend 탭 resolver는 절대 점수를 통과하고 상위 후보가 근접한 경우에만 후보 ID·점수를 반환한다.
+- Ask turn에 후보 탭과 선택 오류 상태를 추가하고 새 탭·사이드패널에 제목·호스트/경로 버튼을 표시한다.
+- 클릭 시 전체 열린 탭을 다시 조회해 ID를 검증하고 원래 창을 포커스한 뒤 탭을 활성화한다.
+- 실제 API: 두 YouTube + GitHub 후보에서 `ask/low_confidence`, 후보 ID `43,42` 2개.
+- backend 관련 테스트 11개, extension 관련 테스트 18개와 TypeScript 검사 통과.
+- backend를 PID 18064로 재기동하고 `GET /health` HTTP 200 확인.
+- 전체 회귀: backend **328 passed**, extension **87 passed (10 files)**.
+- Chrome MV3 프로덕션 빌드 통과(810.04 kB).
+
+## 2026-08-07 — Ask AI 통합 의도 라우팅과 질문 기반 페이지 검색
+
+### 요청과 결정
+
+- 사용자가 Ask AI의 세션 검색·세션 내부 내용 검색·열린 탭 이동 의도를 더 정확히 구분하고
+  실제 데이터로 검증해 달라고 요청했다.
+- 결과 형태 규칙과 비대칭 임베딩을 결합하고 탭 이동은 기존 후보 resolver까지 이중 검증한다.
+
+### 구현
+
+- `POST /assistant/route`와 네 의도 계약을 추가했다.
+- extension 공용 Ask 훅을 로컬 정확 탭 매칭 → 통합 라우터 → 탭 resolver 또는 의도별 Ask stream
+  흐름으로 변경했다. 라우터 장애 시 특정 세션 컨텍스트가 있으면 `search_session`, 아니면
+  `search_memory`로 fallback한다.
+- `POST /ask/stream`에 retrieval intent를 추가했다. 세션 찾기는 최대 5개를 반환하고 답변 생성을
+  생략하며, 특정 세션 검색은 1개, 전체 기록 검색은 최대 3개를 사용한다.
+- 내용 질문마다 세션별 이벤트 후보 12개를 query/passage batch 임베딩하고 상위 4개를 답변 근거로
+  사용한다. URL query·fragment는 passage에서 제외하고 임베딩 장애 시 기존 relevance 랭킹을 쓴다.
+- 통합 의도 골든셋과 현재 DB 이벤트를 읽기 전용으로 평가하는 하네스를 추가했다.
+
+### 실제 평가와 검증
+
+- 실제 Upstage 의도 평가: **42/42**, 탭 이동 오탐 **0건**.
+- 현재 DB 이벤트 20개 probe: **hit@1 17/20**, **hit@3 20/20**.
+- 실제 HTTP 네 의도 route가 모두 기대 intent를 반환했다.
+- 실제 저장 세션 기반 Ask SSE: HTTP 200, sources 1, delta 33, done 1, error 0, 완료 모델 확인.
+- backend 전체: **327 passed**.
+- extension 전체: **86 passed (10 files)**.
+- TypeScript 검사와 Chrome MV3 빌드 통과(804.9 kB).
+- backend를 최신 코드로 PID 14592에서 재기동하고 `GET /health` HTTP 200 확인.
+- 미실시: 변경된 확장을 Chrome에서 다시 로드한 뒤 사용자의 실제 열린 탭을 활성화하는 시각 스모크.
+
+## 2026-08-07 — 자연어 열린 탭 의미 resolver
+
+### 요청과 결정
+
+- 사용자가 고정된 `탭으로 이동` 문장과 문자열 매칭 품질을 지적하고 임베딩 유사도 검색 및
+  실제 데이터 테스트를 요청했다.
+- 로컬 정확 매칭은 빠른 경로로 유지하고, 간접 조작 표현만 backend 의미 resolver에 보낸다.
+
+### 구현
+
+- `POST /tab-actions/resolve` 스키마·서비스·API를 추가했다.
+- 이동/질문/새 검색 prototype과 탭 제목·호스트·path·사이트 용도를 query/passage 임베딩으로
+  비교하고 intent/match의 score와 margin을 모두 적용한다.
+- URL query·fragment를 제외하고 후보·벡터를 저장하거나 원문 로그에 남기지 않는다.
+- extension에 광범위한 이동 가능성 판별, 8초 resolver timeout, 응답 탭 ID 재검증,
+  낮은 신뢰도·비이동·resolver 장애 fallback을 추가했다.
+- `민감 도메인 제외` 기본 설정이 켜져 있으면 민감 URL을 의미 resolver 후보에서 제거한다.
+  정확한 탭 이름은 외부 전송 없이 기존 로컬 매칭으로 계속 이동할 수 있다.
+- 실제 골든셋과 평가 실행기를 추가했다.
+
+### 실제 API 평가와 오류
+
+- 최초 inline 평가가 PowerShell stdin의 한글을 `?`로 바꾸고 `nav_youtube` 같은 case ID로
+  정답을 누출한 것을 발견해 결과를 폐기했다.
+- UTF-8과 숫자 ID로 수정한 실제 Upstage 평가: 이동 **10/11**, 안전 차단 **10/10**, 전체 **20/21**.
+- 최초 sweep 구현은 625개 설정마다 4096차원 코사인을 재계산해 120초 timeout이 났다.
+  점수를 한 번만 계산하고 임계값만 비교하도록 고쳐 약 3초에 완료했다.
+- 업데이트된 backend를 PID 13224로 재기동했다.
+- 실제 HTTP smoke: `navigate_tab`, YouTube 후보 ID 42, score 0.397971, margin 0.212456.
+
+### 최종 검증
+
+- `python -m pytest -p no:asyncio`: **308 passed**.
+- `pnpm.cmd test`: **85 passed (10 files)**.
+- `pnpm.cmd compile`: 통과.
+- `pnpm.cmd build`: 통과(WXT chrome-mv3, 804.58 kB).
+- `python -m eval.run_tab_action_eval`: 실제 Upstage API로 **20/21** 재현.
+- 실행 중 backend `GET /health`: HTTP 200.
+- 미실시: 변경된 Chrome 확장 재로드 후 실제 사용자의 열린 탭을 대상으로 한 시각 스모크.
+
+## 2026-08-07 — 자연어 탭 이동 한글 서비스명 매칭 수정
+
+### 재현과 원인
+
+- “지금 열려있는 유튜브 탭으로 이동해줘”에서 검색 대상이 `지금 열려있는 유튜브`로 남았다.
+- “유튜브 탭으로 이동해”에서는 추출 대상은 맞았지만 실제 Chrome 탭의 `YouTube` 제목과
+  `youtube.com` 주소를 한글 `유튜브`와 단순 substring으로 비교해 결과가 없었다.
+
+### 수정
+
+- 탭 이름 앞의 `지금`, `현재`, `열려있는`, `떠 있는`, `열린` 수식어를 제거한다.
+- 유튜브·깃허브·노션 등 일반적인 한글 서비스명을 영문 제목과 공식 호스트 별칭으로 확장해
+  기존 관련도 점수 안에서 비교한다. 사용자에게 보여주는 검색 대상 문구는 원래 한글을 유지한다.
+- 스크린샷의 두 입력 형태와 `YouTube` 실제 제목·URL 조합을 회귀 테스트에 추가했다.
+
+### 검증
+
+- 수정 전 관련 테스트 9개 중 2개 실패로 재현했다.
+- 수정 후 관련 테스트 14개 통과.
+- 전체 테스트 **83개**, TypeScript 검사, Chrome MV3 빌드(802.49 kB) 통과.
+
+## 2026-08-07 — 자연어 열린 탭 이동 + 접이식 선택 북마크
+
+### 요청과 결정
+
+- Ask AI PR #8을 squash merge하고 원격/로컬 기능 브랜치를 정리한 뒤
+  `feat/tab-actions`에서 새 작업을 시작했다.
+- 전체 일반 창의 열린 탭을 검색하고 원래 창으로 이동하는 기능을 extension 로컬로 구현한다.
+- 사용자가 체크한 열린 탭만 Chrome 기본 ‘기타 북마크’에 추가한다.
+- 공식 Chrome 문서에 따라 `bookmarks` 권한과 설치 경고를 명시한다.
+- 후속 요청에 따라 수동 열린 탭 도구는 세션 화면에서 기본 접힘으로 바꾸고, Ask AI의
+  명시적인 자연어 탭 이동 명령을 핵심 진입점으로 추가한다.
+
+### 변경
+
+- `OpenTabItem`과 제목·URL 필터, bookmark 가능 URL 판정, 선택 내 중복 제거 로직을 추가했다.
+- Chrome bridge에 전체 일반 창 탭 조회, 창 포커스+탭 활성화, 기존 북마크 확인 후 생성 기능을 추가했다.
+- 탭 생성·삭제·URL/제목 변경뿐 아니라 활성 탭·포커스 창 변경 시에도 현재 창/전체 창 Query를
+  함께 무효화하도록 참조 카운트 기반 구독을 공유했다.
+- 세션 화면에 검색, 창 번호·활성 상태, 이동, 개별/검색 결과 전체 선택,
+  선택 북마크 추가 UI를 추가하고 제목 버튼으로 펼칠 때만 마운트되도록 변경했다.
+- 공용 Ask AI 훅에서 `탭 + 이동/전환/열기/띄우기` 문장을 로컬 의도로 판별한다.
+  일반 질문은 기존 스트리밍 API로 보내고, 로컬 명령은 전체 탭의 제목·호스트·URL 관련도를
+  계산해 최적 결과를 활성화한 뒤 결과를 대화 목록에 누적한다.
+- 대상 누락, 검색 결과 없음, 실행 중 탭 닫힘을 구분하고, 일반적인 “탭 목록을 보여줘” 같은
+  질문은 이동 명령으로 오인하지 않도록 범위를 제한했다.
+- manifest에 `bookmarks` 권한을 추가하고 README·IA·결정·조사 문서를 갱신했다.
+- `tab-actions.test.ts`에서 검색, URL 허용 범위, 선택 중복, 탭 정렬, 이동 호출 순서,
+  기존 북마크 중복 처리를 검증한다.
+
+### 검증
+
+- 관련 테스트 13개 통과.
+- `pnpm.cmd test`: **83 passed (10 files)**.
+- `pnpm.cmd compile`: 통과.
+- `pnpm.cmd build`: 통과(WXT chrome-mv3, 802.49 kB).
+- 빌드 manifest 권한에 `bookmarks`가 포함된 것을 확인했다.
+- `git diff --check`: 통과.
+- 미실시: Chrome 재로드 후 실제 자연어 다중 창 탭 이동과 ‘기타 북마크’ 생성 시각 스모크.
+
 ## 2026-08-07 — Ask AI 스트리밍 RAG + 독립 질문 누적
 
 ### 요청과 결정
