@@ -25,7 +25,9 @@ interface ContinueExploringProps {
 }
 
 /** 추천 세션이 자동으로 넘어가는 간격 */
-const ROTATE_MS = 7000;
+// 12초 — 카드 본문(요약 2~3줄 + 추천 이유)을 읽을 시간이 필요하다.
+// 너무 빠르면 읽는 도중에 바뀌어 오히려 안 읽게 된다.
+const ROTATE_MS = 12000;
 
 export function ContinueExploring({
   active,
@@ -84,7 +86,7 @@ export function ContinueExploring({
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.8 }}>
             <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
           </svg>
-          다시 볼 세션
+          추천 세션
         </h3>}
 
         {/* key 로 카드를 교체해 전환 애니메이션이 매번 다시 실행되게 한다 */}

@@ -174,3 +174,31 @@ export const topDomains = (session: SessionNode, limit = 3) => {
     .slice(0, limit)
     .map(([domain, count]) => ({ domain, count }));
 };
+
+
+/**
+ * 세션을 대표하는 페이지 하나.
+ *
+ * 가장 많이 등장한 도메인의 첫 페이지를 고른다 — 세션에서 중심이 된 사이트가
+ * 그 세션을 가장 잘 설명한다. 동률이면 먼저 방문한 쪽을 쓴다(결정적).
+ */
+export function representativePage(session: SessionNode): PageNode | null {
+  if (session.pages.length === 0) return null;
+
+  const countByDomain = new Map<string, number>();
+  session.pages.forEach((page) => {
+    const key = page.domain.toLowerCase();
+    countByDomain.set(key, (countByDomain.get(key) ?? 0) + 1);
+  });
+
+  let best = session.pages[0];
+  let bestCount = countByDomain.get(best.domain.toLowerCase()) ?? 0;
+  for (const page of session.pages) {
+    const count = countByDomain.get(page.domain.toLowerCase()) ?? 0;
+    if (count > bestCount) {
+      best = page;
+      bestCount = count;
+    }
+  }
+  return best;
+}

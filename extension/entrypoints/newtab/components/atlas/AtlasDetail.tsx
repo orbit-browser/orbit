@@ -1,7 +1,11 @@
+import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { renameSession } from '../../../../lib/api';
+import { broadcastSessionChange } from '../../../../lib/session-events';
+import { restoreSession, type RestoreTarget } from '../../lib/restore';
 import { PageFavicon } from './PageFavicon';
-import { SessionFavicons } from './SessionFavicons';
 import type { PageNode, SessionNode } from './data';
-import { formatMinutes, mostRevisitedPage, topDomains } from './data';
+import { formatMinutes, mostRevisitedPage, representativePage, topDomains } from './data';
 
 
 interface AtlasDetailProps {
@@ -16,6 +20,51 @@ interface Stat {
 }
 
 export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // 다른 세션으로 옮겨가면 편집 중이던 내용은 버린다.
+  useEffect(() => {
+    setEditing(false);
+    setActionError(null);
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (editing) titleInputRef.current?.select();
+  }, [editing]);
+
+  const startEditing = () => {
+    if (!session) return;
+    setDraftTitle(session.title);
+    setActionError(null);
+    setEditing(true);
+  };
+
+  const commitTitle = async () => {
+    if (!session) return;
+    const next = draftTitle.trim();
+    setEditing(false);
+    if (!next || next === session.title) return;
+
+    try {
+      await renameSession(session.id, next);
+      void queryClient.invalidateQueries({ queryKey: ['newtab', 'atlas-data'] });
+      // 사이드패널이 열려 있으면 그쪽 목록도 함께 갱신된다.
+      broadcastSessionChange({ type: 'sessions:changed' });
+    } catch (err) {
+      console.error('[Orbit] 세션 이름 변경 실패', err);
+      setActionError('이름을 바꾸지 못했어요.');
+    }
+  };
+
+  const openAllTabs = async (target: RestoreTarget) => {
+    if (!session) return;
+    setActionError(await restoreSession(session, target));
+  };
+
   const level: 'page' | 'session' | 'empty' = page
     ? 'page'
     : session
@@ -64,11 +113,14 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
         <div className="atlas-detail__head-top">
           <span className="atlas-detail__heading">세부 정보</span>
           <div className="atlas-detail__head-actions">
-            <button type="button" aria-label="편집" title="편집">
+            <button
+              type="button"
+              aria-label="세션 이름 편집"
+              title="세션 이름 편집"
+              onClick={startEditing}
+              disabled={!session}
+            >
               <i className="ph ph-pencil-simple"></i>
-            </button>
-            <button type="button" aria-label="공유" title="공유">
-              <i className="ph ph-share-network"></i>
             </button>
           </div>
         </div>
@@ -76,7 +128,12 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
         {session && (
           <nav className="atlas-detail__crumbs">
             <span className="atlas-detail__crumb" style={{ color: session.hue }}>
-              <SessionFavicons pages={session.pages} hue={session.hue} max={2} />
+              {(() => {
+                const rep = representativePage(session);
+                return rep ? (
+                  <PageFavicon url={rep.url} domain={rep.domain} className="atlas-detail__crumb-mark" />
+                ) : null;
+              })()}
               {session.title}
             </span>
             {page && (
@@ -104,13 +161,41 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
               {level === 'page' && page ? (
                 <PageFavicon url={page.url} domain={page.domain} className="atlas-detail__topic-mark" />
               ) : session ? (
-                <SessionFavicons pages={session.pages} hue={session.hue} max={3} />
+                (() => {
+                  const rep = representativePage(session);
+                  return rep ? (
+                    <PageFavicon url={rep.url} domain={rep.domain} className="atlas-detail__topic-mark" />
+                  ) : (
+                    <i className="ph ph-circles-three"></i>
+                  );
+                })()
               ) : (
                 <i className="ph ph-circles-three"></i>
               )}
             </div>
             <div className="atlas-detail__topic-text">
-              <div className="atlas-detail__topic-title">{title}</div>
+              {editing && session ? (
+                <input
+                  ref={titleInputRef}
+                  className="atlas-detail__title-input"
+                  value={draftTitle}
+                  onChange={(e) => setDraftTitle(e.target.value)}
+                  onBlur={() => void commitTitle()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void commitTitle();
+                    if (e.key === 'Escape') setEditing(false);
+                  }}
+                  aria-label="세션 이름"
+                />
+              ) : (
+                <div
+                  className="atlas-detail__topic-title"
+                  onDoubleClick={startEditing}
+                  title={session ? '더블클릭해 이름 변경' : undefined}
+                >
+                  {title}
+                </div>
+              )}
               <div className="atlas-detail__topic-sub">{subtitle}</div>
             </div>
           </div>
@@ -203,22 +288,38 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
 
         <section>
           <div className="atlas-detail__section-title">작업</div>
-          <div className="atlas-detail__actions">
-            <button type="button" className="atlas-detail__action" disabled={!session}>
+          {/* 마우스를 올리면 "새 창으로" 가 함께 드러난다 — 기본 동작은 현재 창에 열기 */}
+          <div className="atlas-detail__actions atlas-detail__actions--open">
+            <button
+              type="button"
+              className="atlas-detail__action"
+              disabled={!session}
+              onClick={() => void openAllTabs('current')}
+            >
               <span className="atlas-detail__action-left">
                 <i className="ph ph-arrow-square-out"></i>
                 세션 탭 모두 열기
               </span>
               <i className="ph ph-caret-right"></i>
             </button>
-            <button type="button" className="atlas-detail__action" disabled={!session}>
+            <button
+              type="button"
+              className="atlas-detail__action atlas-detail__action--alt"
+              disabled={!session}
+              onClick={() => void openAllTabs('new-window')}
+            >
               <span className="atlas-detail__action-left">
-                <i className="ph ph-export"></i>
-                요약 마크다운으로 내보내기
+                <i className="ph ph-arrow-square-out"></i>
+                새 창으로 모두 열기
               </span>
               <i className="ph ph-caret-right"></i>
             </button>
           </div>
+          {actionError && (
+            <p className="atlas-detail__action-error" role="alert">
+              {actionError}
+            </p>
+          )}
         </section>
       </div>
 
