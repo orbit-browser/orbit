@@ -1,79 +1,61 @@
-import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowRight, RotateCcw, Sparkles, Square, Trash2 } from 'lucide-react';
+import { useAskConversation } from '../../shared/hooks/useAskConversation';
 import { SessionCard } from '../components/SessionCard';
-import { StatePlaceholder } from '../components/StatePlaceholder';
-import { TimelineItem } from '../components/timeline/TimelineItem';
-import { searchMemory } from '../../../lib/api';
 import { useSettingsStore } from '../store/settings';
 import { useUIStore } from '../store/ui';
 
 const PLACEHOLDERS = [
-  'AI 에이전트 개발 공부하던 탭 복원해줘',
-  '지난주에 찾아둔 제주도 맛집 목록 열어줘',
-  '리액트 상태관리 라이브러리 공식문서들',
-  '쇼핑 장바구니에 담아둔 상품 페이지',
-  '독서 모임 준비용 서적 소개 탭들',
+  'AI 에이전트 개발 공부하던 내용 정리해줘',
+  '지난주에 찾아둔 제주도 맛집은 어디였지?',
+  '리액트 상태관리 라이브러리를 비교해줘',
+  '최근 쇼핑한 상품 중 핵심 차이를 알려줘',
+  '독서 모임 준비 자료를 요약해줘',
 ];
-
-const TOP_N = 3;
 
 export function SearchView() {
   const [inputValue, setInputValue] = useState('');
-  
-  // Zustand 스토어에서 검색어 유지
-  const query = useUIStore((s) => s.searchQuery);
-  const setSearchQuery = useUIStore((s) => s.setSearchQuery);
-  
-  const isActive = query.trim().length > 0;
-
-  const rerankEnabled = useSettingsStore((s) => s.rerankEnabled);
-  const trimmedQuery = query.trim();
-  const { data: results, isFetching, isError } = useQuery({
-    queryKey: ['search-memory', trimmedQuery, rerankEnabled],
-    queryFn: () => searchMemory(trimmedQuery, rerankEnabled),
-    enabled: trimmedQuery.length > 0,
-  });
-  const topResults = results?.sessions.slice(0, TOP_N) ?? [];
-  const eventResults = results?.events ?? [];
-  const degraded = results?.degraded ?? false;
-  const totalCount = topResults.length + eventResults.length;
-
-  // Claude-style rolling placeholder text
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
   const [fade, setFade] = useState(true);
+  const rerankEnabled = useSettingsStore((state) => state.rerankEnabled);
+  const setSearchQuery = useUIStore((state) => state.setSearchQuery);
+  const { turns, ask, cancel, startNewConversation, isStreaming } = useAskConversation({
+    rerank: rerankEnabled,
+  });
 
   useEffect(() => {
     const timer = setInterval(() => {
       setFade(false);
       setTimeout(() => {
-        setPlaceholderIdx((prev) => (prev + 1) % PLACEHOLDERS.length);
+        setPlaceholderIdx((previous) => (previous + 1) % PLACEHOLDERS.length);
         setFade(true);
-      }, 200); // fade out duration
+      }, 200);
     }, 3500);
-
     return () => clearInterval(timer);
   }, []);
 
-  function handleFormSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const q = inputValue.trim();
-    if (q) {
-      setSearchQuery(q);
-      setInputValue(''); // 전송 후 입력창 비우기
-    }
+  function submit(query: string) {
+    const trimmed = query.trim();
+    if (!trimmed || isStreaming) return;
+    setSearchQuery(trimmed);
+    setInputValue('');
+    void ask(trimmed);
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 select-none">
-      {/* Top Fixed Chat Input Area */}
-      <form onSubmit={handleFormSubmit} className="p-4 pb-2 bg-orbit-bg border-b border-orbit-border/40 shrink-0">
-        <div className="flex items-center gap-2 rounded-2xl border border-orbit-border bg-orbit-surface p-1.5 pl-3.5 transition-all duration-200 focus-within:border-orbit-primary/60 focus-within:ring-1 focus-within:ring-orbit-primary/20 shadow-orbit-raised relative">
-          <div className="min-w-0 flex-1 relative py-1.5">
-            {/* 가상 롤링 플레이스홀더 */}
+    <div className="flex h-full min-h-0 flex-col select-none">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit(inputValue);
+        }}
+        className="shrink-0 border-b border-orbit-border/40 bg-orbit-bg p-4 pb-2"
+      >
+        <div className="relative flex items-center gap-2 rounded-2xl border border-orbit-border bg-orbit-surface p-1.5 pl-3.5 shadow-orbit-raised transition-all duration-200 focus-within:border-orbit-primary/60 focus-within:ring-1 focus-within:ring-orbit-primary/20">
+          <div className="relative min-w-0 flex-1 py-1.5">
             {!inputValue && (
               <span
-                className={`absolute left-0 top-1/2 -translate-y-1/2 text-sm text-orbit-muted/60 pointer-events-none transition-opacity duration-200 select-none ${
+                className={`pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 select-none truncate text-sm text-orbit-muted/60 transition-opacity duration-200 ${
                   fade ? 'opacity-100' : 'opacity-0'
                 }`}
               >
@@ -82,88 +64,102 @@ export function SearchView() {
             )}
             <input
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              className="w-full bg-transparent text-sm outline-none text-orbit-text relative z-10"
+              onChange={(event) => setInputValue(event.target.value)}
+              aria-label="탐색 기록에 질문하기"
+              className="relative z-10 w-full bg-transparent text-sm text-orbit-text outline-none"
             />
           </div>
-          <button
-            type="submit"
-            disabled={!inputValue.trim()}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orbit-primary text-white transition-all hover:scale-105 active:scale-95 disabled:bg-orbit-border disabled:text-orbit-muted/50 disabled:scale-100 cursor-pointer z-10"
-          >
-            <ArrowRight size={16} strokeWidth={2.5} />
-          </button>
+          {isStreaming ? (
+            <button
+              type="button"
+              onClick={cancel}
+              aria-label="답변 생성 중단"
+              className="z-10 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-orbit-text text-orbit-surface transition hover:opacity-85"
+            >
+              <Square size={12} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!inputValue.trim()}
+              aria-label="질문 보내기"
+              className="z-10 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-orbit-primary text-white transition-all hover:scale-105 active:scale-95 disabled:scale-100 disabled:bg-orbit-border disabled:text-orbit-muted/50"
+            >
+              <ArrowRight size={16} strokeWidth={2.5} />
+            </button>
+          )}
         </div>
-
-        {/* 전송된 질문 텍스트 출력 (레이블과 따옴표 없이 깔끔하게) */}
-        {query && (
-          <div className="mt-2 pl-1 text-[11px] text-orbit-muted font-semibold truncate">
-            {query}
+        {turns.length > 0 && (
+          <div className="mt-2 flex items-center justify-between px-1">
+            <span className="text-[11px] font-semibold text-orbit-muted">각 질문은 이전 답변을 참조하지 않아요</span>
+            <button
+              type="button"
+              onClick={startNewConversation}
+              className="flex cursor-pointer items-center gap-1 text-[11px] text-orbit-muted transition hover:text-orbit-text"
+            >
+              <Trash2 size={11} /> 새 대화 시작하기
+            </button>
           </div>
         )}
       </form>
 
-      {/* Scrollable Results Area */}
-      <div className="flex-1 overflow-y-auto min-h-0 p-4 pt-2">
-        {isActive && (
-          <section className="space-y-3">
-            <div className="flex items-center gap-1.5 text-xs text-orbit-muted px-1">
-              <Sparkles size={13} className="text-orbit-primary animate-pulse" />
-              <span>
-                {isFetching
-                  ? rerankEnabled ? 'AI가 결과를 정렬 중…' : '탐색 기억을 검색 중…'
-                  : isError
-                    ? '백엔드에 연결할 수 없어요. 서버 상태를 확인해 주세요.'
-                  : degraded
-                    ? totalCount > 0
-                      ? `간단 검색 결과 ${totalCount}개 (백엔드 미연결)`
-                      : '백엔드에 연결할 수 없어요 — 간단 검색으로도 찾지 못했어요'
-                    : totalCount > 0
-                      ? `관련 결과 ${totalCount}개${rerankEnabled ? ' (AI 정렬 완료)' : ''}`
-                      : '관련 기억을 찾지 못했어요'}
-              </span>
-            </div>
-            <StatePlaceholder
-              loading={isFetching}
-              error={!isFetching && isError}
-              empty={!isFetching && !isError && totalCount === 0}
-              emptyText="다른 키워드로 다시 검색해 보세요"
-            >
-              <div className="space-y-5">
-                {topResults.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="px-1 text-xs font-semibold text-orbit-muted">세션</p>
-                    <div className="grid grid-cols-1 min-[500px]:grid-cols-2 min-[750px]:grid-cols-3 gap-3">
-                      {topResults.map((session) => (
-                        <SessionCard key={session.id} session={session} showRestoreButton={true} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {eventResults.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="px-1 text-xs font-semibold text-orbit-muted">관련 기록</p>
-                    <div className="space-y-0.5 rounded-orbit-card border border-orbit-border bg-orbit-surface p-1">
-                      {eventResults.map((ev) => (
-                        <TimelineItem
-                          key={ev.eventId}
-                          compact
-                          event={{
-                            id: ev.eventId,
-                            url: ev.url,
-                            title: ev.title,
-                            domain: ev.domain,
-                            visitedAt: ev.visitedAt,
-                            durationMs: 0,
-                          }}
-                        />
-                      ))}
-                    </div>
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 pt-3">
+        {turns.length === 0 ? (
+          <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-5 text-center text-xs text-orbit-muted">
+            <Sparkles size={20} className="text-orbit-primary" />
+            <p>저장된 탐색 기록을 바탕으로 질문에 답하고 관련 세션을 함께 보여드려요.</p>
+          </div>
+        ) : (
+          turns.map((turn) => (
+            <article key={turn.id} className="space-y-3">
+              <div className="ml-auto w-fit max-w-[88%] rounded-2xl rounded-br-md bg-orbit-primary px-3.5 py-2.5 text-sm leading-relaxed text-white">
+                {turn.query}
+              </div>
+
+              <div className="rounded-2xl rounded-tl-md border border-orbit-border bg-orbit-surface p-3.5 shadow-orbit-card">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-orbit-muted">
+                  <Sparkles size={12} className="text-orbit-primary" /> Orbit AI
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-orbit-text">
+                  {turn.answer}
+                  {turn.status === 'streaming' && (
+                    <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-orbit-primary align-middle" />
+                  )}
+                </p>
+
+                {turn.error && (
+                  <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-orbit-bg px-3 py-2 text-xs text-orbit-danger">
+                    <span>{turn.error}</span>
+                    {turn.status !== 'streaming' && (
+                      <button
+                        type="button"
+                        onClick={() => submit(turn.query)}
+                        className="flex shrink-0 cursor-pointer items-center gap-1 font-semibold"
+                      >
+                        <RotateCcw size={11} /> 다시 시도
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
-            </StatePlaceholder>
-          </section>
+
+              {turn.sources.length > 0 && (
+                <div className="space-y-2">
+                  <p className="px-1 text-xs font-semibold text-orbit-muted">관련 세션</p>
+                  <div className="space-y-2">
+                    {turn.sources.map((session, index) => (
+                      <div key={session.id} className="relative">
+                        <span className="absolute -left-1 -top-1 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border border-orbit-border bg-orbit-bg px-1 text-[10px] font-bold text-orbit-primary shadow-2xs">
+                          {index + 1}
+                        </span>
+                        <SessionCard session={session} showRestoreButton />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </article>
+          ))
         )}
       </div>
     </div>

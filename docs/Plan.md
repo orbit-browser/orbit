@@ -1,98 +1,125 @@
-# Extension newtab 백엔드 연결
+# Ask AI 스트리밍 RAG + 독립 질문 누적
 
-**상태:** 완료 (후속 페이지 궤도 분할 포함, 2026-08-07)
-**브랜치:** `feat/merge-in-sidepanel`
+**상태:** 완료 (2026-08-07)
+**브랜치:** `feat/ask-ai-streaming`
 
 ## 작업 목표
 
-1. extension 새 탭 홈과 Orbit Atlas의 `ATLAS_ORBITS` 목업 의존성을 제거한다.
-2. 기존 백엔드 세션·이벤트 API로 홈 카드, 네비게이터, Atlas 캔버스와 상세 정보를 구성한다.
-3. 홈의 AI 질문 모드를 실제 Memory 검색 API에 연결한다.
+1. 기존 자연어 검색 UI를 실제 탐색 기록 기반 답변 생성 기능으로 확장한다.
+2. 답변을 SSE 스트림으로 전달해 첫 토큰부터 점진적으로 표시한다.
+3. 각 질문은 이전 질문·답변을 참조하지 않는 독립 단일턴으로 처리한다.
+4. 독립 질문과 답변은 `새 대화 시작하기` 전까지 화면에 계속 누적하고, 다른 화면으로
+   이동했다 돌아와도 같은 문서 수명 동안 유지한다.
+5. 답변 근거로 사용한 관련 세션을 최대 3개까지 답변 아래 표시한다.
 
 ## 현재 상태와 조사 결과
 
-- 새 탭의 홈, 네비게이터, Atlas가 `components/atlas/data.ts`의 정적 `ATLAS_ORBITS`를 직접 참조한다.
-- extension 공용 API 계층에는 `fetchSessions`, `fetchSessionEvents`, `searchMemory`가 이미 구현돼 있다.
-- 백엔드에는 Session과 Event는 있지만 Orbit 엔티티나 Session-Orbit 관계는 없다.
-- 사용자 결정에 따라 현재 단계에서는 별도 Orbit 그룹을 만들지 않는다. 백엔드 Session 하나가 Atlas 중심 노드 하나이며, 해당 Event/Page를 시간 순서대로 하나의 궤도에 배치한다.
-- 세션 이벤트가 있으면 시간 순서를 유지하면서 이벤트별 체류 시간과 같은 URL의 총 방문 횟수를 표시하고, 이벤트가 없는 snapshot 세션은 탭 목록으로 보완할 수 있다.
-- 기존 홈 카드와 상세 패널은 빈 배열을 전제로 하지 않아 loading, error, empty 상태와 페이지 없는 세션 처리가 필요하다.
+- `GET /search?scope=memory`는 임베딩/Qdrant 검색, 선택적 LLM 리랭킹, 관련 이벤트 검색을 제공한다.
+- 현재 사이드패널 Ask AI는 세션/이벤트 검색 결과만 표시하고 답변은 생성하지 않는다.
+- 현재 새 탭 AI 모드는 첫 검색 결과의 Atlas로 바로 이동한다.
+- `ExplorationEvent.content_excerpt`가 최대 5,000자 저장되지만 Memory 검색 응답에는 포함되지 않는다.
+- 공용 LLM 어댑터는 A.X-K1 우선, EXAONE fallback과 호출 간격 제한을 제공하지만 스트리밍 함수는 없다.
+- FastAPI/AsyncOpenAI 조합은 추가 의존성 없이 `StreamingResponse`와 `stream=True`를 사용할 수 있다.
+
+## 사용자 결정
+
+- 새 탭과 사이드패널 모두 스트리밍 답변을 제공한다.
+- 출처는 답변 아래 관련 세션으로 표시한다.
+- 대화는 DB나 브라우저 저장소에 저장하지 않고 extension 문서 수명 동안만 유지한다.
+- 각 요청은 현재 질문만 포함하고 이전 질문·답변을 모델이나 retrieval에 전달하지 않는다.
+- 질문·답변 목록은 화면 전환으로 컴포넌트가 언마운트돼도 유지하고,
+  `새 대화 시작하기`를 눌렀을 때만 비운다.
+- 새 탭 대시보드에서는 `AI에게 질문` 모드일 때만 누적 대화를 표시한다.
+  `검색` 모드에서는 대화를 지우지 않고 기존 홈 콘텐츠를 표시한다.
 
 ## 포함 범위
 
-- React Query 기반 새 탭 데이터 조회 훅
-- Session/Event 응답을 Session/Page Atlas 뷰 모델로 바꾸는 순수 변환 계층
-- 실제 세션 기반 홈 최근·진행·추천 카드
-- 실제 세션 기반 2단계(세션 → 페이지) 네비게이터, Atlas 캔버스, 트레이, 상세 패널
-- Memory 검색 결과를 실제 Atlas 세션 선택으로 연결
-- loading, error, empty 및 이벤트/페이지 없는 세션 처리
-- 변환 로직 단위 테스트
-- mock 안내가 남은 현재 구조 문서 갱신
+- `POST /ask/stream` SSE API와 Pydantic 요청 계약
+- 기존 검색을 재사용하는 관련 세션 최대 3개 retrieval
+- 관련 세션의 요약 및 이벤트 `content_excerpt`를 이용한 제한된 RAG 컨텍스트
+- 외부 페이지 본문의 prompt injection 방어 문구와 컨텍스트 길이 제한
+- A.X-K1 우선 스트리밍, 첫 토큰 전 EXAONE fallback
+- `sources`, `delta`, `done`, `error` SSE 이벤트
+- extension 공용 스트리밍 파서/타입/문서 수명 대화 상태 스토어와 훅
+- 사이드패널 Ask AI 대화 UI와 관련 세션 카드
+- 새 탭 AI 답변 패널과 관련 세션 → Atlas 이동
+- 취소, 재시도, 빈 근거, 부분 스트림 오류 처리
+- 백엔드/extension 단위 테스트와 관련 문서 갱신
 
 ## 제외 범위
 
-- 백엔드 Orbit 모델, 분류 저장 스키마 및 신규 API
-- Orbit → Session → Page 3단계 정보 구조
-- LLM을 이용한 주제별 Orbit 자동 분류
-- 기존 Atlas 상세 패널의 미구현 편집·공유·내보내기 액션 구현
-- 백엔드 세션화·검색 로직 변경
-- 이전 작업에서 보존한 ignored `frontend/` 로컬 산출물 삭제
+- 대화 DB 저장, 브라우저 재시작 복원, 서로 다른 Chrome 탭 간 동기화, 장기 대화 목록
+- WebSocket, 토큰 사용량/비용 UI
+- 질문으로 병합·삭제·설정 변경을 실행하는 agent action
+- 이벤트 단위 임베딩 및 Qdrant 컬렉션 변경
+- 인증·사용자 분리 정책 변경
 
 ## 변경할 파일 또는 모듈
 
-- `extension/entrypoints/newtab/components/atlas/data.ts`
-- `extension/entrypoints/newtab/hooks/useAtlasData.ts`
-- `extension/entrypoints/newtab/main.tsx`, `App.tsx`
-- `extension/entrypoints/newtab/components/VariantAtlasReplica.tsx`
-- `extension/entrypoints/newtab/components/layout/NavigatorDrawer.tsx`
-- `extension/entrypoints/newtab/components/sections/`
-- `extension/entrypoints/newtab/components/atlas/AtlasDetail.tsx`
-- `extension/entrypoints/newtab/styles/`
-- `extension/tests/unit/atlas-data.test.ts`
-- `README.md`, `docs/IA.md`, `docs/DecisionLog.md`, `docs/WorkLog.md`
+- `backend/app/schemas/ask.py`
+- `backend/app/api/ask.py`
+- `backend/app/services/ask_service.py`
+- `backend/app/ai/llm.py`
+- `backend/app/main.py`
+- `backend/tests/test_ask.py`, `backend/tests/test_llm.py` 또는 관련 테스트
+- `extension/lib/types.ts`, `extension/lib/api.ts`
+- `extension/entrypoints/shared/` 또는 공용 Ask UI/상태 모듈
+- `extension/entrypoints/sidepanel/views/SearchView.tsx`
+- `extension/entrypoints/newtab/App.tsx`, `components/sections/OrbitHero.tsx`
+- 새 탭/사이드패널 스타일 및 테스트
+- `README.md`, `docs/IA.md`, `docs/api-design-v2.md`
+- `docs/DecisionLog.md`, `docs/WorkLog.md`
 
 ## 구현 순서
 
-1. mock 상수를 제거하고 실제 Session/Event를 2단계 뷰 모델로 변환하는 계약과 순수 함수를 만든다.
-2. React Query 훅과 새 탭 QueryClientProvider를 연결한다.
-3. 홈과 네비게이터가 조회 결과 및 loading/error/empty 상태를 사용하게 한다.
-4. Atlas 중심 노드를 세션명으로 표시하고 페이지를 `sequenceOrder` 순서로 한 궤도에 배치한다.
-5. AI 질문을 Memory 검색으로 연결하고 결과 없음·실패 상태를 표시한다.
-6. 변환 단위 테스트와 extension 전체 검증을 수행한다.
-7. 결정 기록, 작업 이력, 현재 구조 문서를 실제 구현에 맞춘다.
+1. Ask 요청·SSE 이벤트·관련 세션 응답 계약을 정의한다.
+2. retrieval과 프롬프트 구성을 순수/서비스 계층으로 구현하고 테스트한다.
+3. LLM 스트리밍 어댑터와 첫 토큰 전 fallback을 구현한다.
+4. FastAPI `StreamingResponse` 엔드포인트와 SSE 오류/취소 경로를 구현하고 테스트한다.
+5. extension의 SSE 파서와 화면 전환에도 유지되는 단일턴 누적 상태를 구현하고 테스트한다.
+6. 사이드패널과 새 탭 UI를 공용 계약에 연결한다.
+7. 백엔드·extension 전체 테스트, 타입 검사, 빌드와 로컬 스트리밍 스모크를 수행한다.
+8. IA/API/결정/작업 문서를 실제 구현에 맞춘다.
 
 ## 테스트 및 검증
 
 ```bash
+cd backend && python -m pytest -p no:asyncio
 cd extension && pnpm test && pnpm compile && pnpm build
 ```
 
-- 이벤트의 시간 순서와 같은 URL의 방문 횟수 계산 검증
-- 이벤트 없는 세션의 탭 fallback 검증
-- 세션 최신순 정렬, 상태, 요약 필드 변환 검증
-- 빈 세션에서 상세 helper가 예외를 내지 않는지 검증
-- 로컬 백엔드 `/health`, `/sessions` 응답과 새 탭 번들 API base 설정 확인
-- `rg`로 `ATLAS_ORBITS`와 mock 안내가 제거됐는지 확인
+- 관련 세션 0개/1개/3개 이상 retrieval
+- 요청에 이전 질문·답변이 포함되지 않는지 검증
+- 컨텍스트 길이 제한 및 본문 명령 비신뢰 처리
+- SSE sources → delta* → done 정상 순서
+- 첫 토큰 전 provider 실패 fallback, 첫 토큰 후 partial error
+- 클라이언트 SSE 청크 경계 분할/복수 이벤트/잘못된 JSON 처리
+- 사용자의 새 질문 및 컴포넌트 unmount 시 취소
+- 관련 세션 클릭 시 사이드패널 상세/새 탭 Atlas 이동
+- 백엔드 다운·검색 결과 없음·생성 실패·재시도 UI
 
-## 위험과 결정 사항
+## 위험과 대응
 
-- 백엔드에 Orbit 계약이 없으므로 현재는 Session을 중심 노드로 직접 표현한다. 실제 Orbit 그룹과 중첩 세션은 후속 데이터 모델/API 고도화 범위다.
-- 세션별 이벤트 조회는 기존 API를 재사용하므로 세션 수만큼 요청이 발생한다. 동시 요청 수를 제한하고 React Query 캐시를 사용한다.
-- 이벤트 조회 실패는 snapshot 세션과 동일하게 tabs fallback으로 보완하지만, 세션 목록 자체 실패는 오류 상태로 노출한다.
-- `fetchSessionEvents`의 기존 계약상 이벤트 요청 실패와 빈 이벤트는 구분할 수 없다. 이번 범위에서는 화면 가용성을 우선한다.
+- 스트림 도중 provider를 바꾸면 중복 답변이 생길 수 있어 fallback은 첫 토큰 전에만 허용한다.
+- 페이지 본문은 신뢰하지 않고 시스템 프롬프트에서 명령 무시를 강제하며 길이를 제한한다.
+- SSE는 POST 요청이므로 native `EventSource` 대신 `fetch` + `ReadableStream`으로 파싱한다.
+- 답변 근거는 관련 세션으로 제한한다. 세션에 연결되지 않은 이벤트는 이번 답변 컨텍스트에서 제외한다.
+- 클라이언트 연결 종료 시 서버 생성 작업과 DB 세션이 정리되도록 async generator 취소를 전파한다.
 
 ## 완료 조건
 
-- 새 탭 코드와 번들에 정적 `ATLAS_ORBITS` 데이터가 남지 않는다.
-- 홈과 Atlas가 백엔드의 실제 세션·이벤트를 표시한다.
-- AI 질문이 실제 Memory 검색 결과의 세션으로 이동한다.
-- loading, error, empty, 페이지 없는 세션에서도 화면이 깨지지 않는다.
-- extension 테스트·타입 검사·빌드가 통과한다.
-- 관련 문서와 `DecisionLog.md`, `WorkLog.md`가 실제 구현과 일치한다.
+- 양쪽 Ask AI 화면에서 답변이 점진적으로 표시된다.
+- 각 질문은 이전 질문·답변 없이 독립적으로 처리된다.
+- 화면 전환 후에도 누적 답변이 유지되고 `새 대화 시작하기`에서만 초기화된다.
+- 새 탭의 검색 모드에서는 홈을, AI 모드에서는 보존된 대화 목록을 표시한다.
+- 답변 아래 관련 세션 최대 3개가 표시되고 상세/Atlas 이동이 동작한다.
+- 실패·취소·빈 근거 상태가 사용자에게 명확히 표시된다.
+- 전체 backend/extension 검증이 통과한다.
+- 관련 현재 문서, `DecisionLog.md`, `WorkLog.md`가 구현과 일치한다.
 
-## 후속 개선 — 페이지 궤도 분할
+## 완료 결과
 
-- 한 궤도에 표시하는 페이지를 최대 8개로 제한한다.
-- 9번째 페이지부터는 바깥쪽 동심 궤도를 추가하며 전체 방문 순서를 유지한다.
-- 페이지 수가 0개, 8개, 9개, 여러 궤도인 경계 조건을 단위 테스트한다.
-- 선택한 페이지의 연결선과 툴팁 번호는 분할 후에도 정확한 전체 페이지를 가리켜야 한다.
+- backend 전체 테스트 298개, extension 전체 테스트 73개, 타입 검사와 프로덕션 빌드가 통과했다.
+- 현재 브랜치 코드로 로컬 백엔드를 재시작하고 `/health` 200을 확인했다.
+- 실제 세션을 지정한 Ask 요청에서 `sources → delta* → done` 순서를 확인했다.
+- Chrome 확장 재로드 후 실제 화면의 레이아웃·취소 상호작용을 눈으로 확인하는 작업은 수동 확인으로 남긴다.

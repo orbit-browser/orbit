@@ -232,6 +232,55 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
 - `events` 배열은 두 출처를 합친 것이다: ① 매칭된 세션의 `session_events` 상위(relevance×duration) — `match_reason: "session_relevance"`, ② `title`/`search_query`/`domain` ILIKE 직접 매칭 — `match_reason: "text_match"`(세션에 배정되지 않은 이벤트까지 커버).
 - 이벤트별 임베딩은 MVP에서 도입하지 않는다(§ current-state-audit.md, target-architecture.md §7).
 
+### 8.1 `POST /ask/stream` — 탐색 기록 기반 스트리밍 답변
+
+새 탭과 사이드패널의 Ask AI가 사용하는 SSE 엔드포인트다. `EventSource`가 아닌 POST
+`fetch` 스트림이다. 각 요청은 이전 질문·답변을 받거나 저장하지 않는 독립 단일턴이다.
+
+**Request**
+
+```json
+{
+  "query": "지난주 보험 비교 기록에서 가격이 가장 낮았던 선택지는?",
+  "session_id": null,
+  "rerank": true
+}
+```
+
+- `query`: 공백 제외 1~2,000자.
+- `session_id`: 지정하면 해당 세션만 근거로 사용한다. 생략하면 기존 벡터 검색으로 최대 3개를 찾는다.
+- `rerank`: 검색 후보의 LLM 재정렬 여부. 기본 `true`.
+
+클라이언트는 여러 질문과 답변을 UI에 누적 표시할 수 있지만, 그 목록은 다음 요청 본문에 포함하지 않는다.
+
+**Response (`text/event-stream`)**
+
+```text
+event: sources
+data: {"sessions":[{...SessionDetail...}]}
+
+event: delta
+data: {"text":"가장 낮은 "}
+
+event: delta
+data: {"text":"선택지는 A사였습니다 [1]."}
+
+event: done
+data: {"model":"A.X-K1"}
+```
+
+이벤트 순서는 `sources` → `delta` 0개 이상 → `done` 또는 `error`다. 오류 이벤트는
+`{"code":"stream_interrupted|generation_failed","partial":true|false,"retryable":true}` 형식이다.
+검색/DB 오류처럼 스트림 시작 전 실패는 기존 HTTP 오류 계약을 따른다.
+
+답변 컨텍스트는 관련 세션 최대 3개의 요약과 세션별 관련 이벤트 최대 4개의
+`content_excerpt`로 제한한다. 미할당 이벤트는 포함하지 않으며, 페이지 본문 안의 지시문은
+신뢰하지 않는 데이터로 취급한다. 답변은 근거 세션을 `[1]`, `[2]`처럼 표시한다.
+
+모델은 A.X-K1 스트리밍을 우선 사용한다. 첫 토큰 전에 연결·rate limit·지원 상태 오류가 나면
+EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
+`stream_interrupted`를 보낸다.
+
 ## 9. `GET /analytics/overview?days=7`
 
 집계 쿼리만 수행하며 AI 호출이 없다.

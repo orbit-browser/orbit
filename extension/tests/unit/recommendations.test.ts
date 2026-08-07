@@ -100,3 +100,28 @@ describe('추천 세션 API', () => {
     expect(init.headers.Authorization).toBe('Bearer test-token');
   });
 });
+
+describe('Ask 스트리밍 인증', () => {
+  it('스트리밍 요청에도 인증 헤더를 붙인다', async () => {
+    // /ask 는 사용자의 세션 내용을 읽으므로 인증이 빠지면 401 이 난다.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { streamAsk } = await import('../../lib/api');
+    // 제너레이터는 소비해야 실행된다.
+    for await (const _event of streamAsk({ query: '질문' })) {
+      // 스트림이 즉시 닫히므로 반복은 돌지 않는다
+    }
+
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.headers.Authorization).toBe('Bearer test-token');
+  });
+});

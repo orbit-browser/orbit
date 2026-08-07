@@ -22,6 +22,9 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
   수집/동기화 상태 카드, 세션 상세에서 탐색 경로를 시간순으로 복기
 - **Search by Intent** — 세션(벡터 검색)과 관련 방문 기록을 함께 반환하는 통합 검색
   (`scope=memory`)
+- **Ask AI** — 저장된 세션 요약과 실제 페이지 본문 조각을 근거로 답변을 스트리밍하고,
+  답변 아래 관련 세션을 최대 3개까지 표시한다. 각 질문은 이전 답변을 참조하지 않는
+  독립 단일턴이며, 질문·답변 목록은 `새 대화 시작하기` 전까지 화면 전환에도 유지한다
 - **Exploration Analytics** — 주제별 탐색 시간과 자주 보는 도메인을 사이드패널 요약 카드에서 확인
 - **세션 병합** — 같은 주제로 나뉜 세션을 사이드패널에서 확인해 개별 또는 일괄 병합하고,
   성공 직후 되돌릴 수 있다. 명백한 중복만 처리하는 자동병합은 설정에서 opt-in한다
@@ -49,7 +52,7 @@ webNavigation 방문 감지                    POST /events (인제스트: 필�
                                                → 변경 세션만 요약(generate_summary 재사용)
                                                  + passage 임베딩 → Qdrant upsert
                                                     ↓
-                            Timeline · Search(scope=memory) · Analytics — 조회 전용 계층
+                            Timeline · Search(scope=memory) · Ask AI(SSE) · Analytics — 조회 계층
 ```
 
 이 파이프라인은 Event Stream(수집) → Session Builder(그룹화·의도분석·세션갱신) →
@@ -61,7 +64,7 @@ Embedding(기존 재사용) → 조회 계층(Timeline/Search/Analytics) 순으�
 
 ```
 orbit/
-├─ extension/      # WXT + React + TypeScript + Tailwind (Chrome MV3 사이드패널)
+├─ extension/      # WXT + React + TypeScript + Tailwind (Chrome MV3 새 탭 + 사이드패널)
 │  └─ lib/events, lib/sync   # 이벤트 수집기·로컬 큐·동기화 엔진
 ├─ backend/        # FastAPI — 이벤트 인제스트, 배치 세션화, 세션 API, AI 파이프라인
 │  ├─ app/services  # event_filter, grouper, intent_analyzer, session_updater,
@@ -139,7 +142,7 @@ VITE_GOOGLE_CLIENT_ID=<같은 클라이언트 ID>
 ### 테스트
 
 ```bash
-# Backend (205개)
+# Backend
 cd backend
 python -m pytest -p no:asyncio
 

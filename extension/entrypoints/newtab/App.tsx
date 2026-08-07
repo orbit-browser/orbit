@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { searchMemory } from '../../lib/api';
 import { Header } from './components/layout/Header';
 import { NavigatorDrawer } from './components/layout/NavigatorDrawer';
+import { AskConversationPanel } from './components/sections/AskConversationPanel';
 import { OrbitHero } from './components/sections/OrbitHero';
 import { RecentExploration } from './components/sections/RecentExploration';
 import type { ExplorationEntry } from './components/sections/RecentExploration';
@@ -11,13 +11,17 @@ import { useRecommendations } from './hooks/useRecommendations';
 import { navigateToAtlas } from './lib/navigation';
 import { getNavState, useSharedNavState } from './lib/nav-state';
 import { restoreSession, type RestoreTarget } from './lib/restore';
+import { useAskConversation } from '../shared/hooks/useAskConversation';
+import type { Session } from '../../lib/types';
 
 export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [composerMode, setComposerMode] = useState<'search' | 'ai'>('search');
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const atlasQuery = useAtlasData();
   const sessions = atlasQuery.data ?? [];
   const recommendationQuery = useRecommendations();
+  const { turns, ask, cancel, startNewConversation, isStreaming } = useAskConversation();
 
   const { nav, patch } = useSharedNavState();
   const toggleNav = () => patch({ open: !getNavState().open });
@@ -59,19 +63,19 @@ export default function App() {
     setRestoreError(await restoreSession(entry.session, target));
   };
 
-  const handleAskAI = async (prompt: string): Promise<string | null> => {
-    try {
-      const result = await searchMemory(prompt, true);
-      const targetSessionId =
-        result.sessions[0]?.id ?? result.events.find((event) => event.sessionId)?.sessionId;
-      const hit = entries.find((entry) => entry.session.id === targetSessionId);
+  const handleAskAI = (prompt: string) => {
+    setSearchQuery('');
+    void ask(prompt);
+  };
 
-      if (!hit) return '관련 탐색 기록을 찾지 못했어요.';
-      openDashboard(hit);
-      return null;
-    } catch {
-      return '탐색 기록을 검색하지 못했어요. 백엔드 연결을 확인해 주세요.';
-    }
+  const openSource = (session: Session) => {
+    patch({
+      focusedOrbitId: session.id,
+      selectedSessionId: null,
+      selectedPageId: null,
+      expandedSessionIds: new Set([...getNavState().expandedSessionIds, session.id]),
+    });
+    navigateToAtlas({ sessionId: session.id });
   };
 
   return (
@@ -87,6 +91,9 @@ export default function App() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onAskAI={handleAskAI}
+          isAsking={isStreaming}
+          mode={composerMode}
+          onModeChange={setComposerMode}
         />
 
         {restoreError && (
@@ -95,7 +102,16 @@ export default function App() {
           </p>
         )}
 
-        {atlasQuery.isPending ? (
+        {composerMode === 'ai' && turns.length > 0 ? (
+          <AskConversationPanel
+            turns={turns}
+            isStreaming={isStreaming}
+            onCancel={cancel}
+            onStartNewConversation={startNewConversation}
+            onRetry={(query) => void ask(query)}
+            onOpenSource={openSource}
+          />
+        ) : atlasQuery.isPending ? (
           <div className="home-data-state" role="status">탐색 기록을 불러오는 중...</div>
         ) : atlasQuery.isError ? (
           <div className="home-data-state home-data-state--error" role="alert">

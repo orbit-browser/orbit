@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Depends
 
 from .api.analytics import router as analytics_router
+from .api.ask import router as ask_router
 from .api.auth import router as auth_router
 from .api.deps import get_current_user
 from .api.events import router as events_router
@@ -70,6 +71,8 @@ app.include_router(events_router, dependencies=_authenticated)
 app.include_router(sync_router, dependencies=_authenticated)
 app.include_router(analytics_router, dependencies=_authenticated)
 app.include_router(recommendations_router, dependencies=_authenticated)
+# ask 는 사용자의 세션 내용을 읽어 답을 만든다 — 반드시 인증 뒤에 둔다.
+app.include_router(ask_router, dependencies=_authenticated)
 
 
 @app.get("/health")
