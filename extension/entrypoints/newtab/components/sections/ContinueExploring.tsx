@@ -3,10 +3,21 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { ExploreCard } from './ExploreCard';
 import type { ExplorationEntry } from './RecentExploration';
 import type { RestoreTarget } from '../../lib/restore';
+import type { RecommendationKind, RecommendedSession } from '../../../../lib/api';
+
+/** 추천 성격 배지 문구 — 왜 이 성격으로 뽑혔는지 한눈에 보이게 한다. */
+const KIND_LABEL: Record<RecommendationKind, string> = {
+  continue: '이어가기',
+  related: '지금과 연관',
+  rediscover: '다시 보기',
+};
+
 
 interface ContinueExploringProps {
   active: ExplorationEntry | null;
   recommended: ExplorationEntry[];
+  /** 세션 id → 추천 성격·이유. 서버 추천이 없으면 비어 있다. */
+  reasons?: Map<string, RecommendedSession>;
   /** 해당 세션의 대시보드(아틀라스)로 이동 */
   onOpenDashboard: (entry: ExplorationEntry) => void;
   /** 세션에 속한 페이지를 탭으로 되살린다 */
@@ -14,11 +25,14 @@ interface ContinueExploringProps {
 }
 
 /** 추천 세션이 자동으로 넘어가는 간격 */
-const ROTATE_MS = 7000;
+// 12초 — 카드 본문(요약 2~3줄 + 추천 이유)을 읽을 시간이 필요하다.
+// 너무 빠르면 읽는 도중에 바뀌어 오히려 안 읽게 된다.
+const ROTATE_MS = 12000;
 
 export function ContinueExploring({
   active,
   recommended,
+  reasons,
   onOpenDashboard,
   onRestore,
 }: ContinueExploringProps) {
@@ -72,16 +86,20 @@ export function ContinueExploring({
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.8 }}>
             <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
           </svg>
-          다시 볼 세션
+          추천 세션
         </h3>}
 
         {/* key 로 카드를 교체해 전환 애니메이션이 매번 다시 실행되게 한다 */}
         {current && <div className="rec-slot" key={current.session.id}>
           <ExploreCard
             session={current.session}
-            badge={current.session.category}
+            badge={
+              reasons?.get(current.session.id)
+                ? KIND_LABEL[reasons.get(current.session.id)!.kind]
+                : current.session.category
+            }
             meta={current.session.date}
-            reason="최근 탐색 기록에서 다시 이어볼 수 있어요"
+            reason={reasons?.get(current.session.id)?.reason}
             onOpenDashboard={() => onOpenDashboard(current)}
             onRestore={(target) => onRestore(current, target)}
           />

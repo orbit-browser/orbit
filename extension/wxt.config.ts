@@ -1,5 +1,25 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { defineConfig } from 'wxt';
 import tailwindcss from '@tailwindcss/vite';
+
+/**
+ * manifest 는 Vite 의 import.meta.env 를 못 쓰므로 .env 를 직접 읽는다.
+ * 값이 없으면 빈 문자열로 두고 빌드는 통과시킨다 — 로그인만 동작하지 않는다.
+ * (OAuth 클라이언트 ID 는 시크릿이 아니지만, 환경마다 달라 커밋하지 않는다.)
+ */
+function envValue(key: string): string {
+  try {
+    const text = readFileSync(resolve(__dirname, '.env'), 'utf-8');
+    for (const line of text.split('\n')) {
+      const [name, ...rest] = line.split('=');
+      if (name?.trim() === key) return rest.join('=').trim();
+    }
+  } catch {
+    // .env 없음 — 신규 클론 등
+  }
+  return '';
+}
 
 // https://wxt.dev/api/config.html
 export default defineConfig({
@@ -26,7 +46,16 @@ export default defineConfig({
       'topSites',
       'favicon',
       'bookmarks',
+      // identity — 구글 로그인. 크롬 프로필 계정의 access token 을 받는다.
+      'identity',
     ],
+    // 구글 OAuth. client_id 는 extension/.env 의 VITE_GOOGLE_CLIENT_ID 에서 읽는다.
+    // Google Cloud Console 에서 "Chrome 확장 프로그램" 유형으로 발급받고,
+    // 발급 시 이 확장의 ID(chrome://extensions)를 등록해야 한다.
+    oauth2: {
+      client_id: envValue('VITE_GOOGLE_CLIENT_ID'),
+      scopes: ['openid', 'email', 'profile'],
+    },
     // TODO: 배포 URL 확정 시 프로덕션 백엔드 도메인 추가
     host_permissions: ['http://localhost/*', 'http://127.0.0.1/*'],
     commands: {

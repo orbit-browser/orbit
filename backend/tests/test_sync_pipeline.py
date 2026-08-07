@@ -84,7 +84,7 @@ def test_run_batch_no_pending_completes_batch_and_returns_none(monkeypatch):
         return "batch-1"
 
     async def fake_claim(_batch_id):
-        return []
+        return [], None
 
     async def fake_complete(batch_id, event_count, model=None):
         calls["complete"].append((batch_id, event_count, model))
@@ -132,9 +132,10 @@ def test_run_batch_returns_immediately_and_holds_lock_until_background_done(monk
         return "batch-1"
 
     async def fake_claim(_batch_id):
-        return [{"id": "e1"}]
+        # 배치는 (이벤트, 소유자) 를 함께 돌려준다 — 한 배치는 한 사용자만 처리
+        return [{"id": "e1"}], "u1"
 
-    async def fake_process_batch(batch_id, claimed):
+    async def fake_process_batch(batch_id, claimed, user_id):
         started.set()
         await gate.wait()
         process_calls.append((batch_id, claimed))
@@ -177,7 +178,7 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
     def fake_group_by_time_gap(_events, gap_minutes, max_group_size):
         return groups
 
-    async def fake_process_group(group, _batch_id, touched):
+    async def fake_process_group(group, _batch_id, touched, _user_id):
         if group[0]["id"] == "a":
             raise RuntimeError("group boom")
         touched.add("sess-ok")
@@ -203,7 +204,7 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
     monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
     monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
 
-    asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}, {"id": "b"}]))
+    asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}, {"id": "b"}], "u1"))
 
     assert (["a"], "pending") in calls["set_status"]
     assert calls["refresh"] == ["sess-ok"]
@@ -232,7 +233,7 @@ def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
     monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
     monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
 
-    asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}]))
+    asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}], "u1"))
 
     assert (["dup-1"], "processed") in calls["set_status"]
 
@@ -249,7 +250,7 @@ def test_process_batch_exception_fails_batch(monkeypatch):
     monkeypatch.setattr(sync_pipeline, "dedupe_events", boom)
     monkeypatch.setattr(sync_pipeline, "_fail_batch", fake_fail)
 
-    asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}]))
+    asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}], "u1"))
 
     assert fail_calls == [("batch-1", "dedupe exploded")]
 
@@ -399,7 +400,7 @@ def test_fetch_candidates_falls_back_when_vector_search_fails(monkeypatch):
     )
     monkeypatch.setattr(sync_pipeline, "AsyncSessionLocal", lambda: _FakeSessionLocalCtx(db))
 
-    candidates = asyncio.run(sync_pipeline._fetch_candidates([0.1, 0.2]))
+    candidates = asyncio.run(sync_pipeline._fetch_candidates([0.1, 0.2], "u1"))
 
     assert candidates == [
         {
@@ -423,7 +424,7 @@ def test_fetch_candidates_returns_empty_when_no_candidates_found(monkeypatch):
     db = _QueuedDB([_ScalarsResult([])])
     monkeypatch.setattr(sync_pipeline, "AsyncSessionLocal", lambda: _FakeSessionLocalCtx(db))
 
-    candidates = asyncio.run(sync_pipeline._fetch_candidates([0.1, 0.2]))
+    candidates = asyncio.run(sync_pipeline._fetch_candidates([0.1, 0.2], "u1"))
     assert candidates == []
 
 
@@ -450,7 +451,7 @@ def test_fetch_candidates_threads_vector_scores(monkeypatch):
     )
     monkeypatch.setattr(sync_pipeline, "AsyncSessionLocal", lambda: _FakeSessionLocalCtx(db))
 
-    candidates = asyncio.run(sync_pipeline._fetch_candidates([0.1, 0.2]))
+    candidates = asyncio.run(sync_pipeline._fetch_candidates([0.1, 0.2], "u1"))
 
     assert candidates[0]["session_id"] == "sess-v"
     assert candidates[0]["score"] == 0.63
@@ -484,7 +485,7 @@ def test_process_group_discards_system_urls_and_skips_when_all_filtered(monkeypa
     group = [_group_event("a", url="chrome://newtab")]
     touched: set[str] = set()
 
-    result = asyncio.run(sync_pipeline._process_group(group, "batch-1", touched))
+    result = asyncio.run(sync_pipeline._process_group(group, "batch-1", touched, "u1"))
 
     assert result == []
     assert touched == set()
@@ -499,7 +500,7 @@ def test_process_group_single_cluster_wires_embed_candidates_analyze_and_apply(m
         calls["embed_kwargs"] = kwargs
         return [[0.1, 0.2] for _ in texts]
 
-    async def fake_fetch_candidates(vector):
+    async def fake_fetch_candidates(vector, _user_id):
         calls["candidates_vector"] = vector
         return [{"session_id": "s1", "title": "t", "overview": "o", "keywords": [], "score": 0.7}]
 
@@ -520,7 +521,7 @@ def test_process_group_single_cluster_wires_embed_candidates_analyze_and_apply(m
     group = [_group_event("a")]
     touched: set[str] = set()
 
-    result = asyncio.run(sync_pipeline._process_group(group, "batch-1", touched))
+    result = asyncio.run(sync_pipeline._process_group(group, "batch-1", touched, "u1"))
 
     # embed_many는 embedding-query(기본값)를 써야 한다 — model 파라미터 금지(비대칭 임베딩 규칙)
     assert "model" not in calls["embed_kwargs"]
@@ -539,7 +540,7 @@ def test_process_group_hard_splits_multitopic_into_two_llm_calls(monkeypatch):
     async def fake_embed_many(texts, **_kwargs):
         return [[1.0, 0.0], [0.0, 1.0]]  # 직교 → 분리
 
-    async def fake_fetch_candidates(vector):
+    async def fake_fetch_candidates(vector, _user_id):
         order.append("fetch")
         return []
 
@@ -560,7 +561,7 @@ def test_process_group_hard_splits_multitopic_into_two_llm_calls(monkeypatch):
     group = [_group_event("a"), _group_event("b", url="https://other.com/x")]
     touched: set[str] = set()
 
-    result = asyncio.run(sync_pipeline._process_group(group, "batch-1", touched))
+    result = asyncio.run(sync_pipeline._process_group(group, "batch-1", touched, "u1"))
 
     # 모든 fetch/analyze가 apply보다 먼저 — 클러스터가 서로의 새 세션을 후보로 보지 못하게 함
     assert order == ["fetch", "analyze", "fetch", "analyze", "apply", "apply"]

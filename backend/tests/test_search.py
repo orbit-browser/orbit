@@ -17,7 +17,7 @@ def run_search(monkeypatch, embed_result):
         return embed_result
 
     monkeypatch.setattr(search, "embed", fake_embed)
-    return asyncio.run(search.search_sessions(q="query", limit=5, rerank=False, db=None))
+    return asyncio.run(search.search_sessions(q="query", limit=5, rerank=False, db=None, user_id="u1"))
 
 
 @pytest.mark.parametrize(
@@ -171,7 +171,7 @@ def test_fetch_keyword_matched_events_excludes_ids_already_matched_by_session():
     rows = [(excluded_event, None, None), (kept_event, "sess-2", "일본 여행")]
     db = _FakeDB(_AllResult(rows))
 
-    result = asyncio.run(search._fetch_keyword_matched_events(db, "도쿄", exclude_ids={"e1"}))
+    result = asyncio.run(search._fetch_keyword_matched_events(db, "도쿄", exclude_ids={"e1"}, user_id="u1"))
 
     assert [r["event_id"] for r in result] == ["e2"]
     assert result[0]["session_id"] == "sess-2"
@@ -193,7 +193,7 @@ def test_fetch_keyword_matched_events_caps_at_ten():
     ]
     db = _FakeDB(_AllResult(rows))
 
-    result = asyncio.run(search._fetch_keyword_matched_events(db, "q", exclude_ids=set()))
+    result = asyncio.run(search._fetch_keyword_matched_events(db, "q", exclude_ids=set(), user_id="u1"))
 
     assert len(result) == 10
 
@@ -211,7 +211,7 @@ def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch)
             }
         ]
 
-    async def fake_keyword(_db, _q, exclude_ids):
+    async def fake_keyword(_db, _q, exclude_ids, _user_id):
         assert exclude_ids == {"e1"}
         return [
             {
@@ -225,7 +225,7 @@ def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch)
     monkeypatch.setattr(search, "_fetch_keyword_matched_events", fake_keyword)
 
     events = asyncio.run(
-        search._search_memory_events(db=None, q="query", sessions=[_session_detail("sess-1")])
+        search._search_memory_events(db=None, q="query", sessions=[_session_detail("sess-1")], user_id="u1")
     )
 
     assert [e.event_id for e in events] == ["e1", "e2"]
@@ -238,17 +238,17 @@ def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch)
 def test_search_sessions_scope_memory_wraps_sessions_and_events(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id):
         return [session]
 
-    async def fake_memory_events(_db, _q, _sessions):
+    async def fake_memory_events(_db, _q, _sessions, _user_id):
         return []
 
     monkeypatch.setattr(search, "_search_sessions_by_vector", fake_by_vector)
     monkeypatch.setattr(search, "_search_memory_events", fake_memory_events)
 
     response = asyncio.run(
-        search.search_sessions(q="query", limit=5, rerank=False, scope="memory", db=None)
+        search.search_sessions(q="query", limit=5, rerank=False, scope="memory", db=None, user_id="u1")
     )
 
     assert response.sessions == [session]
@@ -258,7 +258,7 @@ def test_search_sessions_scope_memory_wraps_sessions_and_events(monkeypatch):
 def test_search_sessions_scope_memory_event_query_failure_still_returns_sessions(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id):
         return [session]
 
     async def failing_memory_events(_db, _q, _sessions):
@@ -268,7 +268,7 @@ def test_search_sessions_scope_memory_event_query_failure_still_returns_sessions
     monkeypatch.setattr(search, "_search_memory_events", failing_memory_events)
 
     response = asyncio.run(
-        search.search_sessions(q="query", limit=5, rerank=False, scope="memory", db=None)
+        search.search_sessions(q="query", limit=5, rerank=False, scope="memory", db=None, user_id="u1")
     )
 
     assert response.sessions == [session]
@@ -278,11 +278,11 @@ def test_search_sessions_scope_memory_event_query_failure_still_returns_sessions
 def test_search_sessions_scope_sessions_default_returns_bare_list(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id):
         return [session]
 
     monkeypatch.setattr(search, "_search_sessions_by_vector", fake_by_vector)
 
-    response = asyncio.run(search.search_sessions(q="query", limit=5, rerank=False, db=None))
+    response = asyncio.run(search.search_sessions(q="query", limit=5, rerank=False, db=None, user_id="u1"))
 
     assert response == [session]

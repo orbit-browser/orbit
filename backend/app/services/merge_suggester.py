@@ -102,13 +102,15 @@ def _to_meta(session: SessionModel) -> SessionMeta:
     )
 
 
-async def find_merge_suggestions(db: AsyncSession) -> list[MergeSuggestion]:
+async def find_merge_suggestions(db: AsyncSession, user_id: str) -> list[MergeSuggestion]:
     """활성 세션 쌍을 스캔해 병합 후보를 점수순으로 반환 (읽기 전용, merge P1).
 
     Qdrant 연결/벡터 부재 시 해당 세션은 조용히 건너뛴다(검색 비활성화와 동일 취급).
     """
     result = await db.execute(
         select(SessionModel).where(
+            # 병합 후보는 같은 사용자 세션끼리만 — 없으면 남의 세션과 병합을 제안하게 된다.
+            SessionModel.user_id == user_id,
             SessionModel.status == "active",
             SessionModel.embedding_status == "done",
         )

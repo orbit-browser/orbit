@@ -1,5 +1,8 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { navigate } from '../../lib/navigation';
+import { SessionFavicons } from './SessionFavicons';
+import { loadSeenSessions, markSessionSeen } from '../../lib/seen-sessions';
+import { useSessionSync } from '../../hooks/useSessionSync';
 import type { SessionNode } from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
@@ -57,6 +60,32 @@ export function AtlasNavigator({
   onSearchOpenChange,
   searchInputRef,
 }: AtlasNavigatorProps) {
+  /**
+   * "새로 저장됨" 점을 이미 확인한 세션들. 사용자가 세션을 열면 표시를 지운다.
+   */
+  const [seenSessions, setSeenSessions] = useState<Set<string>>(() => new Set());
+
+  // 사이드패널에서 병합하면 새로고침 없이 여기 목록이 따라 바뀐다.
+  const { absorbingId, survivingId } = useSessionSync();
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadSeenSessions().then((seen) => {
+      if (!cancelled) setSeenSessions(seen);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      onSelectSession(sessionId);
+      void markSessionSeen(seenSessions, sessionId).then(setSeenSessions);
+    },
+    [onSelectSession, seenSessions],
+  );
+
   useEffect(() => {
     if (query && !searchOpen) onSearchOpenChange(true);
   }, [query, searchOpen, onSearchOpenChange]);
@@ -132,9 +161,11 @@ export function AtlasNavigator({
                   'atlas-row',
                   'atlas-row--orbit',
                   focusedSessionId === session.id && 'atlas-row--focused',
+                  absorbingId === session.id && 'atlas-row--absorbing',
+                  survivingId === session.id && 'atlas-row--surviving',
                 )}
-                onClick={() => onSelectSession(session.id)}
-                onKeyDown={(event) => event.key === 'Enter' && onSelectSession(session.id)}
+                onClick={() => handleSelectSession(session.id)}
+                onKeyDown={(event) => event.key === 'Enter' && handleSelectSession(session.id)}
                 role="button"
                 tabIndex={0}
                 title={`${session.title} — ${session.date}`}
@@ -150,15 +181,17 @@ export function AtlasNavigator({
                 >
                   <i className={isOpen ? 'ph ph-caret-down' : 'ph ph-caret-right'} />
                 </button>
-                {session.status === 'live' ? (
-                  <span className="atlas-row__live" title="수집 중" />
-                ) : (
-                  <i className={`ph ${session.icon} atlas-row__icon`} style={{ color: session.hue }} />
-                )}
                 <span className="atlas-row__label">
                   <Highlight text={session.title} query={query} />
                 </span>
-                <span className="atlas-row__meta">{session.pages.length}p</span>
+                {/* 대표 아이콘은 오른쪽 끝 — 제목이 길어져도 자리가 흔들리지 않는다 */}
+                <span className="atlas-row__trailing">
+                  {session.status === 'live' && !seenSessions.has(session.id) ? (
+                    <span className="atlas-row__live" title="새로 저장된 세션" />
+                  ) : (
+                    <SessionFavicons pages={session.pages} hue={session.hue} />
+                  )}
+                </span>
               </div>
 
               {isOpen && (

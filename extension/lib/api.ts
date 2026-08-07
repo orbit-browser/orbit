@@ -19,6 +19,8 @@ import type {
   TodayEvent,
 } from './types';
 
+import { AuthRequiredError, clearSession, getToken } from './auth';
+
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 // ── 백엔드 응답 타입 (snake_case) ─────────────────────
@@ -207,8 +209,31 @@ function mapMergeSuggestion(b: BackendMergeSuggestion): MergeSuggestion {
   };
 }
 
+/**
+ * 저장된 세션 토큰을 Authorization 헤더로 얹는다.
+ * 토큰이 없으면 호출 자체를 하지 않는다 — 어차피 401이고, 실패 사유가 더 분명하다.
+ */
+async function authorized(init?: RequestInit): Promise<RequestInit> {
+  const token = await getToken();
+  if (!token) throw new AuthRequiredError();
+  return {
+    ...init,
+    headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${token}` },
+  };
+}
+
+/**
+ * 401은 세션이 끝난 것이므로 저장된 토큰을 지우고 재로그인이 필요함을 알린다.
+ * 조용히 삼키면 화면이 빈 채로 남아 사용자는 원인을 알 수 없다.
+ */
+async function handleUnauthorized(): Promise<never> {
+  await clearSession();
+  throw new AuthRequiredError('세션이 만료되었어요. 다시 로그인해 주세요.');
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const res = await fetch(`${BASE}${path}`, await authorized(init));
+  if (res.status === 401) await handleUnauthorized();
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`[Orbit API] ${init?.method ?? 'GET'} ${path} ${res.status}: ${body}`);
@@ -385,11 +410,15 @@ export type ServerSyncTrigger = 'manual' | 'periodic' | 'event_count' | 'idle';
  * 409(이미 실행 중)도 정상 흐름이므로 예외로 취급하지 않는다.
  */
 export async function triggerServerSync(triggerType: ServerSyncTrigger): Promise<void> {
-  const res = await fetch(`${BASE}/sync`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ trigger_type: triggerType }),
-  });
+  const res = await fetch(
+    `${BASE}/sync`,
+    await authorized({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trigger_type: triggerType }),
+    }),
+  );
+  if (res.status === 401) await handleUnauthorized();
   if (!res.ok && res.status !== 409) {
     throw new Error(`[Orbit API] POST /sync ${res.status}`);
   }
@@ -527,17 +556,22 @@ export async function* streamAsk(
   body: AskStreamRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<AskStreamEvent> {
-  const response = await fetch(`${BASE}/ask/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({
-      query: body.query,
-      session_id: body.sessionId ?? null,
-      rerank: body.rerank ?? true,
-      intent: body.intent ?? 'search_memory',
+  // 스트리밍도 인증이 필요하다 — /ask 는 사용자의 세션 내용을 읽어 답을 만든다.
+  const response = await fetch(
+    `${BASE}/ask/stream`,
+    await authorized({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({
+        query: body.query,
+        session_id: body.sessionId ?? null,
+        rerank: body.rerank ?? true,
+        intent: body.intent ?? 'search_memory',
+      }),
+      signal,
     }),
-    signal,
-  });
+  );
+  if (response.status === 401) await handleUnauthorized();
   if (!response.ok) {
     const responseBody = await response.text().catch(() => '');
     throw new Error(`[Orbit API] POST /ask/stream ${response.status}: ${responseBody}`);
@@ -621,5 +655,73 @@ export async function fetchAnalyticsOverview(days: number): Promise<AnalyticsOve
       domain: d.domain,
       visitCount: d.visit_count,
     })),
+  };
+}
+
+// ── 추천 세션 (docs: plan.md 2단계) ─────────────────────
+
+export type RecommendationKind = 'continue' | 'related' | 'rediscover';
+
+export interface RecommendedSession {
+  sessionId: string;
+  title: string;
+  /** 추천 성격 — continue(이어가기) / related(연관) / rediscover(다시 보기) */
+  kind: RecommendationKind;
+  /** 왜 지금 이 세션인지 (한 문장) */
+  reason: string;
+  score: number;
+}
+
+export interface RecommendationResult {
+  items: RecommendedSession[];
+  /** 이 추천이 계산된 시각. 캐시가 비어 있으면 null */
+  computedAt: string | null;
+  /** true면 응답은 캐시이고 서버가 백그라운드에서 새로 계산 중이다 */
+  isStale: boolean;
+}
+
+interface BackendRecommendation {
+  session_id: string;
+  title: string;
+  kind: RecommendationKind;
+  reason: string;
+  score: number;
+}
+
+interface BackendRecommendationResponse {
+  items: BackendRecommendation[];
+  computed_at: string | null;
+  is_stale: boolean;
+}
+
+/**
+ * 새 탭의 "추천 세션".
+ *
+ * 서버가 캐시를 즉시 돌려주고 오래됐으면 백그라운드에서 다시 계산하므로,
+ * 클라이언트는 새 탭을 열 때 한 번만 부르면 된다. 화면의 캐러셀 회전은
+ * 이미 받은 결과를 돌려 보이는 것이라 추가 호출이 없다.
+ */
+export async function fetchRecommendations(
+  context: { currentTitle?: string; currentUrl?: string; query?: string } = {},
+): Promise<RecommendationResult> {
+  const params = new URLSearchParams();
+  if (context.currentTitle) params.set('current_title', context.currentTitle);
+  if (context.currentUrl) params.set('current_url', context.currentUrl);
+  if (context.query) params.set('q', context.query);
+  const qs = params.toString();
+
+  const data = await request<BackendRecommendationResponse>(
+    `/recommendations${qs ? `?${qs}` : ''}`,
+  );
+  return {
+    items: data.items.map((item) => ({
+      sessionId: item.session_id,
+      title: item.title,
+      kind: item.kind,
+      reason: item.reason,
+      score: item.score,
+    })),
+    computedAt: data.computed_at,
+    isStale: data.is_stale,
   };
 }

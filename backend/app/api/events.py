@@ -27,6 +27,7 @@ from ..services.event_filter import (
     normalize_url,
 )
 from ..services.session_updater import _resync_tabs
+from .deps import current_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["events"])
@@ -57,7 +58,7 @@ def _trigger_batch_if_over_threshold(pending_total: int) -> None:
 
 
 def _build_event_rows(
-    events: list[ExplorationEventIn], batch_device_id: str | None
+    events: list[ExplorationEventIn], batch_device_id: str | None, user_id: str
 ) -> tuple[list[dict], int]:
     """이벤트별 필터/정규화를 수행해 DB insert용 row 목록과 filtered 개수를 반환한다.
 
@@ -82,7 +83,7 @@ def _build_event_rows(
         rows.append(
             {
                 "id": event.id,
-                "user_id": "local",
+                "user_id": user_id,
                 "device_id": event.device_id or batch_device_id,
                 "source": event.source,
                 "url": event.url,
@@ -106,13 +107,13 @@ def _build_event_rows(
     return rows, filtered
 
 
-async def _count_pending(db: AsyncSession) -> int:
+async def _count_pending(db: AsyncSession, user_id: str) -> int:
     result = await db.execute(
         select(func.count())
         .select_from(ExplorationEvent)
         .where(
             ExplorationEvent.sync_status == "pending",
-            ExplorationEvent.user_id == "local",
+            ExplorationEvent.user_id == user_id,
         )
     )
     return result.scalar_one()
@@ -122,8 +123,9 @@ async def _count_pending(db: AsyncSession) -> int:
 async def ingest_events(
     body: EventBatchRequest,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> EventIngestResult:
-    rows, filtered = _build_event_rows(body.events, body.device_id)
+    rows, filtered = _build_event_rows(body.events, body.device_id, user_id)
 
     accepted = 0
     duplicates = 0
@@ -136,7 +138,7 @@ async def ingest_events(
         accepted = result.rowcount or 0
         duplicates = len(rows) - accepted
 
-    pending_total = await _count_pending(db)
+    pending_total = await _count_pending(db, user_id)
     _trigger_batch_if_over_threshold(pending_total)
 
     return EventIngestResult(
@@ -148,12 +150,15 @@ async def ingest_events(
 
 
 @router.get("/events/pending-count", response_model=PendingCountResponse)
-async def get_pending_count(db: AsyncSession = Depends(get_db)) -> PendingCountResponse:
-    pending = await _count_pending(db)
+async def get_pending_count(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
+) -> PendingCountResponse:
+    pending = await _count_pending(db, user_id)
 
     result = await db.execute(
         select(SyncBatch.completed_at)
-        .where(SyncBatch.status == "completed", SyncBatch.user_id == "local")
+        .where(SyncBatch.status == "completed", SyncBatch.user_id == user_id)
         .order_by(SyncBatch.completed_at.desc())
         .limit(1)
     )
@@ -186,7 +191,9 @@ def _resolve_date_range(date_param: str, *, now: datetime | None = None) -> tupl
     return start, start + timedelta(days=1)
 
 
-async def _fetch_events_for_date(db: AsyncSession, start: datetime, end: datetime) -> list[EventListItem]:
+async def _fetch_events_for_date(
+    db: AsyncSession, start: datetime, end: datetime, user_id: str
+) -> list[EventListItem]:
     # discarded 이벤트도 반환한다 — 세션에서 제외됐을 뿐 탐색 기록으로는 유효하므로
     # Timeline에 "제외됨" 뱃지로 노출된다(사용자 결정 2026-08-05).
     result = await db.execute(
@@ -194,7 +201,7 @@ async def _fetch_events_for_date(db: AsyncSession, start: datetime, end: datetim
         .outerjoin(SessionEvent, SessionEvent.event_id == ExplorationEvent.id)
         .outerjoin(SessionModel, SessionEvent.session_id == SessionModel.id)
         .where(
-            ExplorationEvent.user_id == "local",
+            ExplorationEvent.user_id == user_id,
             ExplorationEvent.visited_at >= start,
             ExplorationEvent.visited_at < end,
         )
@@ -228,13 +235,14 @@ async def _fetch_events_for_date(db: AsyncSession, start: datetime, end: datetim
 async def list_events(
     date: str = Query(..., description="YYYY-MM-DD or 'today'"),
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> list[EventListItem]:
     try:
         start, end = _resolve_date_range(date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    return await _fetch_events_for_date(db, start, end)
+    return await _fetch_events_for_date(db, start, end, user_id)
 
 
 # ── DELETE /events/{id} (docs/api-design-v2.md §10) ──────────────────────
@@ -271,9 +279,11 @@ async def _recompute_session_after_event_removed(db: AsyncSession, session_id: s
 async def delete_event(
     event_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> None:
     event = await db.get(ExplorationEvent, event_id)
-    if not event:
+    # 남의 이벤트는 존재 자체를 알리지 않는다 — 403 대신 404.
+    if not event or event.user_id != user_id:
         raise HTTPException(status_code=404, detail="Event not found")
 
     affected_result = await db.execute(

@@ -1,5 +1,6 @@
-import { useRef } from 'react';
-import type { SessionNode } from './data';
+import { useEffect, useRef, useState } from 'react';
+import { PageFavicon } from './PageFavicon';
+import type { PageNode, SessionNode } from './data';
 import { formatMinutes } from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
@@ -14,7 +15,6 @@ interface AtlasTrayProps {
 }
 
 /** 도메인에서 카드 아이콘용 이니셜을 뽑는다. */
-const initialOf = (domain: string) => domain.replace(/^WWW\./, '').charAt(0).toUpperCase();
 
 export function AtlasTray({
   session,
@@ -24,6 +24,42 @@ export function AtlasTray({
   onNextSession,
   onClose,
 }: AtlasTrayProps) {
+  /** 우클릭 메뉴 — 어떤 페이지에 대해 어디에 띄울지 */
+  const [menu, setMenu] = useState<{ page: PageNode; x: number; y: number } | null>(null);
+
+  // 바깥 클릭·ESC·스크롤로 닫는다. 메뉴가 화면에 남아 떠다니면 안 된다.
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [menu]);
+
+  const openPage = (page: PageNode, target: 'current' | 'new-tab' | 'new-window') => {
+    setMenu(null);
+    if (target === 'current') {
+      window.location.assign(page.url);
+      return;
+    }
+    if (target === 'new-window') {
+      // 확장 API 가 있으면 진짜 새 창, 없으면 팝업 창으로 폴백한다.
+      if (typeof chrome !== 'undefined' && chrome.windows?.create) {
+        void chrome.windows.create({ url: page.url });
+        return;
+      }
+      window.open(page.url, '_blank', 'noopener,noreferrer,popup');
+      return;
+    }
+    window.open(page.url, '_blank', 'noopener,noreferrer');
+  };
+
   const viewportRef = useRef<HTMLDivElement>(null);
   const maxMinutes = Math.max(...session.pages.map((p) => p.minutes), 1);
 
@@ -80,12 +116,16 @@ export function AtlasTray({
                 className={cx('atlas-card', isActive && 'atlas-card--active')}
                 onClick={() => onSelectPage(page.id)}
                 onKeyDown={(e) => e.key === 'Enter' && onSelectPage(page.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setMenu({ page, x: e.clientX, y: e.clientY });
+                }}
                 role="button"
                 tabIndex={0}
                 style={{ '--card-hue': session.hue } as React.CSSProperties}
               >
                 <div className="atlas-card__top">
-                  <div className="atlas-card__icon">{initialOf(page.domain)}</div>
+                  <PageFavicon url={page.url} domain={page.domain} className="atlas-card__icon" />
                   <div className="atlas-card__heading">
                     <div className="atlas-card__name">{page.title}</div>
                     <div className="atlas-card__domain">{page.domain}</div>
@@ -112,21 +152,75 @@ export function AtlasTray({
                       1회 방문
                     </span>
                   )}
-                  <button type="button" className="atlas-card__ask" onClick={(e) => e.stopPropagation()}>
-                    <i className="ph ph-arrow-square-out"></i>
-                    열기
-                  </button>
+                  {/* 마우스를 올리면 열기 옵션이 위로 쌓이며 드러난다 */}
+                  <div className="atlas-card__open" onClick={(e) => e.stopPropagation()}>
+                    <div className="atlas-card__open-stack">
+                      <button
+                        type="button"
+                        className="atlas-card__open-option"
+                        onClick={() => openPage(page, 'new-window')}
+                      >
+                        <i className="ph ph-arrow-square-out"></i>
+                        새 창에서 열기
+                      </button>
+                      <button
+                        type="button"
+                        className="atlas-card__open-option"
+                        onClick={() => openPage(page, 'new-tab')}
+                      >
+                        <i className="ph ph-arrow-square-out"></i>
+                        새 탭에서 열기
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="atlas-card__ask"
+                      onClick={() => openPage(page, 'current')}
+                    >
+                      <i className="ph ph-arrow-square-out"></i>
+                      열기
+                    </button>
+                  </div>
                 </div>
               </article>
             );
           })}
-
-          <button type="button" className="atlas-card--add">
-            <i className="ph ph-plus"></i>
-            <span>페이지 추가</span>
-          </button>
         </div>
       </div>
+
+      {menu && (
+        <div
+          className="atlas-page-menu"
+          style={{ left: menu.x, top: menu.y }}
+          role="menu"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="atlas-page-menu__item"
+            role="menuitem"
+            onClick={() => openPage(menu.page, 'current')}
+          >
+            열기
+          </button>
+          <button
+            type="button"
+            className="atlas-page-menu__item"
+            role="menuitem"
+            onClick={() => openPage(menu.page, 'new-tab')}
+          >
+            새 탭에서 열기
+          </button>
+          <button
+            type="button"
+            className="atlas-page-menu__item"
+            role="menuitem"
+            onClick={() => openPage(menu.page, 'new-window')}
+          >
+            새 창에서 열기
+          </button>
+        </div>
+      )}
     </div>
   );
 }

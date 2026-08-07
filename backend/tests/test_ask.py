@@ -184,14 +184,14 @@ def test_answer_events_for_session_discovery_skips_generation(monkeypatch):
 def test_source_count_follows_retrieval_intent(monkeypatch):
     limits: list[int] = []
 
-    async def fake_search(_query, limit, _rerank, _db):
+    async def fake_search(_query, limit, _rerank, _db, _user_id):
         limits.append(limit)
         return []
 
     monkeypatch.setattr(ask, "_search_sessions_by_vector", fake_search)
     for intent in ("find_sessions", "search_session", "search_memory"):
         body = AskStreamRequest(query="질문", intent=intent)
-        asyncio.run(ask._resolve_sources(body, SimpleNamespace()))
+        asyncio.run(ask._resolve_sources(body, SimpleNamespace(), "user-1"))
 
     assert limits == [5, 1, 3]
 
@@ -210,7 +210,7 @@ def test_prepare_context_falls_back_when_event_embedding_fails(monkeypatch):
         ),
     )
 
-    async def fake_load(_db, _session_ids):
+    async def fake_load(_db, _session_ids, _user_id):
         return {source.session_id: SimpleNamespace(tabs=[])}, [row]
 
     async def fail_rank(_query, _rows):
@@ -220,7 +220,9 @@ def test_prepare_context_falls_back_when_event_embedding_fails(monkeypatch):
     monkeypatch.setattr(ask_service, "rank_context_events", fail_rank)
 
     context = asyncio.run(
-        ask_service.prepare_ask_context(SimpleNamespace(), "질문", [source], "search_memory")
+        ask_service.prepare_ask_context(
+            SimpleNamespace(), "질문", [source], "user-1", "search_memory"
+        )
     )
 
     assert "fallback excerpt" in context.prompt

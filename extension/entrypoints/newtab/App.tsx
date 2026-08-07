@@ -7,6 +7,7 @@ import { RecentExploration } from './components/sections/RecentExploration';
 import type { ExplorationEntry } from './components/sections/RecentExploration';
 import { ContinueExploring } from './components/sections/ContinueExploring';
 import { useAtlasData } from './hooks/useAtlasData';
+import { useRecommendations } from './hooks/useRecommendations';
 import { navigateToAtlas } from './lib/navigation';
 import { getNavState, useSharedNavState } from './lib/nav-state';
 import { restoreSession, type RestoreTarget } from './lib/restore';
@@ -19,6 +20,7 @@ export default function App() {
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const atlasQuery = useAtlasData();
   const sessions = atlasQuery.data ?? [];
+  const recommendationQuery = useRecommendations();
   const {
     turns,
     ask,
@@ -37,7 +39,22 @@ export default function App() {
   );
   const recent = entries.slice(0, 3);
   const active = entries[0] ?? null;
-  const recommended = entries.slice(1, 4);
+  /**
+   * 추천 세션 — 서버가 여러 신호 + LLM 리랭킹으로 고른 3개를 쓴다.
+   * 서버 추천이 없거나 실패하면 최근 세션으로 대체한다(빈 자리를 남기지 않는다).
+   */
+  const recommendationItems = recommendationQuery.data?.items ?? [];
+  const reasons = useMemo(
+    () => new Map(recommendationItems.map((item) => [item.sessionId, item])),
+    [recommendationItems],
+  );
+  const recommended = useMemo(() => {
+    const byId = new Map(entries.map((entry) => [entry.session.id, entry]));
+    const fromServer = recommendationItems
+      .map((item) => byId.get(item.sessionId))
+      .filter((entry): entry is ExplorationEntry => entry !== undefined);
+    return fromServer.length > 0 ? fromServer : entries.slice(1, 4);
+  }, [entries, recommendationItems]);
 
   const openDashboard = (entry: ExplorationEntry) => {
     patch({
@@ -123,6 +140,7 @@ export default function App() {
               <ContinueExploring
                 active={active}
                 recommended={recommended}
+                reasons={reasons}
                 onOpenDashboard={openDashboard}
                 onRestore={(entry, target) => void handleRestore(entry, target)}
               />

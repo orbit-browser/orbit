@@ -8,10 +8,16 @@ import './styles/index.css';
 import App from './App';
 import { OrbitAtlasPage } from './pages/OrbitAtlasPage';
 import { getRoute } from './lib/navigation';
+import { LoginScreen } from './components/sections/LoginScreen';
+import { useAuth } from '../../lib/useAuth';
 
-/** 홈 ↔ 아틀라스 두 화면을 해시 라우트로 전환한다 (시안 `src/main.tsx` 와 같은 구조). */
+/**
+ * 홈 ↔ 아틀라스 두 화면을 해시 라우트로 전환한다 (시안 `src/main.tsx` 와 같은 구조).
+ * 로그인 전에는 두 화면 모두 열지 않는다 — 데이터가 누구 것인지 정해진 뒤에 보여준다.
+ */
 function Root() {
   const [route, setRoute] = useState(getRoute);
+  const { session, loading } = useAuth();
 
   useEffect(() => {
     const onPop = () => setRoute(getRoute());
@@ -23,6 +29,16 @@ function Root() {
       window.removeEventListener('hashchange', onPop);
     };
   }, []);
+
+  // 저장된 세션을 읽는 동안 로그인 화면을 깜빡이지 않는다.
+  if (loading) return <div className="app-container" />;
+  if (!session) {
+    return (
+      <div className="app-container">
+        <LoginScreen />
+      </div>
+    );
+  }
 
   return route === 'orbit-atlas' ? <OrbitAtlasPage /> : <App />;
 }

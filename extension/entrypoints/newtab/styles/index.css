@@ -168,6 +168,14 @@ body {
   letter-spacing: -0.02em;
 }
 
+.user-menu__photo {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
 .user-menu__caret {
   transition: transform 0.2s;
 }
@@ -449,6 +457,53 @@ body {
 .search-shell__submit:disabled {
   cursor: wait;
   opacity: 0.5;
+}
+
+/* ═══════════════ 로그인 화면 ═══════════════ */
+
+.login-screen {
+  min-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  animation: home-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.login-screen__mark {
+  width: 56px;
+  height: auto;
+}
+
+.login-screen__title {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.login-screen__desc {
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: var(--text-muted);
+}
+
+.login-screen__button {
+  margin-top: 6px;
+  cursor: pointer;
+}
+
+.login-screen__button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.login-screen__error {
+  max-width: 420px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #b8452b;
 }
 
 /* ═══════════════ 바로가기 (크롬 새 탭의 그 자리) ═══════════════ */

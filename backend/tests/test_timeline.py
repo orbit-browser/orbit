@@ -44,21 +44,21 @@ class _FakeDB:
 def test_get_session_events_404_when_session_missing():
     db = _FakeDB(session=None)
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(sessions.get_session_events(session_id="missing", db=db))
+        asyncio.run(sessions.get_session_events(session_id="missing", db=db, user_id="u1"))
     assert exc_info.value.status_code == 404
 
 
 def test_get_session_events_returns_empty_for_snapshot_session():
-    session = SimpleNamespace(id="s1")
+    session = SimpleNamespace(id="s1", user_id="u1")
     db = _FakeDB(session=session, execute_result=_AllResult([]))
 
-    items = asyncio.run(sessions.get_session_events(session_id="s1", db=db))
+    items = asyncio.run(sessions.get_session_events(session_id="s1", db=db, user_id="u1"))
 
     assert items == []
 
 
 def test_get_session_events_maps_fields_in_sequence_order():
-    session = SimpleNamespace(id="s1")
+    session = SimpleNamespace(id="s1", user_id="u1")
     visited_at = datetime(2026, 8, 3, 5, 12, tzinfo=timezone.utc)
     event = SimpleNamespace(
         id="e1",
@@ -71,7 +71,7 @@ def test_get_session_events_maps_fields_in_sequence_order():
     session_event = SimpleNamespace(relevance_score=0.82, sequence_order=0)
     db = _FakeDB(session=session, execute_result=_AllResult([(session_event, event)]))
 
-    items = asyncio.run(sessions.get_session_events(session_id="s1", db=db))
+    items = asyncio.run(sessions.get_session_events(session_id="s1", db=db, user_id="u1"))
 
     assert len(items) == 1
     item = items[0]
@@ -91,21 +91,21 @@ def test_get_session_events_maps_fields_in_sequence_order():
 def test_get_session_versions_404_when_session_missing():
     db = _FakeDB(session=None)
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(sessions.get_session_versions(session_id="missing", db=db))
+        asyncio.run(sessions.get_session_versions(session_id="missing", db=db, user_id="u1"))
     assert exc_info.value.status_code == 404
 
 
 def test_get_session_versions_returns_empty_when_no_versions_yet():
-    session = SimpleNamespace(id="s1")
+    session = SimpleNamespace(id="s1", user_id="u1")
     db = _FakeDB(session=session, execute_result=_ScalarsResult([]))
 
-    items = asyncio.run(sessions.get_session_versions(session_id="s1", db=db))
+    items = asyncio.run(sessions.get_session_versions(session_id="s1", db=db, user_id="u1"))
 
     assert items == []
 
 
 def test_get_session_versions_maps_fields_and_keeps_desc_order_from_query():
-    session = SimpleNamespace(id="s1")
+    session = SimpleNamespace(id="s1", user_id="u1")
     created_at_v2 = datetime(2026, 8, 3, 5, 30, tzinfo=timezone.utc)
     created_at_v1 = datetime(2026, 8, 3, 5, 14, tzinfo=timezone.utc)
     v2 = SimpleNamespace(
@@ -133,7 +133,7 @@ def test_get_session_versions_maps_fields_and_keeps_desc_order_from_query():
     # 정렬 자체는 SQL의 order_by(version.desc())가 담당하므로 fake는 이미 정렬된 순서로 반환
     db = _FakeDB(session=session, execute_result=_ScalarsResult([v2, v1]))
 
-    items = asyncio.run(sessions.get_session_versions(session_id="s1", db=db))
+    items = asyncio.run(sessions.get_session_versions(session_id="s1", db=db, user_id="u1"))
 
     assert [i.version for i in items] == [2, 1]
     assert items[0].title == "RTX 5070 구매 비교"

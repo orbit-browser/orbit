@@ -29,3 +29,21 @@ export async function clearEvents(): Promise<void> {
   const db = await getDB();
   await db.clear(EVENTS_STORE);
 }
+
+/**
+ * 인증된 상태를 만든다 — API 호출은 저장된 세션 토큰을 요구한다(`lib/api.ts`).
+ * 만료 시각을 넉넉히 두어 테스트 도중 만료로 실패하지 않게 한다.
+ */
+export async function signInTestUser(): Promise<void> {
+  await chrome.storage.local.set({
+    'orbit:auth': {
+      token: 'test-token',
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      user: { id: 'u1', email: 'test@example.com', name: '테스트', picture: null },
+    },
+  });
+}
+
+export async function signOutTestUser(): Promise<void> {
+  await chrome.storage.local.remove('orbit:auth');
+}

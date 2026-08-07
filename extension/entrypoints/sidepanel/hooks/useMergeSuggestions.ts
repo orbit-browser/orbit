@@ -5,6 +5,7 @@ import {
   unmergeSessions,
 } from '../../../lib/api';
 import type { MergePair } from '../../../lib/merge';
+import { broadcastSessionChange } from '../../../lib/session-events';
 
 export function useMergeSuggestions() {
   return useQuery({
@@ -28,7 +29,11 @@ export function useMergeSessions() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ survivorId, absorbedId }: MergePair) => mergeSessions(survivorId, absorbedId),
-    onSuccess: (_data, pair) => invalidateMergeQueries(queryClient, pair),
+    onSuccess: (_data, pair) => {
+      invalidateMergeQueries(queryClient, pair);
+      // 새 탭이 열려 있으면 새로고침 없이 바로 반영된다.
+      broadcastSessionChange({ type: 'sessions:merged', ...pair });
+    },
   });
 }
 
@@ -36,6 +41,9 @@ export function useUnmergeSessions() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ survivorId, absorbedId }: MergePair) => unmergeSessions(survivorId, absorbedId),
-    onSuccess: (_data, pair) => invalidateMergeQueries(queryClient, pair),
+    onSuccess: (_data, pair) => {
+      invalidateMergeQueries(queryClient, pair);
+      broadcastSessionChange({ type: 'sessions:unmerged', ...pair });
+    },
   });
 }

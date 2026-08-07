@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import {
@@ -7,9 +7,16 @@ import {
 } from '../../entrypoints/shared/hooks/useAskConversation';
 import { streamAsk } from '../../lib/api';
 import { parseSseBuffer, readSseStream } from '../../lib/sse';
+import { signInTestUser, signOutTestUser } from '../helpers';
 
-afterEach(() => {
+beforeEach(async () => {
+  // /ask 는 사용자의 세션을 읽으므로 인증이 필요하다.
+  await signInTestUser();
+});
+
+afterEach(async () => {
   vi.unstubAllGlobals();
+  await signOutTestUser();
 });
 
 describe('Ask AI request', () => {
@@ -79,7 +86,17 @@ describe('Ask AI request', () => {
     const activateTab = vi.fn(async () => undefined);
     vi.stubGlobal('fetch', fetch);
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({
+            'orbit:auth': {
+              token: 'test-token',
+              expiresAt: '2099-01-01T00:00:00.000Z',
+              user: { id: 'u1', email: 'test@example.com', name: '테스트', picture: null },
+            },
+          })),
+        },
+      },
       windows: { update: focusWindow },
       tabs: {
         query: vi.fn(async () => [
@@ -201,7 +218,17 @@ describe('Ask AI request', () => {
     const activateTab = vi.fn(async () => undefined);
     vi.stubGlobal('fetch', fetch);
     vi.stubGlobal('chrome', {
-      storage: { local: { get: vi.fn(async () => ({})) } },
+      storage: {
+        local: {
+          get: vi.fn(async () => ({
+            'orbit:auth': {
+              token: 'test-token',
+              expiresAt: '2099-01-01T00:00:00.000Z',
+              user: { id: 'u1', email: 'test@example.com', name: '테스트', picture: null },
+            },
+          })),
+        },
+      },
       windows: { update: focusWindow },
       tabs: {
         query: vi.fn(async () => [

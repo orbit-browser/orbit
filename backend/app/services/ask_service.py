@@ -125,17 +125,26 @@ async def rank_context_events(
 async def _load_context_records(
     db: AsyncSession,
     session_ids: list[str],
+    user_id: str,
 ) -> tuple[dict[str, SessionModel], list[tuple[SessionEvent, ExplorationEvent]]]:
     if not session_ids:
         return {}, []
 
-    session_result = await db.execute(select(SessionModel).where(SessionModel.id.in_(session_ids)))
+    # 소유자 조건은 이중 방어다 — 호출측이 이미 걸렀더라도 여기서 한 번 더 막는다.
+    session_result = await db.execute(
+        select(SessionModel).where(
+            SessionModel.id.in_(session_ids),
+            SessionModel.user_id == user_id,
+        )
+    )
     session_models = {session.id: session for session in session_result.scalars().all()}
+    if not session_models:
+        return {}, []
 
     event_result = await db.execute(
         select(SessionEvent, ExplorationEvent)
         .join(ExplorationEvent, SessionEvent.event_id == ExplorationEvent.id)
-        .where(SessionEvent.session_id.in_(session_ids))
+        .where(SessionEvent.session_id.in_(session_models))
     )
     return session_models, list(event_result.all())
 
@@ -201,6 +210,7 @@ async def prepare_ask_context(
     db: AsyncSession,
     query: str,
     sources: list[SessionDetail],
+    user_id: str,
     intent: AssistantRetrievalIntent = "search_memory",
 ) -> AskContext:
     source_limit = 5 if intent == "find_sessions" else MAX_SOURCES
@@ -209,7 +219,7 @@ async def prepare_ask_context(
         return AskContext(sources=limited_sources, prompt="", intent=intent)
 
     session_ids = [source.session_id for source in limited_sources]
-    session_models, event_rows = await _load_context_records(db, session_ids)
+    session_models, event_rows = await _load_context_records(db, session_ids, user_id)
     try:
         events_by_session = await rank_context_events(query, event_rows)
     except Exception:

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SessionNode } from './data';
 import { formatMinutes, PAGES_PER_ORBIT, splitPagesIntoOrbits } from './data';
 
@@ -49,6 +49,48 @@ export function AtlasCanvas({
   const [size, setSize] = useState({ w: 860, h: 620 });
   const [hintClosed, setHintClosed] = useState(false);
   const [hintMuted, setHintMuted] = useState(readHintDismissed);
+
+  /*
+   * 안내 알약은 평소 가운데 정렬(translateX(-50%))이라 폭이 늘면 X 가 옆으로 밀린다.
+   * X 를 겨눈 커서 아래로 "다시 보지 않기" 가 들어와 클릭이 그쪽으로 먹는다.
+   * 그래서 커서를 올린 **그 순간의 실제 위치를 재서 고정**하고, 문구는 오른쪽으로만 펼친다.
+   * CSS 만으로 폭을 보정하려면 문구 길이를 상수로 박아야 해서 글자가 바뀌면 어긋난다.
+   */
+  const hintRef = useRef<HTMLDivElement>(null);
+  const [hintFrozenLeft, setHintFrozenLeft] = useState<number | null>(null);
+  /** 등장 애니메이션은 처음 한 번만 — 이후 클래스가 바뀌어도 다시 올라오지 않는다. */
+  const [hintEntered, setHintEntered] = useState(false);
+
+  const unfreezeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const freezeHint = () => {
+    if (unfreezeTimer.current) {
+      clearTimeout(unfreezeTimer.current);
+      unfreezeTimer.current = null;
+    }
+    const stage = stageRef.current;
+    const hint = hintRef.current;
+    if (!stage || !hint || hintFrozenLeft !== null) return;
+    // 스테이지 기준 좌표로 바꿔 둬야 창 크기가 바뀌어도 어긋나지 않는다.
+    setHintFrozenLeft(hint.getBoundingClientRect().left - stage.getBoundingClientRect().left);
+  };
+
+  /**
+   * 문구가 다 접힌 뒤에 고정을 푼다.
+   * 즉시 풀면 알약이 먼저 가운데로 돌아간 뒤 폭이 줄어들어, 왼쪽에서 미끄러져 오는 것처럼 보인다.
+   */
+  const releaseHint = () => {
+    if (unfreezeTimer.current) clearTimeout(unfreezeTimer.current);
+    unfreezeTimer.current = setTimeout(() => {
+      setHintFrozenLeft(null);
+      unfreezeTimer.current = null;
+    }, 300); // 문구 접힘 전환(0.26s)보다 살짝 길게
+  };
+
+  useEffect(() => () => {
+    if (unfreezeTimer.current) clearTimeout(unfreezeTimer.current);
+  }, []);
+
 
   useLayoutEffect(() => {
     const element = stageRef.current;
@@ -192,9 +234,22 @@ export function AtlasCanvas({
       )}
 
       {session && session.pages.length > 0 && !selectedPageId && !hintClosed && !hintMuted && (
-        <div className="atlas-stage__hint">
+        <div
+          ref={hintRef}
+          className={`atlas-stage__hint${hintEntered ? '' : ' atlas-stage__hint--enter'}`}
+          onAnimationEnd={() => setHintEntered(true)}
+          style={
+            hintFrozenLeft !== null
+              ? { left: `${hintFrozenLeft}px`, transform: 'none' }
+              : undefined
+          }
+        >
           <span>페이지는 방문 순서대로 안쪽 궤도부터 배치됩니다</span>
-          <span className="atlas-stage__hint-actions">
+          <span
+            className="atlas-stage__hint-actions"
+            onMouseEnter={freezeHint}
+            onMouseLeave={releaseHint}
+          >
             <button
               type="button"
               className="atlas-stage__hint-close"
@@ -203,6 +258,7 @@ export function AtlasCanvas({
             >
               <i className="ph ph-x" />
             </button>
+            {/* X 뒤에 둬서 오른쪽으로 펼쳐진다. 위치가 고정돼 있어 X 는 움직이지 않는다. */}
             <button
               type="button"
               className="atlas-stage__hint-never"
