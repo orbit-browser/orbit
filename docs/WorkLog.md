@@ -205,6 +205,177 @@ merge 구현 착수. 먼저 merge-design §9 열린 결정을 사용자와 합�
 - `merge_suggest_floor` 골든/실데이터 튜닝 후 DecisionLog 갱신.
 - P2(병합 실행 API + `list_sessions` status 필터 + `merged_from_session_id`), P3(undo), 대시보드 UI.
 
+## 2026-08-07 — 세션 진입을 대시보드로 통일 + 세션 복원 (feat/design-upgrade 3차)
+
+### 요청
+
+상세 보기가 별도 모달을 띄우지 말고 **해당 세션의 대시보드(아틀라스)로 이동**하게 할 것.
+`이어서 탐색` 을 `세션 복원` 으로 바꾸고, 세션 상세에 있던 복원(새 창으로 포함) 메커니즘을
+그대로 넣을 것. 홈 더미 데이터가 대시보드 세션과 매칭되지 않으면 맞출 것.
+그리고 히어로의 Orbit 그래픽으로 들어갈 때만 네비게이터를 펼친 채 열 것.
+
+### 조사
+
+- 홈 더미 데이터는 이미 `ATLAS_ORBITS` 에서 `pickEntry()` 로 뽑아 쓰고 있었다.
+  참조 7쌍(`first-car/car-insurance`, `kyoto-2024/kyoto-ryokan`, `design-system/design-tokens`,
+  `first-car/car-compare`, `gaussian-splatting/3dgs-survey`, `jeonse-loan/loan-compare`)이
+  **모두 실제 대시보드 세션에 매칭**됨을 확인 — 데이터 변경 불필요.
+- 복원은 사이드패널이 쓰는 `lib/chrome-bridge.ts` 의 `restoreInCurrentWindow` ·
+  `restoreInNewWindow` 가 이미 있다. 새로 만들지 않고 재사용.
+- 아틀라스는 진입 시 `nav.open` 을 강제하지 않고 공유 상태를 그대로 읽는다
+  (`VariantAtlasReplica:67`). 따라서 열림 여부는 **진입점이 결정**하면 된다.
+
+### 변경
+
+- `App.tsx` — `SessionDetail` 모달 제거. `openDashboard()` 하나로 최근 탐색·상세 보기·
+  AI 응답 진입을 통일하고, 네비게이터 선택 상태를 맞춘 뒤 `?orbit=&session=` 으로 이동한다.
+- `components/sections/ExploreCard.tsx` — 버튼을 `상세 보기`(대시보드 이동) +
+  `세션 복원`(복원)으로 교체. `restore-group` hover 로 `새 창으로 세션 복원` 이 펼쳐진다.
+- `components/sections/ContinueExploring.tsx` — props 를 `onOpenDashboard`·`onRestore` 로 교체.
+- `lib/restore.ts`(신규) — `chrome-bridge` 를 감싸 실패를 문자열로 돌려준다.
+- `components/sections/OrbitHero.tsx` — 그래픽 클릭 시 `patchNavState({ open: true })` 후 이동.
+- `components/sections/SessionDetail.tsx` 삭제, `styles/index.css` 에서 이 모달 전용
+  스타일 **281줄 제거**(참조하는 컴포넌트가 없어짐).
+
+### 검증
+
+- `pnpm test` **57 passed**, `pnpm compile`·`pnpm build` 통과. 번들 786KB.
+- 빌드 결과를 로컬 서버로 띄워 실제 크롬에서 확인:
+  - `상세 보기` → `#/orbit-atlas?orbit=first-car&session=car-compare` 로 이동,
+    트레이·상세 패널이 그 세션으로 열림, **네비게이터 닫힘**
+  - Orbit 그래픽 클릭 → `#/orbit-atlas`, **네비게이터 열림**
+  - `세션 복원` hover → `새 창으로 세션 복원` 펼쳐짐
+  - 콘솔 에러는 확장 밖 `chrome.storage` 부재 1건뿐(의도대로 처리·표시됨)
+- **확장 밖에서 확인 불가:** 복원의 실제 탭 열기(`chrome.tabs`/`chrome.windows` 부재).
+
+### 남은 일
+
+- 목업 페이지 URL 은 가짜(`https://hyundai.com/car-compare-0`)라 지금 복원하면
+  죽은 탭이 열린다. 실데이터 연결 시 해소된다.
+
+## 2026-08-07 — 아틀라스 전체 이식 + 바로가기 (feat/design-upgrade 2차)
+
+### 요청
+
+"목업 채로 들고와줘" — 시안의 두 번째 화면(아틀라스)과 네비게이션, 마우스 상호작용을
+그대로 이식. 이어서 검색창 아래 `검색 범위`를 **바로가기**로 바꾸고 펼침/접힘 지원.
+새 탭의 탭 이름을 `Orbit` → `새 탭`.
+
+### 조사
+
+- 시안에서 **도달 가능한 컴포넌트만** 추렸다. `OrbitDetailPanel`·`OrbitAtlasCanvas`·
+  `OrbitSidebar`·`DesignedByVariantChip` 은 어디서도 import 되지 않는 죽은 코드였고,
+  하필 Tailwind 클래스를 쓰는 유일한 파일이 `OrbitDetailPanel` 이라 이를 빼면서
+  새 탭에서 Tailwind 유틸리티 의존이 사라졌다.
+- Phosphor 아이콘이 41종 쓰인다(`data.ts` 의 `icon` 필드 + 아틀라스 마크업).
+  lucide 매핑은 손실이 커서 폰트를 로컬 번들하기로 했다.
+- 시안 라우팅은 `window.location.pathname === '/orbit-atlas'`. 확장 페이지 URL 은
+  `chrome-extension://<id>/newtab.html` 이라 경로 pushState 후 새로고침하면 깨진다.
+
+### 변경
+
+- `entrypoints/newtab/` — 시안 소스 이식(6,200여 줄). 1차의 단순화 컴포넌트
+  (`HomeHeader`·`HomeSearch`·`SignatureOrbit`·`home-mock.ts`·`home.css`)는 원본으로 대체·삭제.
+- `lib/navigation.ts` — 해시 라우팅(`#/orbit-atlas`)으로 전환. 나머지 동작은 시안과 동일.
+- `styles/phosphor.css` + `public/fonts/Phosphor.woff2` — `@phosphor-icons/web@2.1.2` 의
+  regular 세트에서 @font-face 만 다시 선언해 **woff2 하나만** 참조하게 했다.
+- `components/sections/Shortcuts.tsx` + `lib/shortcuts.ts` — 바로가기. topSites 초기값,
+  추가·삭제, 펼침 상태 저장.
+- `wxt.config.ts` — `topSites`·`favicon` 권한 추가.
+- `entrypoints/newtab/index.html` — `<title>새 탭</title>`.
+
+### 오류와 수정
+
+- **Phosphor 번들이 4.1MB 증가.** 패키지 style.css 가 svg/ttf/woff/woff2 4종을 모두
+  참조해 Vite 가 전부 번들했다(svg 만 3MB). woff2 만 쓰도록 @font-face 를 다시 선언해
+  **4.76MB → 786KB**. 크롬은 woff2 만으로 충분하다.
+- **바로가기가 로딩 상태에 갇힘.** `chrome.storage` 호출이 거부되면 `setLoaded(true)` 에
+  도달하지 못해 자리표시자만 남고 아무것도 안 보였다. 실패해도 항상 목록을 돌려주고
+  실패 사유를 `error` 로 함께 넘기도록 고쳐, 저장·조회 실패가 화면에 드러나게 했다.
+
+### 검증
+
+- `pnpm test` — **57 passed (5 files)**. `shortcuts` 14건 신규(정규화·중복·상한·위험 스킴 거부).
+- `pnpm compile`·`pnpm build` 통과. manifest 권한 9종, `chrome_url_overrides.newtab`,
+  `<title>새 탭</title>` 확인.
+- 빌드 결과를 로컬 서버로 띄워 실제 크롬에서 확인:
+  - 홈 렌더 + 네비게이터 드로어 + Phosphor 아이콘 정상
+  - 시그니처 그래픽 클릭 → `#/orbit-atlas` 이동, 아틀라스 캔버스·상세 패널 렌더
+  - 캔버스의 세션 레이블 클릭 → 트레이 펼침 + 네비게이터 확장 + 궤도에 페이지 노드 표시
+  - 콘솔 에러 0건
+  - 바로가기: 펼침/접힘, 추가 폼 열림·포커스, 주소 아닌 입력 거부, 유효 주소 추가,
+    저장 실패 시 오류 노출
+- **확장 밖에서 확인 불가:** 바로가기의 topSites 초기 목록과 파비콘 이미지
+  (`chrome.topSites`·`chrome.runtime.getURL` 부재). 실제 크롬 로드 확인 필요.
+
+### 남은 일
+
+- 실제 크롬에서 바로가기 파비콘·topSites 확인, 사이드패널 시각 확인.
+- 아틀라스는 전부 목업 데이터다. 백엔드 실데이터 연결은 후속.
+- 사이드패널 `TimelineItem` 은 아직 외부 파비콘 서비스(google s2)를 쓴다.
+  새 탭이 쓰는 확장 내장 파비콘으로 통일하는 것이 좋다.
+
+## 2026-08-07 — 목업 디자인 이식: 새 탭 홈 + 사이드패널 톤 통일 (feat/design-upgrade)
+
+### 요청
+
+`orbit-browser/orbit_front` 시안의 메인 화면을 크롬 새 탭 스타팅 화면으로 만들고, 검색창은
+브라우저 첫 화면처럼 검색·주소 이동까지만 연결한다. 나머지 컨트롤은 시안 모습만 유지한다.
+기존 사이드패널도 같은 디자인 언어로 통일하고, 배경이 붙어 나오는 아이콘을 교체한다.
+
+### 조사
+
+- 시안 토큰은 `orbit_front/src/index.css:14-28`에 집약(샌드 `#fefaf6` / 테라코타 `#f07550` /
+  radius 28·16·pill / 따뜻한 그림자 `rgba(178,112,84,.12)`). 익스텐션 토큰은 `#f2660a`·`#f7f8fa`·
+  회색 계열로 톤이 어긋나 있었다.
+- 아이콘 증상의 원인은 익스텐션 코드가 아니라 `wxt.config.ts`가 가리키던
+  `public/orbit_icon.png` 자체였다 — **1242×1242 주황 단색 배경** 이미지. 크롬이 사이드패널 헤더·
+  툴바에 이 이미지를 그리므로 주변과 분리돼 보인다. `orbit_front/src/assets/orbit-mark.png`가
+  같은 마크의 알파 배경 버전.
+- 익스텐션에 newtab 엔트리포인트가 없었다. WXT는 `entrypoints/newtab/index.html`을 두면
+  `chrome_url_overrides.newtab`을 자동 생성한다.
+- 시안은 Phosphor 아이콘을 CDN `<script>`로, 폰트를 Google Fonts로 불러온다. 둘 다 MV3에서
+  쓰지 않기로 한 방식이라 각각 lucide-react(기존 의존성)와 시스템 폰트 스택으로 대체했다.
+
+### 변경
+
+- `extension/public/` — `orbit-mark.png`(원본) + 알파 배경 정사각 아이콘 16/32/48/128 생성.
+  `orbit_icon.png` 삭제. `wxt.config.ts`의 `icons`·`action.default_icon` 교체, `search` 권한 추가.
+- `extension/lib/omnibox.ts`(신규) — 주소창 입력 해석기(순수 함수). http/https/file만 이동 허용,
+  `javascript:`·`data:`·`chrome:` 등은 검색으로 강등.
+- `extension/entrypoints/newtab/`(신규) — 홈 화면 일체. `styles/home.css`(시안 CSS 이식),
+  `components/`(HomeHeader·SignatureOrbit·HomeSearch·RecentExploration·ContinueExploring·
+  ExploreCard), `data/home-mock.ts`(시안 더미 데이터 중 홈이 쓰는 6개 세션만 추림).
+  검색창 외 컨트롤은 전부 `disabled`.
+- `extension/entrypoints/sidepanel/styles/tailwind.css` — 토큰을 시안 팔레트로 교체,
+  `--color-orbit-danger`·`--radius-orbit-card`·따뜻한 그림자 3종 신설.
+- 사이드패널 부품 정리 — 하드코딩 `red-*` 5곳을 danger 토큰으로, 카드 컨테이너
+  `rounded-xl`→`rounded-orbit-card`(20px), `shadow-xs`/`shadow-lg`→따뜻한 그림자,
+  세그먼티드 컨트롤과 텍스트 액션 버튼을 pill 형태로.
+
+### 오류와 수정
+
+- **`localhost:5173`이 검색으로 새어 나감.** 파서의 스킴 판별 정규식이 `localhost:`를 스킴으로
+  잡았다. 콜론 뒤가 숫자면 포트로 보도록 `(?!\d)` 부정 전방탐색 추가. 단위 테스트가 먼저 잡았다.
+- **로컬 주소에 https가 붙는 문제.** 브라우저 실렌더 확인 중 발견. 크롬 주소창은 localhost를
+  HTTPS-First 대상에서 제외하는데 그대로 두면 개발 서버가 연결 실패로만 보인다.
+  루프백(`localhost`, `127.*`)은 http로 붙이도록 수정하고 테스트 2건 추가.
+
+### 검증
+
+- `pnpm test` — **43 passed (4 files)**. omnibox 파서 12건 신규.
+- `pnpm compile`(tsc --noEmit) 통과, `pnpm build` 통과.
+  빌드 산출물에 `newtab.html`과 `chrome_url_overrides.newtab` 생성 확인.
+- 새 탭 홈은 빌드 결과를 로컬 서버로 띄워 실제 크롬에서 확인:
+  렌더·반응형·비활성 컨트롤 정상, 검색 실패 시 오류 문구 노출 확인,
+  `localhost:8899/newtab.html?navigated=1` 입력 시 **http로** 이동하는 것을 서버 접근 로그로 확인.
+- 사이드패널은 확장 밖에서 실행 불가(`chrome.storage` 부재로 마운트 실패) → 빌드된 CSS에서
+  신규 토큰 6종 반영과 구 팔레트 5종 완전 제거를 확인하는 것으로 대체. **실제 크롬 로드 확인은 미실행.**
+
+### 남은 일
+
+- 사이드패널 시각 확인(실제 크롬 로드), 새 탭 홈의 백엔드 실데이터 연결, 비활성 컨트롤 기능 연결.
+
 ## 2026-08-06 — 메일 노이즈 규칙 title 보강 + 세션 병합 설계 (feat/subcluster-append-gating 이어서)
 
 ### 요청

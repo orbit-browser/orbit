@@ -33,7 +33,7 @@ export function SyncStatusCard() {
 
   if (!collectionEnabled) {
     return (
-      <div className="flex flex-col gap-2 rounded-xl border border-orbit-primary/30 bg-orbit-primary-soft p-3.5">
+      <div className="flex flex-col gap-2 rounded-orbit-card border border-orbit-primary/30 bg-orbit-primary-soft p-3.5">
         <div className="flex items-center gap-2">
           <Sparkles size={16} className="shrink-0 text-orbit-primary" />
           <p className="text-sm font-semibold text-orbit-text">탐색 기록을 자동으로 모아볼까요?</p>
@@ -60,7 +60,7 @@ export function SyncStatusCard() {
   const todayCount = status?.todayCount ?? 0;
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-xl border border-orbit-border bg-orbit-surface p-3.5">
+    <div className="flex flex-col gap-2.5 rounded-orbit-card border border-orbit-border bg-orbit-surface p-3.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <Radio size={13} className="text-orbit-primary" />
@@ -70,7 +70,7 @@ export function SyncStatusCard() {
           type="button"
           onClick={() => syncNow()}
           disabled={isSyncing}
-          className="flex items-center gap-1 rounded-md bg-orbit-bg px-2 py-1 text-[11px] font-bold text-orbit-text transition hover:bg-orbit-border/60 disabled:opacity-50 cursor-pointer"
+          className="flex items-center gap-1 rounded-full bg-orbit-bg px-2.5 py-1 text-[11px] font-bold text-orbit-text transition hover:bg-orbit-border/60 disabled:opacity-50 cursor-pointer"
         >
           {isSyncing ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
           지금 저장

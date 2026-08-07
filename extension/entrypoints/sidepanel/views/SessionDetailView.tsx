@@ -103,14 +103,14 @@ export function SessionDetailView() {
             </p>
 
             <div className="flex items-center justify-between gap-2">
-              <div className="flex rounded-lg bg-orbit-bg p-0.5 border border-orbit-border/50">
+              <div className="flex rounded-full bg-orbit-bg p-0.5 border border-orbit-border/50">
                 <button
                   type="button"
                   onClick={() => setActiveSubTab('tabs')}
                   className={
-                    'rounded-md px-3 py-1.5 text-xs font-medium transition ' +
+                    'rounded-full px-3 py-1.5 text-xs font-medium transition ' +
                     (activeSubTab === 'tabs'
-                      ? 'bg-orbit-surface text-orbit-text shadow-xs'
+                      ? 'bg-orbit-surface text-orbit-text shadow-orbit-raised'
                       : 'text-orbit-muted hover:text-orbit-text')
                   }
                 >
@@ -120,9 +120,9 @@ export function SessionDetailView() {
                   type="button"
                   onClick={() => setActiveSubTab('summary')}
                   className={
-                    'rounded-md px-3 py-1.5 text-xs font-medium transition ' +
+                    'rounded-full px-3 py-1.5 text-xs font-medium transition ' +
                     (activeSubTab === 'summary'
-                      ? 'bg-orbit-surface text-orbit-text shadow-xs'
+                      ? 'bg-orbit-surface text-orbit-text shadow-orbit-raised'
                       : 'text-orbit-muted hover:text-orbit-text')
                   }
                 >
@@ -192,8 +192,8 @@ export function SessionDetailView() {
                   ))}
                 </div>
               ) : isFailed ? (
-                <div className="flex flex-col items-center justify-center gap-2 py-12 rounded-xl border border-orbit-border bg-orbit-surface text-orbit-muted select-none">
-                  <p className="text-xs font-semibold text-red-500">AI 요약 생성 실패</p>
+                <div className="flex flex-col items-center justify-center gap-2 py-12 rounded-orbit-card border border-orbit-border bg-orbit-surface text-orbit-muted select-none">
+                  <p className="text-xs font-semibold text-orbit-danger">AI 요약 생성 실패</p>
                   <p className="text-[10px] text-orbit-muted/80">
                     요약을 만드는 중 문제가 발생했어요. 다시 시도해 주세요.
                   </p>
@@ -208,7 +208,7 @@ export function SessionDetailView() {
                   </button>
                 </div>
               ) : isPending || !session.summary || !session.summary.overview ? (
-                <div className="flex flex-col items-center justify-center gap-2 py-12 rounded-xl border border-orbit-border bg-orbit-surface text-orbit-muted select-none">
+                <div className="flex flex-col items-center justify-center gap-2 py-12 rounded-orbit-card border border-orbit-border bg-orbit-surface text-orbit-muted select-none">
                   <Loader2 size={20} className="animate-spin text-orbit-primary" />
                   <p className="text-xs font-semibold text-orbit-primary">AI 요약 중…</p>
                   <p className="text-[10px] text-orbit-muted/80">
@@ -223,7 +223,7 @@ export function SessionDetailView() {
             {!!timelineEvents?.length && (
               <div className="pt-1">
                 <p className="mb-1 px-1 text-xs font-semibold text-orbit-muted">탐색 타임라인</p>
-                <div className="space-y-0.5 rounded-xl border border-orbit-border bg-orbit-surface p-1">
+                <div className="space-y-0.5 rounded-orbit-card border border-orbit-border bg-orbit-surface p-1">
                   {timelineEvents.map((ev) => (
                     <TimelineItem
                       key={ev.eventId}

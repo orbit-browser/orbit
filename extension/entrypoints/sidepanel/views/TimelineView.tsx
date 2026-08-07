@@ -25,7 +25,7 @@ function AnalyticsSummaryCard({ overview }: { overview: AnalyticsOverview }) {
   if (topSessions.length === 0 && topDomains.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-orbit-border bg-orbit-surface p-3.5">
+    <div className="flex flex-col gap-3 rounded-orbit-card border border-orbit-border bg-orbit-surface p-3.5">
       <p className="text-xs font-semibold text-orbit-text">이번 주 탐색 분석</p>
       {topSessions.length > 0 && (
         <div>

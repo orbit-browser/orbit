@@ -1,16 +1,34 @@
 @import "tailwindcss";
 
-/* Orbit 디자인 토큰 (목업 기준 근사치 — 실제 브랜드 에셋이 있으면 교체) */
+/*
+ * Orbit 디자인 토큰 — orbit_front 시안의 팔레트를 그대로 따른다.
+ * 새 탭 홈(`entrypoints/newtab/styles/home.css`)의 `:root` 와 같은 값을 쓴다.
+ * 한쪽을 바꾸면 다른 쪽도 함께 바꾼다.
+ */
 @theme {
-  --color-orbit-primary: #f2660a;
-  --color-orbit-primary-soft: #fff1e8;
+  --color-orbit-primary: #f07550;
+  --color-orbit-primary-muted: #f7a488;
+  /* 샌드 배경 위 액센트 10% 를 불투명색으로 환산한 값 (배지·선택 상태 배경) */
+  --color-orbit-primary-soft: #fdeae4;
   --color-orbit-surface: #ffffff;
-  --color-orbit-bg: #f7f8fa;
-  --color-orbit-text: #1a1a1a;
-  --color-orbit-muted: #6b7280;
-  --color-orbit-border: #e5e7eb;
+  --color-orbit-bg: #fefaf6;
+  --color-orbit-text: #2b2521;
+  --color-orbit-muted: #7d7069;
+  /* rgba(170, 116, 90, 0.18) 를 샌드 배경 위에서 환산 */
+  --color-orbit-border: #e8dcd4;
 
-  --font-sans: "Pretendard", system-ui, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+  /* 실패 상태 — 시안에 없어 팔레트 온도에 맞춘 값을 정의했다 */
+  --color-orbit-danger: #b8452b;
+  --color-orbit-danger-soft: #fbeae5;
+
+  --radius-orbit-card: 20px;
+
+  /* 시안의 따뜻한 그림자 — 회색 그림자를 쓰면 샌드 배경에서 탁해 보인다 */
+  --shadow-orbit-card: 0 4px 20px rgba(178, 112, 84, 0.12);
+  --shadow-orbit-raised: 0 2px 8px rgba(178, 112, 84, 0.12);
+  --shadow-orbit-overlay: 0 16px 40px rgba(178, 112, 84, 0.16);
+
+  --font-sans: "Inter", "Pretendard", system-ui, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
 }
 
 html,
@@ -42,7 +60,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #d1d5db;
+  background: var(--color-orbit-primary-muted);
 }
 
 @keyframes bounceIn {

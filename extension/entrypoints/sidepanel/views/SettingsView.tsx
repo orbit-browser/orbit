@@ -77,9 +77,9 @@ function IntervalRow({
             type="button"
             onClick={() => onChange(opt)}
             className={
-              'cursor-pointer rounded-md px-2 py-1 text-[11px] font-bold transition ' +
+              'cursor-pointer rounded-full px-2 py-1 text-[11px] font-bold transition ' +
               (value === opt
-                ? 'bg-orbit-surface text-orbit-primary shadow-xs'
+                ? 'bg-orbit-surface text-orbit-primary shadow-orbit-raised'
                 : 'text-orbit-muted hover:text-orbit-text')
             }
           >
@@ -166,7 +166,7 @@ export function SettingsView() {
     <div className="space-y-4 p-4 overflow-y-auto h-full">
       <p className="text-xs font-semibold text-orbit-muted">설정</p>
 
-      <div className="divide-y divide-orbit-border rounded-xl border border-orbit-border bg-orbit-surface">
+      <div className="divide-y divide-orbit-border rounded-orbit-card border border-orbit-border bg-orbit-surface">
         <InfoRow label="백엔드 연결" value={connectionLabel} />
 
         <SettingRow
@@ -185,7 +185,7 @@ export function SettingsView() {
 
       <section className="space-y-2">
         <p className="text-xs font-semibold text-orbit-muted">수집·동기화</p>
-        <div className="divide-y divide-orbit-border rounded-xl border border-orbit-border bg-orbit-surface">
+        <div className="divide-y divide-orbit-border rounded-orbit-card border border-orbit-border bg-orbit-surface">
           <SettingRow
             label="탐색 기록 수집"
             description={

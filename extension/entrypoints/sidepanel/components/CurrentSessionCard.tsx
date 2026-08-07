@@ -41,7 +41,7 @@ export function CurrentSessionCard() {
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-orbit-border bg-orbit-surface p-3.5 shadow-xs">
+    <div className="flex items-center gap-3 rounded-orbit-card border border-orbit-border bg-orbit-surface p-3.5 shadow-orbit-raised">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orbit-primary-soft text-orbit-primary">
         <Layers size={18} />
       </div>

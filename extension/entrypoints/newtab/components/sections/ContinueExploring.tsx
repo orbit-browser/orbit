@@ -1,0 +1,113 @@
+import { useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ExploreCard } from './ExploreCard';
+import type { ExplorationEntry } from './RecentExploration';
+import type { RestoreTarget } from '../../lib/restore';
+
+interface ContinueExploringProps {
+  active: ExplorationEntry;
+  recommended: ExplorationEntry[];
+  /** 해당 세션의 대시보드(아틀라스)로 이동 */
+  onOpenDashboard: (entry: ExplorationEntry) => void;
+  /** 세션에 속한 페이지를 탭으로 되살린다 */
+  onRestore: (entry: ExplorationEntry, target: RestoreTarget) => void;
+}
+
+/** 추천 세션이 자동으로 넘어가는 간격 */
+const ROTATE_MS = 7000;
+
+export function ContinueExploring({
+  active,
+  recommended,
+  onOpenDashboard,
+  onRestore,
+}: ContinueExploringProps) {
+  const [index, setIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    if (paused || recommended.length < 2) return;
+    const id = setInterval(() => setIndex((i) => (i + 1) % recommended.length), ROTATE_MS);
+    return () => clearInterval(id);
+  }, [paused, recommended.length]);
+
+  const current = recommended[index];
+  const go = (dir: 1 | -1) =>
+    setIndex((i) => (i + dir + recommended.length) % recommended.length);
+
+  return (
+    <div className="right-column">
+      <section>
+        <h3 className="section-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.8 }}>
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          이어서 탐색하기
+        </h3>
+
+        <ExploreCard
+          orbit={active.orbit}
+          session={active.session}
+          badge="진행 중"
+          meta="18분 전"
+          variant="active"
+          onOpenDashboard={() => onOpenDashboard(active)}
+          onRestore={(target) => onRestore(active, target)}
+        />
+      </section>
+
+      <section
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+        onFocusCapture={() => setPaused(true)}
+        onBlurCapture={() => setPaused(false)}
+      >
+        <h3 className="section-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.8 }}>
+            <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+          </svg>
+          추천 세션
+        </h3>
+
+        {/* key 로 카드를 교체해 전환 애니메이션이 매번 다시 실행되게 한다 */}
+        <div className="rec-slot" key={current.session.id}>
+          <ExploreCard
+            orbit={current.orbit}
+            session={current.session}
+            badge={current.orbit.category}
+            meta={current.session.date}
+            reason={`${current.orbit.title} Orbit에서 멈춘 지점이라 이어보기 좋아요`}
+            onOpenDashboard={() => onOpenDashboard(current)}
+            onRestore={(target) => onRestore(current, target)}
+          />
+        </div>
+
+        {recommended.length > 1 && (
+          <div className="carousel-controls">
+            <div className="dots">
+              {recommended.map((entry, i) => (
+                <button
+                  key={entry.session.id}
+                  type="button"
+                  className={`dot${i === index ? ' active' : ''}`}
+                  aria-label={`추천 세션 ${i + 1}`}
+                  aria-current={i === index}
+                  onClick={() => setIndex(i)}
+                />
+              ))}
+            </div>
+            <div className="nav-arrows">
+              <button className="arrow-btn" type="button" aria-label="이전 추천" onClick={() => go(-1)}>
+                <ChevronLeft size={16} />
+              </button>
+              <button className="arrow-btn" type="button" aria-label="다음 추천" onClick={() => go(1)}>
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

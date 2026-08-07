@@ -68,7 +68,7 @@ export function SearchView() {
     <div className="flex flex-col h-full min-h-0 select-none">
       {/* Top Fixed Chat Input Area */}
       <form onSubmit={handleFormSubmit} className="p-4 pb-2 bg-orbit-bg border-b border-orbit-border/40 shrink-0">
-        <div className="flex items-center gap-2 rounded-2xl border border-orbit-border bg-orbit-surface p-1.5 pl-3.5 transition-all duration-200 focus-within:border-orbit-primary/60 focus-within:ring-1 focus-within:ring-orbit-primary/20 shadow-xs relative">
+        <div className="flex items-center gap-2 rounded-2xl border border-orbit-border bg-orbit-surface p-1.5 pl-3.5 transition-all duration-200 focus-within:border-orbit-primary/60 focus-within:ring-1 focus-within:ring-orbit-primary/20 shadow-orbit-raised relative">
           <div className="min-w-0 flex-1 relative py-1.5">
             {/* 가상 롤링 플레이스홀더 */}
             {!inputValue && (
@@ -143,7 +143,7 @@ export function SearchView() {
                 {eventResults.length > 0 && (
                   <div className="space-y-1">
                     <p className="px-1 text-xs font-semibold text-orbit-muted">관련 기록</p>
-                    <div className="space-y-0.5 rounded-xl border border-orbit-border bg-orbit-surface p-1">
+                    <div className="space-y-0.5 rounded-orbit-card border border-orbit-border bg-orbit-surface p-1">
                       {eventResults.map((ev) => (
                         <TimelineItem
                           key={ev.eventId}

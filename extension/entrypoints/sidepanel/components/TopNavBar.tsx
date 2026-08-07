@@ -34,7 +34,7 @@ export function TopNavBar() {
   return (
     <div className="relative z-20 flex h-12 items-center justify-between border-b border-orbit-border bg-orbit-surface px-3 shrink-0 select-none">
       {/* Segmented Control Tabs */}
-      <div className="flex rounded-lg bg-orbit-bg p-0.5 border border-orbit-border/30">
+      <div className="flex rounded-full bg-orbit-bg p-0.5 border border-orbit-border/30">
         {tabs.map(({ view, label }) => {
           const active = activeView === view || (view === 'sessions' && activeView === 'detail');
           return (
@@ -43,9 +43,9 @@ export function TopNavBar() {
               type="button"
               onClick={() => setView(view)}
               className={
-                'rounded-md px-2.5 py-1 text-xs font-bold transition-all duration-200 cursor-pointer ' +
+                'rounded-full px-2.5 py-1 text-xs font-bold transition-all duration-200 cursor-pointer ' +
                 (active
-                  ? 'bg-orbit-surface text-orbit-primary shadow-xs'
+                  ? 'bg-orbit-surface text-orbit-primary shadow-orbit-raised'
                   : 'text-orbit-muted hover:text-orbit-text')
               }
             >

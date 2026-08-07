@@ -81,7 +81,7 @@ export function TimelineItem({ event, badge, onDelete, compact = false }: Timeli
             e.stopPropagation();
             onDelete();
           }}
-          className="shrink-0 rounded-md p-1 text-orbit-muted opacity-0 transition hover:bg-orbit-border/60 hover:text-red-500 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+          className="shrink-0 rounded-md p-1 text-orbit-muted opacity-0 transition hover:bg-orbit-border/60 hover:text-orbit-danger group-hover:opacity-100 focus:opacity-100 cursor-pointer"
         >
           <X size={14} />
         </button>
