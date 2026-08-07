@@ -1,3 +1,4 @@
+import { LoginGate } from './components/LoginGate';
 import { TopNavBar } from './components/TopNavBar';
 import { Toast } from './components/Toast';
 import { useUIStore } from './store/ui';
@@ -25,12 +26,14 @@ function CurrentView() {
 
 export default function App() {
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-orbit-bg text-orbit-text">
-      <TopNavBar />
-      <main className="min-w-0 flex-1 flex flex-col min-h-0 overflow-hidden">
-        <CurrentView />
-      </main>
-      <Toast />
-    </div>
+    <LoginGate>
+      <div className="flex h-full w-full flex-col overflow-hidden bg-orbit-bg text-orbit-text">
+        <TopNavBar />
+        <main className="min-w-0 flex-1 flex flex-col min-h-0 overflow-hidden">
+          <CurrentView />
+        </main>
+        <Toast />
+      </div>
+    </LoginGate>
   );
 }

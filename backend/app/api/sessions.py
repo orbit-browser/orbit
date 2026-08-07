@@ -15,6 +15,7 @@ from ..db.models import (
     SyncBatch,
 )
 from ..db.session import AsyncSessionLocal, get_db
+from .deps import current_user_id
 from ..db.vector import delete_point
 from ..schemas.session import (
     MergeRequest,
@@ -114,11 +115,24 @@ async def _ai_update(session_id: str, tabs_raw: list[dict]) -> None:
     await _embed_and_upsert(session_id, title, summary)
 
 
+async def _owned_session(db: AsyncSession, session_id: str, user_id: str) -> SessionModel:
+    """세션을 소유자 확인과 함께 가져온다.
+
+    남의 세션에는 403이 아니라 **404** 로 답한다 — 403은 "그 id의 세션이 존재한다"는
+    사실을 알려주기 때문이다.
+    """
+    session = await db.get(SessionModel, session_id)
+    if not session or session.user_id != user_id:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    return session
+
+
 @router.post("", response_model=SessionDetail, status_code=201)
 async def create_session(
     body: SaveSessionRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> SessionDetail:
     # 규칙 기반 타이틀/요약으로 즉시 저장 → 클라이언트에 빠르게 응답
     title = rule_based_title(body.tabs)
@@ -132,6 +146,7 @@ async def create_session(
         tabs=[t.model_dump() for t in body.tabs],
         summary=summary.model_dump(),
         tab_count=len(body.tabs),
+        user_id=user_id,
     )
     db.add(session)
     await db.commit()
@@ -148,6 +163,7 @@ async def create_sessions_clustered(
     body: SaveSessionRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> list[SessionDetail]:
     """탭을 주제별로 클러스터링 후 세션 N개 생성. 클러스터링 실패 시 단일 세션 fallback."""
     groups = await cluster_tabs(body.tabs)
@@ -164,6 +180,7 @@ async def create_sessions_clustered(
             tabs=[t.model_dump() for t in group],
             summary=summary.model_dump(),
             tab_count=len(group),
+            user_id=user_id,
         )
         db.add(session)
         session_groups.append((session, group))
@@ -182,13 +199,14 @@ async def create_sessions_clustered(
 @router.get("", response_model=list[SessionDetail])
 async def list_sessions(
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> list[SessionDetail]:
     # append로 탭이 추가된 세션이 위로 올라오도록 마지막 활동 기준 정렬
     # (last_activity_at이 없는 snapshot 세션은 created_at fallback)
     # merged 세션은 다른 세션으로 흡수됐으므로 목록에서 제외한다(archived는 그대로 노출 — merge P2).
     result = await db.execute(
         select(SessionModel)
-        .where(SessionModel.status != "merged")
+        .where(SessionModel.user_id == user_id, SessionModel.status != "merged")
         .order_by(
             func.coalesce(SessionModel.last_activity_at, SessionModel.created_at).desc()
         )
@@ -199,23 +217,23 @@ async def list_sessions(
 @router.get("/merge-suggestions", response_model=list[MergeSuggestion])
 async def get_merge_suggestions(
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> list[MergeSuggestion]:
     """같은 주제로 쪼개진 세션의 병합 후보를 점수순 반환 (merge P1, 읽기 전용).
 
     실제 병합은 P2에서 사용자 확인 후 수행한다 — 이 엔드포인트는 아무것도 변경하지 않는다.
     정적 경로이므로 아래 `/{session_id}`보다 먼저 등록되어야 한다.
     """
-    return await find_merge_suggestions(db)
+    return await find_merge_suggestions(db, user_id)
 
 
 @router.get("/{session_id}", response_model=SessionDetail)
 async def get_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> SessionDetail:
-    session = await db.get(SessionModel, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    session = await _owned_session(db, session_id, user_id)
     return _to_detail(session)
 
 
@@ -223,14 +241,13 @@ async def get_session(
 async def get_session_events(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> list[SessionEventItem]:
     """Session Timeline (docs/api-design-v2.md §6) — sequence_order 순.
 
-    세션이 없으면 404. origin='snapshot' 세션(session_events 연결 없음)은 빈 배열.
+    세션이 없거나 내 것이 아니면 404. origin='snapshot' 세션(session_events 연결 없음)은 빈 배열.
     """
-    session = await db.get(SessionModel, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    await _owned_session(db, session_id, user_id)
 
     result = await db.execute(
         select(SessionEvent, ExplorationEvent)
@@ -257,11 +274,10 @@ async def get_session_events(
 async def get_session_versions(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> list[SessionVersionItem]:
     """요약 이력 (docs/api-design-v2.md §7) — version 내림차순. 세션 없으면 404."""
-    session = await db.get(SessionModel, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    await _owned_session(db, session_id, user_id)
 
     result = await db.execute(
         select(SessionVersion)
@@ -289,10 +305,9 @@ async def patch_session(
     session_id: str,
     body: PatchSessionRequest,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> SessionDetail:
-    session = await db.get(SessionModel, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    session = await _owned_session(db, session_id, user_id)
 
     session.title = body.title
     session.updated_at = datetime.now(timezone.utc)
@@ -305,10 +320,9 @@ async def patch_session(
 async def delete_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> None:
-    session = await db.get(SessionModel, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    session = await _owned_session(db, session_id, user_id)
     # FK에 ON DELETE가 없어 자식 행을 먼저 지워야 한다(session_events는 origin='events',
     # session_versions는 요약이 한 번이라도 성공한 모든 세션에 존재)
     await db.execute(delete(SessionEvent).where(SessionEvent.session_id == session_id))
@@ -323,6 +337,7 @@ async def retry_summary(
     session_id: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> SessionDetail:
     """AI 요약 실패 세션을 다시 시도 (A1 — 실패 상태 UI의 재시도 버튼용).
 
@@ -330,9 +345,7 @@ async def retry_summary(
     재요약하는 refresh_session_ai를, 그 외(origin='snapshot')는 기존 _ai_update를 쓴다
     (docs/api-design-v2.md §11 retry-summary origin 분기).
     """
-    session = await db.get(SessionModel, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    session = await _owned_session(db, session_id, user_id)
 
     session.summary_status = "pending"
     await db.commit()
@@ -363,11 +376,15 @@ async def merge_session(
     body: MergeRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> SessionDetail:
     """두 세션을 병합한다 (merge P2). 파괴적·가역 — 사용자 확인 후에만 호출한다.
 
     DB 병합은 동기(단일 트랜잭션), 재요약/재임베딩·Qdrant 정리는 응답 후 백그라운드.
     """
+    await _owned_session(db, survivor_id, user_id)
+    await _owned_session(db, body.absorbed_id, user_id)
+
     try:
         survivor = await merge_sessions(db, survivor_id, body.absorbed_id)
     except MergeError as exc:
@@ -382,8 +399,11 @@ async def unmerge_session(
     body: MergeRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> SessionDetail:
     """이전 병합을 되돌린다 (merge P3). 갱신된 survivor를 반환하고 두 세션을 백그라운드 재요약한다."""
+    await _owned_session(db, survivor_id, user_id)
+
     try:
         survivor, _absorbed = await unmerge_sessions(db, survivor_id, body.absorbed_id)
     except MergeError as exc:

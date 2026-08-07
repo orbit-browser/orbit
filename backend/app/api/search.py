@@ -13,6 +13,7 @@ from ..db.session import get_db
 from ..db.vector import search_similar
 from ..schemas.event import MemorySearchEventItem, MemorySearchResponse
 from ..schemas.session import SessionDetail
+from .deps import current_user_id
 from .sessions import _to_detail
 
 router = APIRouter(tags=["search"])
@@ -27,7 +28,7 @@ _KEYWORD_QUERY_FETCH_CAP = 200
 
 
 async def _search_sessions_by_vector(
-    q: str, limit: int, rerank: bool, db: AsyncSession
+    q: str, limit: int, rerank: bool, db: AsyncSession, user_id: str
 ) -> list[SessionDetail]:
     """기존 세션 벡터 검색 경로 — scope 무관하게(sessions/memory 둘 다) 그대로 재사용."""
     # 리랭킹 시 후보를 더 많이 가져와 선택지를 넓힌다
@@ -57,8 +58,12 @@ async def _search_sessions_by_vector(
     if not session_ids:
         return []
 
+    # Qdrant 포인트에는 소유자 정보가 없으므로 SQL 단계에서 반드시 거른다.
     result = await db.execute(
-        select(SessionModel).where(SessionModel.id.in_(session_ids))
+        select(SessionModel).where(
+            SessionModel.id.in_(session_ids),
+            SessionModel.user_id == user_id,
+        )
     )
     sessions_by_id = {s.id: s for s in result.scalars().all()}
 
@@ -122,7 +127,7 @@ async def _fetch_session_relevance_events(db: AsyncSession, session_ids: list[st
 
 
 async def _fetch_keyword_matched_events(
-    db: AsyncSession, q: str, exclude_ids: set[str]
+    db: AsyncSession, q: str, exclude_ids: set[str], user_id: str
 ) -> list[dict]:
     """title/search_query/domain ILIKE 직접 매칭 — 세션 미할당 이벤트까지 커버(§8)."""
     like = f"%{q}%"
@@ -131,7 +136,7 @@ async def _fetch_keyword_matched_events(
         .outerjoin(SessionEvent, SessionEvent.event_id == ExplorationEvent.id)
         .outerjoin(SessionModel, SessionEvent.session_id == SessionModel.id)
         .where(
-            ExplorationEvent.user_id == "local",
+            ExplorationEvent.user_id == user_id,
             ExplorationEvent.sync_status != "discarded",
             or_(
                 ExplorationEvent.title.ilike(like),
@@ -167,12 +172,12 @@ async def _fetch_keyword_matched_events(
 
 
 async def _search_memory_events(
-    db: AsyncSession, q: str, sessions: list[SessionDetail]
+    db: AsyncSession, q: str, sessions: list[SessionDetail], user_id: str
 ) -> list[MemorySearchEventItem]:
     session_ids = [s.session_id for s in sessions]
     relevance_rows = await _fetch_session_relevance_events(db, session_ids)
     exclude_ids = {r["event_id"] for r in relevance_rows}
-    keyword_rows = await _fetch_keyword_matched_events(db, q, exclude_ids)
+    keyword_rows = await _fetch_keyword_matched_events(db, q, exclude_ids, user_id)
 
     def _to_item(row: dict, matched_by: Literal["session", "keyword"]) -> MemorySearchEventItem:
         return MemorySearchEventItem(
@@ -199,14 +204,15 @@ async def search_sessions(
     rerank: bool = Query(False, description="LLM 기반 결과 재정렬"),
     scope: Literal["sessions", "memory"] = Query("sessions", description="검색 범위(sessions|memory)"),
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> list[SessionDetail] | MemorySearchResponse:
-    sessions = await _search_sessions_by_vector(q, limit, rerank, db)
+    sessions = await _search_sessions_by_vector(q, limit, rerank, db, user_id)
 
     if scope != "memory":
         return sessions
 
     try:
-        events = await _search_memory_events(db, q.strip(), sessions)
+        events = await _search_memory_events(db, q.strip(), sessions, user_id)
     except Exception:
         # DB 조회만 실패한 경우 sessions는 그대로 반환 — 전체 실패로 위장하지 않는다(§12, CLAUDE.md §10).
         logger.exception("Memory 검색의 이벤트 조회 실패 (q=%s)", q)

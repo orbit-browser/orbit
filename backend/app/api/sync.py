@@ -14,6 +14,7 @@ from ..schemas.sync import (
     SyncTriggerRequest,
 )
 from ..services import sync_pipeline
+from .deps import current_user_id
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -48,7 +49,10 @@ async def trigger_sync(body: SyncTriggerRequest) -> JSONResponse:
 
 
 @router.get("/status", response_model=SyncStatusResponse)
-async def sync_status(db: AsyncSession = Depends(get_db)) -> SyncStatusResponse:
+async def sync_status(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
+) -> SyncStatusResponse:
     running = sync_pipeline.is_running()
 
     current_batch = None
@@ -71,7 +75,7 @@ async def sync_status(db: AsyncSession = Depends(get_db)) -> SyncStatusResponse:
     pending_result = await db.execute(
         select(func.count())
         .select_from(ExplorationEvent)
-        .where(ExplorationEvent.sync_status == "pending", ExplorationEvent.user_id == "local")
+        .where(ExplorationEvent.sync_status == "pending", ExplorationEvent.user_id == user_id)
     )
     pending = pending_result.scalar_one()
 

@@ -13,6 +13,8 @@ import type {
   TodayEvent,
 } from './types';
 
+import { AuthRequiredError, clearSession, getToken } from './auth';
+
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 // ── 백엔드 응답 타입 (snake_case) ─────────────────────
@@ -185,8 +187,31 @@ function mapMergeSuggestion(b: BackendMergeSuggestion): MergeSuggestion {
   };
 }
 
+/**
+ * 저장된 세션 토큰을 Authorization 헤더로 얹는다.
+ * 토큰이 없으면 호출 자체를 하지 않는다 — 어차피 401이고, 실패 사유가 더 분명하다.
+ */
+async function authorized(init?: RequestInit): Promise<RequestInit> {
+  const token = await getToken();
+  if (!token) throw new AuthRequiredError();
+  return {
+    ...init,
+    headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${token}` },
+  };
+}
+
+/**
+ * 401은 세션이 끝난 것이므로 저장된 토큰을 지우고 재로그인이 필요함을 알린다.
+ * 조용히 삼키면 화면이 빈 채로 남아 사용자는 원인을 알 수 없다.
+ */
+async function handleUnauthorized(): Promise<never> {
+  await clearSession();
+  throw new AuthRequiredError('세션이 만료되었어요. 다시 로그인해 주세요.');
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const res = await fetch(`${BASE}${path}`, await authorized(init));
+  if (res.status === 401) await handleUnauthorized();
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`[Orbit API] ${init?.method ?? 'GET'} ${path} ${res.status}: ${body}`);
@@ -363,11 +388,15 @@ export type ServerSyncTrigger = 'manual' | 'periodic' | 'event_count' | 'idle';
  * 409(이미 실행 중)도 정상 흐름이므로 예외로 취급하지 않는다.
  */
 export async function triggerServerSync(triggerType: ServerSyncTrigger): Promise<void> {
-  const res = await fetch(`${BASE}/sync`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ trigger_type: triggerType }),
-  });
+  const res = await fetch(
+    `${BASE}/sync`,
+    await authorized({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trigger_type: triggerType }),
+    }),
+  );
+  if (res.status === 401) await handleUnauthorized();
   if (!res.ok && res.status !== 409) {
     throw new Error(`[Orbit API] POST /sync ${res.status}`);
   }

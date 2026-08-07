@@ -180,3 +180,22 @@ class SessionVersion(Base):
     prompt_version: Mapped[str | None] = mapped_column(String(20), default=None)
     model: Mapped[str | None] = mapped_column(String(50), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class User(Base):
+    """구글 계정으로 가입한 사용자.
+
+    비밀번호는 저장하지 않는다 — 인증은 구글에만 위임한다.
+    `google_sub` 는 구글이 보장하는 계정 불변 식별자로, 이메일이 바뀌어도 유지된다.
+    따라서 사용자 매칭 기준은 email 이 아니라 sub 다.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    google_sub: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    name: Mapped[str | None] = mapped_column(String(200), default=None)
+    picture: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_login_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

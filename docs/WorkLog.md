@@ -289,6 +289,70 @@ merge 구현 착수. 먼저 merge-design §9 열린 결정을 사용자와 합�
 - `merge_suggest_floor` 골든/실데이터 튜닝 후 DecisionLog 갱신.
 - P2(병합 실행 API + `list_sessions` status 필터 + `merged_from_session_id`), P3(undo), 대시보드 UI.
 
+## 2026-08-07 — 구글 로그인 기반 회원가입·로그인 (feat/google-auth)
+
+### 요청
+
+구글 로그인 연동 기반으로만 가입·로그인을 넣는다. 추천 세션은 후속.
+
+### 조사
+
+- 인증이 전무했다 — users 테이블·미들웨어·토큰 개념 없음. API 6개 전부 공개.
+- 다만 `user_id` 컬럼은 3개 테이블(`sessions`·`exploration_events`·`sync_batches`)에
+  이미 있었고 전부 `"local"` 하드코딩. 스키마는 멀티유저를 염두에 뒀고 주체만 없었다.
+- 익스텐션은 `lib/api.ts` 의 `request()` 한 곳으로 요청이 모여 헤더 주입 지점이 하나였다.
+
+### 변경 (backend)
+
+- 신규 `users` 테이블(구글 sub unique). `create_all` 이 생성하므로 ALTER 러너 대상 아님.
+- `services/google_auth.py` — access token 검증. `tokeninfo` 로 **aud 일치 확인**,
+  타임아웃 5초 + 재시도 2회, 검증 실패와 구글 장애를 예외 타입으로 분리(401 vs 503).
+- `services/auth_tokens.py` — HS256 JWT 발급·검증. 알고리즘 목록 고정으로 alg 혼동 방어.
+- `services/users.py` — sub 기준 조회/생성, 최초 가입자에 한해 `local` 데이터 1회 이관.
+- `api/deps.py`, `api/auth.py` — `get_current_user` 의존성, `/auth/google|me|logout`.
+- `main.py` — 데이터 라우터 6개에 **라우터 단위** 인증 의존성.
+- `"local"` 하드코딩 전 구간 제거. 세션 소유자는 이벤트에서 파생시켜(`session_updater`)
+  별도 인자 전달 없이 drift 를 막았다.
+- 소유자 필터 추가: sessions(단건·목록·병합), search(벡터·키워드), events, analytics 5종,
+  merge_suggester, auto_merge, sync_pipeline 후보 검색.
+
+### 변경 (extension)
+
+- `lib/auth.ts` — getAuthToken → `/auth/google` 교환 → `chrome.storage.local` 저장.
+  로그아웃 시 크롬 토큰 캐시도 제거(안 지우면 다음 로그인이 계정 선택 없이 통과).
+- `lib/api.ts` — `request()` 와 `/sync` 에 Authorization 주입, 401 시 세션 폐기 + 재로그인 유도.
+- `lib/useAuth.ts` — 저장소 변경 구독. 한쪽에서 로그인/로그아웃하면 다른 쪽도 따라 바뀐다.
+- 로그인 게이트: 사이드패널 `LoginGate`, 새 탭 `LoginScreen`(홈·아틀라스 모두 차단).
+- `UserMenu` 를 실제 계정(이름·이메일·사진)과 연결, 설정에 계정·로그아웃 섹션.
+- manifest: `identity` 권한 + `oauth2` (client_id 는 `.env` 에서 읽어 커밋하지 않음).
+
+### 오류와 수정
+
+- **`get_session_events` 소유권 확인 누락.** 일괄 패치에서 빠져 남의 세션 타임라인이
+  열릴 수 있었다. `db.get(SessionModel)` 잔존 지점을 전수 grep 해서 발견·수정.
+  `retry_summary` 도 같은 이유로 누락돼 있었다.
+- **경계 테스트가 공허하게 통과.** 처음엔 FastAPI 내부 라우트 구조를 뒤졌는데
+  0.138 의 `_IncludedRouter` 때문에 APIRoute 를 하나도 못 찾아 검사 대상이 0개였다.
+  "경로가 0개면 실패"라는 방어 테스트가 이를 잡았고, 내부 구조 대신 **실제 요청을 보내
+  401을 확인**하는 방식으로 바꿨다.
+- 기존 테스트 50개가 시그니처 변경으로 실패 → 새 계약에 맞춰 갱신(삭제·완화 없음).
+  정규식 일괄 치환이 여러 줄 호출과 중첩 괄호를 깨뜨려 되돌리고 지점별로 수정했다.
+
+### 검증
+
+- backend `pytest` — **362 passed** (인증 15건 + 경계 56건 신규).
+  경계 테스트는 보호 경로 26개 × (토큰 없음 / 위조 토큰) 을 실제 요청으로 확인한다.
+- extension `pnpm test` **75 passed**, `pnpm compile`·`pnpm build` 통과.
+- manifest 에 `identity` 권한과 `oauth2` 반영 확인.
+- **미실행:** 실제 구글 로그인 플로우. OAuth 클라이언트가 아직 발급되지 않았다.
+
+### 남은 일
+
+- Google Cloud Console 에서 "Chrome 확장 프로그램" 유형 OAuth 클라이언트 발급 후
+  `backend/.env` 의 `GOOGLE_CLIENT_ID`·`JWT_SECRET`, `extension/.env` 의
+  `VITE_GOOGLE_CLIENT_ID` 기입 → 실제 로그인 스모크 테스트.
+- 추천 세션 로직(2단계) — 스펙은 로컬 `plan.md` 에 정리됨.
+
 ## 2026-08-07 — 세션 진입을 대시보드로 통일 + 세션 복원 (feat/design-upgrade 3차)
 
 ### 요청

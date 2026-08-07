@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     embedding_model: str = "embedding-query"       # 검색 쿼리 임베딩
     embedding_passage_model: str = "embedding-passage"  # 저장 문서(요약) 임베딩
 
+    # ── 인증 (구글 로그인) ──────────────────────────────────────────────
+    # Google Cloud Console 에서 발급한 "Chrome 확장프로그램" 유형 OAuth 클라이언트 ID.
+    # 익스텐션이 chrome.identity.getAuthToken 으로 받은 access token 의 aud 가
+    # 이 값과 일치하는지 검증한다 — 다른 앱의 토큰으로 로그인되는 것을 막는 핵심 방어선.
+    google_client_id: str = ""
+    # 자체 JWT 서명 키. 비어 있으면 인증이 동작하지 않는다(부팅 시 경고).
+    jwt_secret: str = ""
+    jwt_expire_days: int = Field(default=30, ge=1)
+
     # 데이터스토어
     database_url: str = "postgresql+asyncpg://orbit:orbit@localhost:5432/orbit"
     qdrant_url: str = "http://localhost:6333"

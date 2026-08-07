@@ -1,3 +1,4 @@
+import { useAuth } from '../../../lib/useAuth';
 import { useQuery } from '@tanstack/react-query';
 import { checkHealth } from '../../../lib/api';
 import { useUIStore } from '../store/ui';
@@ -182,6 +183,7 @@ export function SettingsView() {
   });
 
   const connectionLabel = isLoading ? '확인 중…' : isConnected ? '연결됨' : '미연결';
+  const { session, signOut } = useAuth();
 
   return (
     <div className="space-y-4 p-4 overflow-y-auto h-full">
@@ -304,6 +306,22 @@ export function SettingsView() {
               showToast(v ? '민감 도메인 제외 켜짐' : '민감 도메인 제외 꺼짐');
             }}
           />
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <p className="text-xs font-semibold text-orbit-muted">계정</p>
+        <div className="divide-y divide-orbit-border rounded-orbit-card border border-orbit-border bg-orbit-surface">
+          <InfoRow label="로그인 계정" value={session?.user.email ?? '—'} />
+          <div className="p-3">
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="w-full rounded-full border border-orbit-border px-3 py-2 text-xs font-medium text-orbit-danger transition hover:bg-orbit-danger-soft cursor-pointer"
+            >
+              로그아웃
+            </button>
+          </div>
         </div>
       </section>
 

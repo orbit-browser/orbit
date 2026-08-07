@@ -27,14 +27,14 @@ def _event(**overrides) -> ExplorationEventIn:
 
 def test_system_url_is_filtered_and_not_stored():
     events = [_event(url="chrome://extensions")]
-    rows, filtered = _build_event_rows(events, batch_device_id=None)
+    rows, filtered = _build_event_rows(events, batch_device_id=None, user_id="u1")
     assert rows == []
     assert filtered == 1
 
 
 def test_non_system_url_is_stored_and_not_filtered():
     events = [_event()]
-    rows, filtered = _build_event_rows(events, batch_device_id=None)
+    rows, filtered = _build_event_rows(events, batch_device_id=None, user_id="u1")
     assert len(rows) == 1
     assert filtered == 0
 
@@ -45,7 +45,7 @@ def test_filtered_count_only_counts_system_urls():
         _event(id=VALID_UUID_2),
         _event(id=VALID_UUID_3, url="about:blank"),
     ]
-    rows, filtered = _build_event_rows(events, batch_device_id=None)
+    rows, filtered = _build_event_rows(events, batch_device_id=None, user_id="u1")
     assert filtered == 2
     assert len(rows) == 1
     assert rows[0]["id"] == VALID_UUID_2
@@ -58,7 +58,7 @@ def test_sensitive_url_clears_content_excerpt_but_keeps_event():
             content_excerpt="account balance details",
         )
     ]
-    rows, filtered = _build_event_rows(events, batch_device_id=None)
+    rows, filtered = _build_event_rows(events, batch_device_id=None, user_id="u1")
     assert filtered == 0
     assert len(rows) == 1
     assert rows[0]["content_excerpt"] == ""
@@ -69,7 +69,7 @@ def test_non_sensitive_url_keeps_content_excerpt_and_hash():
     from app.services.event_filter import content_hash
 
     events = [_event(content_excerpt="some article body")]
-    rows, _ = _build_event_rows(events, batch_device_id=None)
+    rows, _ = _build_event_rows(events, batch_device_id=None, user_id="u1")
     assert rows[0]["content_excerpt"] == "some article body"
     assert rows[0]["content_hash"] == content_hash("some article body")
 
@@ -77,7 +77,7 @@ def test_non_sensitive_url_keeps_content_excerpt_and_hash():
 def test_content_excerpt_is_capped_at_5000_chars():
     long_text = "a" * 6000
     events = [_event(content_excerpt=long_text)]
-    rows, _ = _build_event_rows(events, batch_device_id=None)
+    rows, _ = _build_event_rows(events, batch_device_id=None, user_id="u1")
     assert len(rows[0]["content_excerpt"]) == 5000
     assert rows[0]["content_excerpt"] == "a" * 5000
 
@@ -85,31 +85,31 @@ def test_content_excerpt_is_capped_at_5000_chars():
 def test_title_is_capped_at_500_chars():
     long_title = "t" * 600
     events = [_event(title=long_title)]
-    rows, _ = _build_event_rows(events, batch_device_id=None)
+    rows, _ = _build_event_rows(events, batch_device_id=None, user_id="u1")
     assert len(rows[0]["title"]) == 500
 
 
 def test_empty_title_becomes_none():
     events = [_event(title="")]
-    rows, _ = _build_event_rows(events, batch_device_id=None)
+    rows, _ = _build_event_rows(events, batch_device_id=None, user_id="u1")
     assert rows[0]["title"] is None
 
 
 def test_device_id_prefers_event_level_over_batch_level():
     events = [_event(device_id="event-device")]
-    rows, _ = _build_event_rows(events, batch_device_id="batch-device")
+    rows, _ = _build_event_rows(events, batch_device_id="batch-device", user_id="u1")
     assert rows[0]["device_id"] == "event-device"
 
 
 def test_device_id_falls_back_to_batch_level():
     events = [_event(device_id=None)]
-    rows, _ = _build_event_rows(events, batch_device_id="batch-device")
+    rows, _ = _build_event_rows(events, batch_device_id="batch-device", user_id="u1")
     assert rows[0]["device_id"] == "batch-device"
 
 
 def test_normalized_url_domain_and_search_query_are_computed():
     events = [_event(url="https://www.google.com/search?utm_source=x&q=rtx+5070+review")]
-    rows, _ = _build_event_rows(events, batch_device_id=None)
+    rows, _ = _build_event_rows(events, batch_device_id=None, user_id="u1")
     row = rows[0]
     assert row["domain"] == "www.google.com"
     assert row["search_query"] == "rtx 5070 review"
@@ -118,7 +118,7 @@ def test_normalized_url_domain_and_search_query_are_computed():
 
 def test_non_search_url_has_no_search_query():
     events = [_event(url="https://example.com/article/1")]
-    rows, _ = _build_event_rows(events, batch_device_id=None)
+    rows, _ = _build_event_rows(events, batch_device_id=None, user_id="u1")
     assert rows[0]["search_query"] is None
 
 
@@ -167,7 +167,7 @@ def test_fetch_events_for_date_maps_fields_for_unassigned_event():
     )
     db = _FakeQueryDB(_AllResult([(event, None, None)]))
 
-    items = asyncio.run(events._fetch_events_for_date(db, visited_at, visited_at))
+    items = asyncio.run(events._fetch_events_for_date(db, visited_at, visited_at, "u1"))
 
     assert len(items) == 1
     assert items[0].event_id == "e1"
@@ -184,7 +184,7 @@ def test_fetch_events_for_date_includes_session_badge_when_assigned():
     )
     db = _FakeQueryDB(_AllResult([(event, "sess-1", "RTX 5070 구매 비교")]))
 
-    items = asyncio.run(events._fetch_events_for_date(db, visited_at, visited_at))
+    items = asyncio.run(events._fetch_events_for_date(db, visited_at, visited_at, "u1"))
 
     assert items[0].session_id == "sess-1"
     assert items[0].session_title == "RTX 5070 구매 비교"
@@ -199,7 +199,7 @@ def test_fetch_events_for_date_marks_discarded_as_excluded():
     )
     db = _FakeQueryDB(_AllResult([(event, None, None)]))
 
-    items = asyncio.run(events._fetch_events_for_date(db, visited_at, visited_at))
+    items = asyncio.run(events._fetch_events_for_date(db, visited_at, visited_at, "u1"))
 
     assert len(items) == 1
     assert items[0].excluded is True
@@ -214,28 +214,28 @@ def test_fetch_events_for_date_dedupes_duplicate_join_rows():
     )
     db = _FakeQueryDB(_AllResult([(event, "sess-1", "s"), (event, "sess-1", "s")]))
 
-    items = asyncio.run(events._fetch_events_for_date(db, visited_at, visited_at))
+    items = asyncio.run(events._fetch_events_for_date(db, visited_at, visited_at, "u1"))
 
     assert len(items) == 1
 
 
 def test_list_events_rejects_invalid_date():
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(events.list_events(date="bad-date", db=None))
+        asyncio.run(events.list_events(date="bad-date", db=None, user_id="u1"))
     assert exc_info.value.status_code == 400
 
 
 def test_list_events_delegates_to_fetch_with_resolved_range(monkeypatch):
     captured = {}
 
-    async def fake_fetch(_db, start, end):
+    async def fake_fetch(_db, start, end, _user_id):
         captured["start"] = start
         captured["end"] = end
         return [EventListItem(event_id="e1", url="https://a", visited_at="2026-08-03T05:12:00+00:00")]
 
     monkeypatch.setattr(events, "_fetch_events_for_date", fake_fetch)
 
-    items = asyncio.run(events.list_events(date="2026-08-03", db=None))
+    items = asyncio.run(events.list_events(date="2026-08-03", db=None, user_id="u1"))
 
     assert captured["start"] == datetime(2026, 8, 3, 0, 0, tzinfo=timezone.utc)
     assert captured["end"] == datetime(2026, 8, 4, 0, 0, tzinfo=timezone.utc)
@@ -268,12 +268,12 @@ class _FakeDeleteDB:
 def test_delete_event_404_when_missing():
     db = _FakeDeleteDB(event=None)
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(events.delete_event(event_id="missing", db=db))
+        asyncio.run(events.delete_event(event_id="missing", db=db, user_id="u1"))
     assert exc_info.value.status_code == 404
 
 
 def test_delete_event_removes_event_and_recomputes_each_affected_session(monkeypatch):
-    event = SimpleNamespace(id="e1")
+    event = SimpleNamespace(id="e1", user_id="u1")
     db = _FakeDeleteDB(event=event, affected_session_ids=["sess-1"])
 
     recompute_calls = []
@@ -283,7 +283,7 @@ def test_delete_event_removes_event_and_recomputes_each_affected_session(monkeyp
 
     monkeypatch.setattr(events, "_recompute_session_after_event_removed", fake_recompute)
 
-    asyncio.run(events.delete_event(event_id="e1", db=db))
+    asyncio.run(events.delete_event(event_id="e1", db=db, user_id="u1"))
 
     assert db.deleted == [event]
     assert recompute_calls == ["sess-1"]
@@ -291,7 +291,7 @@ def test_delete_event_removes_event_and_recomputes_each_affected_session(monkeyp
 
 
 def test_delete_event_skips_recompute_when_event_unassigned(monkeypatch):
-    event = SimpleNamespace(id="e1")
+    event = SimpleNamespace(id="e1", user_id="u1")
     db = _FakeDeleteDB(event=event, affected_session_ids=[])
 
     recompute_calls = []
@@ -301,7 +301,7 @@ def test_delete_event_skips_recompute_when_event_unassigned(monkeypatch):
 
     monkeypatch.setattr(events, "_recompute_session_after_event_removed", fake_recompute)
 
-    asyncio.run(events.delete_event(event_id="e1", db=db))
+    asyncio.run(events.delete_event(event_id="e1", db=db, user_id="u1"))
 
     assert recompute_calls == []
     assert db.committed is True

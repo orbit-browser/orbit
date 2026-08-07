@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ExplorationEvent, Session as SessionModel
 from ..db.session import get_db
+from .deps import current_user_id
 from ..schemas.analytics import (
     AnalyticsOverviewResponse,
     DailyTrendItem,
@@ -35,11 +36,14 @@ def _period_start(days: int, *, now: datetime | None = None) -> datetime:
     return (now or datetime.now(timezone.utc)) - timedelta(days=days)
 
 
-async def _fetch_top_sessions(db: AsyncSession, start: datetime) -> list[TopSessionItem]:
+async def _fetch_top_sessions(db: AsyncSession, start: datetime, user_id: str) -> list[TopSessionItem]:
     """세션별 탐색 시간 top5 (origin 무관, last_activity_at 또는 created_at이 기간 내)."""
     result = await db.execute(
         select(SessionModel)
-        .where(or_(SessionModel.last_activity_at >= start, SessionModel.created_at >= start))
+        .where(
+            SessionModel.user_id == user_id,
+            or_(SessionModel.last_activity_at >= start, SessionModel.created_at >= start),
+        )
         .order_by(SessionModel.total_active_duration_ms.desc())
         .limit(_TOP_N)
     )
@@ -54,7 +58,7 @@ async def _fetch_top_sessions(db: AsyncSession, start: datetime) -> list[TopSess
     ]
 
 
-async def _fetch_top_domains(db: AsyncSession, start: datetime) -> list[TopDomainItem]:
+async def _fetch_top_domains(db: AsyncSession, start: datetime, user_id: str) -> list[TopDomainItem]:
     """도메인별 방문 횟수 top5 (exploration_events, discarded 제외, visited_at 기간 내)."""
     result = await db.execute(
         select(
@@ -63,6 +67,7 @@ async def _fetch_top_domains(db: AsyncSession, start: datetime) -> list[TopDomai
             func.coalesce(func.sum(ExplorationEvent.active_duration_ms), 0).label("duration_sum"),
         )
         .where(
+            ExplorationEvent.user_id == user_id,
             ExplorationEvent.sync_status != "discarded",
             ExplorationEvent.visited_at >= start,
             ExplorationEvent.domain.is_not(None),
@@ -77,21 +82,25 @@ async def _fetch_top_domains(db: AsyncSession, start: datetime) -> list[TopDomai
     ]
 
 
-async def _fetch_latest_title(db: AsyncSession, normalized_url: str) -> str | None:
+async def _fetch_latest_title(db: AsyncSession, normalized_url: str, user_id: str) -> str | None:
     result = await db.execute(
         select(ExplorationEvent.title)
-        .where(ExplorationEvent.normalized_url == normalized_url)
+        .where(
+            ExplorationEvent.normalized_url == normalized_url,
+            ExplorationEvent.user_id == user_id,
+        )
         .order_by(ExplorationEvent.visited_at.desc())
         .limit(1)
     )
     return result.scalar_one_or_none()
 
 
-async def _fetch_repeat_visits(db: AsyncSession, start: datetime) -> list[RepeatVisitItem]:
+async def _fetch_repeat_visits(db: AsyncSession, start: datetime, user_id: str) -> list[RepeatVisitItem]:
     """normalized_url 기준 2회 이상 방문 top5 — title은 최신 방문의 title."""
     result = await db.execute(
         select(ExplorationEvent.normalized_url, func.count().label("visit_count"))
         .where(
+            ExplorationEvent.user_id == user_id,
             ExplorationEvent.sync_status != "discarded",
             ExplorationEvent.visited_at >= start,
         )
@@ -103,18 +112,19 @@ async def _fetch_repeat_visits(db: AsyncSession, start: datetime) -> list[Repeat
     rows = result.all()
     items: list[RepeatVisitItem] = []
     for normalized_url, visit_count in rows:
-        title = await _fetch_latest_title(db, normalized_url)
+        title = await _fetch_latest_title(db, normalized_url, user_id)
         items.append(
             RepeatVisitItem(normalized_url=normalized_url, title=title, visit_count=visit_count)
         )
     return items
 
 
-async def _fetch_repeat_search_queries(db: AsyncSession, start: datetime) -> list[RepeatSearchQueryItem]:
+async def _fetch_repeat_search_queries(db: AsyncSession, start: datetime, user_id: str) -> list[RepeatSearchQueryItem]:
     """search_query 기준 2회 이상 반복 검색어 top5."""
     result = await db.execute(
         select(ExplorationEvent.search_query, func.count().label("cnt"))
         .where(
+            ExplorationEvent.user_id == user_id,
             ExplorationEvent.sync_status != "discarded",
             ExplorationEvent.visited_at >= start,
             ExplorationEvent.search_query.is_not(None),
@@ -130,7 +140,7 @@ async def _fetch_repeat_search_queries(db: AsyncSession, start: datetime) -> lis
     ]
 
 
-async def _fetch_daily_trend(db: AsyncSession, start: datetime) -> list[DailyTrendItem]:
+async def _fetch_daily_trend(db: AsyncSession, start: datetime, user_id: str) -> list[DailyTrendItem]:
     """일자별 이벤트 수/총 탐색 시간(날짜 오름차순)."""
     day = func.date(ExplorationEvent.visited_at)
     result = await db.execute(
@@ -140,6 +150,7 @@ async def _fetch_daily_trend(db: AsyncSession, start: datetime) -> list[DailyTre
             func.coalesce(func.sum(ExplorationEvent.active_duration_ms), 0).label("duration_sum"),
         )
         .where(
+            ExplorationEvent.user_id == user_id,
             ExplorationEvent.sync_status != "discarded",
             ExplorationEvent.visited_at >= start,
         )
@@ -160,14 +171,15 @@ async def _fetch_daily_trend(db: AsyncSession, start: datetime) -> list[DailyTre
 async def get_analytics_overview(
     days: int = Query(7, ge=1, le=90),
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> AnalyticsOverviewResponse:
     start = _period_start(days)
 
-    top_sessions = await _fetch_top_sessions(db, start)
-    top_domains = await _fetch_top_domains(db, start)
-    repeat_visits = await _fetch_repeat_visits(db, start)
-    repeat_search_queries = await _fetch_repeat_search_queries(db, start)
-    daily_trend = await _fetch_daily_trend(db, start)
+    top_sessions = await _fetch_top_sessions(db, start, user_id)
+    top_domains = await _fetch_top_domains(db, start, user_id)
+    repeat_visits = await _fetch_repeat_visits(db, start, user_id)
+    repeat_search_queries = await _fetch_repeat_search_queries(db, start, user_id)
+    daily_trend = await _fetch_daily_trend(db, start, user_id)
 
     return AnalyticsOverviewResponse(
         period_days=days,

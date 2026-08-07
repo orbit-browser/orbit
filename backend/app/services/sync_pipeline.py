@@ -63,6 +63,8 @@ def is_running() -> bool:
 def _event_to_dict(row: ExplorationEvent) -> dict:
     return {
         "id": row.id,
+        # 세션 소유자는 이 값에서 파생된다(session_updater) — 별도로 넘기지 않는다
+        "user_id": row.user_id,
         "url": row.url,
         "normalized_url": row.normalized_url,
         "title": row.title,
@@ -143,14 +145,29 @@ async def _create_batch_row(trigger_type: str) -> str:
         return batch.id
 
 
-async def _claim_pending_events(batch_id: str) -> list[dict]:
-    """pending 이벤트를 claim(→processing)하고 sync_batch_events에 감사 로그를 남긴다."""
+async def _claim_pending_events(batch_id: str) -> tuple[list[dict], str | None]:
+    """pending 이벤트를 claim(→processing)하고 sync_batch_events에 감사 로그를 남긴다.
+
+    **한 배치는 한 사용자의 이벤트만 다룬다.** 시간 gap 그룹화가 사용자 경계를 모르기 때문에
+    여러 사용자 이벤트를 섞어 claim하면 서로 다른 사람의 방문이 한 세션으로 묶인다.
+    가장 오래 기다린 pending 이벤트의 주인을 골라 그 사용자 것만 가져온다.
+    나머지 사용자는 다음 배치에서 처리된다(주기 루프가 반복 호출).
+    """
     async with AsyncSessionLocal() as db:
+        target_user = await db.scalar(
+            select(ExplorationEvent.user_id)
+            .where(ExplorationEvent.sync_status == "pending")
+            .order_by(ExplorationEvent.visited_at)
+            .limit(1)
+        )
+        if target_user is None:
+            return [], None
+
         subquery = (
             select(ExplorationEvent.id)
             .where(
                 ExplorationEvent.sync_status == "pending",
-                ExplorationEvent.user_id == "local",
+                ExplorationEvent.user_id == target_user,
             )
             .order_by(ExplorationEvent.visited_at)
             .limit(settings.sync_max_events_per_batch)
@@ -168,7 +185,7 @@ async def _claim_pending_events(batch_id: str) -> list[dict]:
             db.add_all(SyncBatchEvent(batch_id=batch_id, event_id=e["id"]) for e in events)
 
         await db.commit()
-        return events
+        return events, target_user
 
 
 async def _set_status(event_ids: list[str], status: str) -> None:
@@ -210,8 +227,12 @@ async def _fail_batch(batch_id: str, exc: Exception) -> None:
         await db.commit()
 
 
-async def _fetch_candidates(vector: list[float]) -> list[dict]:
-    """벡터 유사 세션(top3) + 최근 24h 활성 이벤트 기반 세션(≤5)을 합쳐 후보를 만든다."""
+async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
+    """벡터 유사 세션(top3) + 최근 24h 활성 이벤트 기반 세션(≤5)을 합쳐 후보를 만든다.
+
+    후보는 **같은 사용자의 세션으로만** 제한한다. 이 필터가 빠지면 벡터 검색이 다른
+    사용자의 유사 세션을 끌어와 남의 세션에 이벤트가 append된다.
+    """
     try:
         scored = await search_similar_with_scores(
             vector, limit=_CANDIDATE_VECTOR_LIMIT, score_threshold=settings.search_score_threshold
@@ -228,6 +249,7 @@ async def _fetch_candidates(vector: list[float]) -> list[dict]:
         recent_result = await db.execute(
             select(SessionModel.id)
             .where(
+                SessionModel.user_id == user_id,
                 SessionModel.origin == "events",
                 SessionModel.status == "active",
                 SessionModel.last_activity_at.is_not(None),
@@ -254,6 +276,7 @@ async def _fetch_candidates(vector: list[float]) -> list[dict]:
         sessions_result = await db.execute(
             select(SessionModel).where(
                 SessionModel.id.in_(combined_ids),
+                SessionModel.user_id == user_id,
                 # merged 세션은 후보에서 제외 — Qdrant 포인트 삭제가 실패해 벡터 후보로 새어들어도
                 # 병합된 세션에 다시 append되지 않게 이중 방어한다(merge P2).
                 SessionModel.status == "active",
@@ -307,7 +330,9 @@ def _gate_appends(assignments: list[Assignment], candidates: list[dict]) -> list
     return gated
 
 
-async def _process_group(group: list[dict], batch_id: str, touched: set[str]) -> list[str]:
+async def _process_group(
+    group: list[dict], batch_id: str, touched: set[str], user_id: str
+) -> list[str]:
     """그룹 하나를 노이즈 필터 → 서브클러스터링 → (클러스터별) 후보검색·의도분석·게이트 →
     apply_assignments까지 처리한다.
 
@@ -343,7 +368,7 @@ async def _process_group(group: list[dict], batch_id: str, touched: set[str]) ->
     for idx_group in clusters_idx:
         cluster_events = [filtered_group[i] for i in idx_group]
         centroid = _centroid([embeddings[i] for i in idx_group])
-        candidates = await _fetch_candidates(centroid)
+        candidates = await _fetch_candidates(centroid, user_id)
         assignments = await intent_analyzer.analyze(cluster_events, candidates)
         assignments = _gate_appends(assignments, candidates)
         pending.append((cluster_events, assignments))
@@ -373,14 +398,14 @@ def _summarize_models(counts: dict[str, int]) -> str | None:
     return ",".join(parts)[:50]
 
 
-async def _run_auto_merge() -> None:
+async def _run_auto_merge(user_id: str) -> None:
     """자동 병합 실행(배치 후, opt-in). 병합된 생존 세션 재요약 + 흡수 세션 Qdrant 포인트 삭제.
 
     실패해도 배치 자체는 성공으로 마무리한다(자동 병합은 부가 기능 — 배치 완료를 막지 않는다).
     """
     try:
         async with AsyncSessionLocal() as db:
-            merged_pairs = await auto_merge_duplicates(db)
+            merged_pairs = await auto_merge_duplicates(db, user_id)
     except Exception as exc:
         logger.warning("자동 병합 실패: %s", exc)
         return
@@ -394,7 +419,7 @@ async def _run_auto_merge() -> None:
         logger.info("자동 병합 %d건 완료", len(merged_pairs))
 
 
-async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
+async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> None:
     try:
         kept, discarded_ids = dedupe_events(claimed)
         if discarded_ids:
@@ -407,7 +432,7 @@ async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
 
         for group in groups:
             try:
-                models = await _process_group(group, batch_id, touched)
+                models = await _process_group(group, batch_id, touched, user_id)
                 for model in models:
                     model_counts[model] = model_counts.get(model, 0) + 1
             except Exception as exc:
@@ -424,7 +449,7 @@ async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
         # opt-in 자동 병합(기본 OFF) — 사용자 토글(app_settings, DB) 우선, 없으면 env 기본값.
         # '명백한 중복'만 배치 후 자동 병합(merge-design §2, DecisionLog 2026-08-07).
         if await is_auto_merge_enabled():
-            await _run_auto_merge()
+            await _run_auto_merge(user_id)
 
         await _complete_batch(batch_id, event_count=len(claimed), model=_summarize_models(model_counts))
     except Exception as exc:
@@ -459,18 +484,18 @@ async def run_batch(trigger_type: str) -> str | None:
         raise
 
     try:
-        claimed = await _claim_pending_events(batch_id)
+        claimed, user_id = await _claim_pending_events(batch_id)
     except Exception as exc:
         await _fail_batch(batch_id, exc)
         _batch_lock.release()
         raise
 
-    if not claimed:
+    if not claimed or user_id is None:
         await _complete_batch(batch_id, event_count=0)
         _batch_lock.release()
         return None
 
-    task = asyncio.create_task(_process_batch(batch_id, claimed))
+    task = asyncio.create_task(_process_batch(batch_id, claimed, user_id))
     _background_tasks.add(task)
     task.add_done_callback(_on_batch_task_done)
     return batch_id

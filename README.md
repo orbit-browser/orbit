@@ -107,9 +107,34 @@ pnpm dev        # WXT dev 서버 → Chrome 에 확장 자동 로드
 설치하면 **새 탭이 Orbit 홈으로 대체**됩니다(`chrome_url_overrides.newtab`).
 되돌리려면 확장을 비활성화하거나 `extension/entrypoints/newtab/`을 제거하고 다시 빌드하세요.
 
+### 구글 로그인 설정 (필수)
+
+Orbit 은 구글 계정 로그인이 **필수**입니다. 최초 1회 OAuth 클라이언트를 발급해야 합니다.
+
+1. `chrome://extensions` 에서 확장을 로드하고 **확장 ID** 를 확인합니다.
+2. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) >
+   사용자 인증 정보 > OAuth 클라이언트 ID 만들기
+   - 애플리케이션 유형: **Chrome 확장 프로그램**
+   - 항목 ID: 위에서 확인한 확장 ID
+3. 발급된 클라이언트 ID 를 두 곳에 같은 값으로 넣습니다.
+
+```bash
+# backend/.env
+GOOGLE_CLIENT_ID=<클라이언트 ID>
+JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
+
+# extension/.env
+VITE_GOOGLE_CLIENT_ID=<같은 클라이언트 ID>
+```
+
+4. `cd extension && pnpm build` 로 다시 빌드한 뒤 확장을 새로고침합니다.
+
+`GOOGLE_CLIENT_ID` 가 비어 있으면 로그인 요청이 모두 거부됩니다.
+
 익스텐션 권한: `tabs`, `storage`, `sidePanel`, `webNavigation`, `alarms`, `idle`,
 그리고 새 탭 홈이 쓰는 `search`(사용자의 기본 검색엔진 사용),
-`topSites`(바로가기 초기 목록), `favicon`(바로가기 아이콘 — 외부 요청 없음).
+`topSites`(바로가기 초기 목록), `favicon`(바로가기 아이콘 — 외부 요청 없음),
+`identity`(구글 로그인).
 
 ### 테스트
 
