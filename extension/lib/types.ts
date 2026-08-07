@@ -20,6 +20,39 @@ export interface TabItem {
   favIconUrl?: string;
 }
 
+/** 현재 브라우저 세션에 열려 있어 직접 활성화할 수 있는 탭. */
+export interface OpenTabItem extends TabItem {
+  windowId: number;
+  index: number;
+  active: boolean;
+  /** Chrome 내부 페이지처럼 북마크 API에 넘기지 않는 URL은 false. */
+  bookmarkable: boolean;
+}
+
+export interface TabActionResolveResult {
+  action: 'navigate_tab' | 'ask';
+  reason: 'matched' | 'non_navigation' | 'low_confidence';
+  tabId: string | null;
+  score: number | null;
+  margin: number | null;
+  candidates: { tabId: string; score: number }[];
+}
+
+export type AssistantIntent =
+  | 'navigate_tab'
+  | 'find_sessions'
+  | 'search_memory'
+  | 'search_session';
+
+export type AssistantRetrievalIntent = Exclude<AssistantIntent, 'navigate_tab'>;
+
+export interface AssistantRouteResult {
+  intent: AssistantIntent;
+  confidence: number | null;
+  margin: number | null;
+  reason: 'rule' | 'semantic' | 'fallback';
+}
+
 export interface SessionSummary {
   /** 한 줄 개요 */
   overview: string;
@@ -128,6 +161,7 @@ export interface AskStreamRequest {
   query: string;
   sessionId?: string;
   rerank?: boolean;
+  intent?: AssistantRetrievalIntent;
 }
 
 export type AskStreamEvent =

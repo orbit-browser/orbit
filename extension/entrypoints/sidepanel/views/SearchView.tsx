@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, RotateCcw, Sparkles, Square, Trash2 } from 'lucide-react';
 import { useAskConversation } from '../../shared/hooks/useAskConversation';
 import { SessionCard } from '../components/SessionCard';
@@ -6,22 +6,38 @@ import { useSettingsStore } from '../store/settings';
 import { useUIStore } from '../store/ui';
 
 const PLACEHOLDERS = [
+  '지금 열린 GitHub 탭 찾아서 이동해줘',
   'AI 에이전트 개발 공부하던 내용 정리해줘',
   '지난주에 찾아둔 제주도 맛집은 어디였지?',
   '리액트 상태관리 라이브러리를 비교해줘',
   '최근 쇼핑한 상품 중 핵심 차이를 알려줘',
-  '독서 모임 준비 자료를 요약해줘',
 ];
+
+function tabLocation(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname.replace(/^www\./, '')}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+  } catch {
+    return url;
+  }
+}
 
 export function SearchView() {
   const [inputValue, setInputValue] = useState('');
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
   const [fade, setFade] = useState(true);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
   const rerankEnabled = useSettingsStore((state) => state.rerankEnabled);
   const setSearchQuery = useUIStore((state) => state.setSearchQuery);
-  const { turns, ask, cancel, startNewConversation, isStreaming } = useAskConversation({
-    rerank: rerankEnabled,
-  });
+  const {
+    turns,
+    ask,
+    cancel,
+    startNewConversation,
+    isStreaming,
+    selectTabCandidate,
+  } = useAskConversation({ rerank: rerankEnabled });
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -34,12 +50,25 @@ export function SearchView() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const conversation = conversationRef.current;
+      if (!conversation) return;
+      conversation.scrollTo({
+        top: conversation.scrollHeight,
+        behavior: turns.at(-1)?.status === 'streaming' ? 'auto' : 'smooth',
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [turns]);
+
   function submit(query: string) {
     const trimmed = query.trim();
     if (!trimmed || isStreaming) return;
     setSearchQuery(trimmed);
     setInputValue('');
     void ask(trimmed);
+    requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
   }
 
   return (
@@ -63,6 +92,7 @@ export function SearchView() {
               </span>
             )}
             <input
+              ref={inputRef}
               value={inputValue}
               onChange={(event) => setInputValue(event.target.value)}
               aria-label="탐색 기록에 질문하기"
@@ -103,7 +133,7 @@ export function SearchView() {
         )}
       </form>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 pt-3">
+      <div ref={conversationRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 pt-3">
         {turns.length === 0 ? (
           <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-5 text-center text-xs text-orbit-muted">
             <Sparkles size={20} className="text-orbit-primary" />
@@ -126,6 +156,36 @@ export function SearchView() {
                     <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-orbit-primary align-middle" />
                   )}
                 </p>
+
+                {turn.tabCandidates.length > 0 && (
+                  <div className="mt-3 space-y-2" aria-label="이동할 탭 후보">
+                    {turn.tabCandidates.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => void selectTabCandidate(turn.id, tab.id)}
+                        className="flex w-full cursor-pointer items-center gap-2 rounded-xl border border-orbit-border bg-orbit-bg px-3 py-2.5 text-left transition hover:border-orbit-primary/50 hover:bg-orbit-primary/5"
+                      >
+                        {tab.favIconUrl ? (
+                          <img src={tab.favIconUrl} alt="" className="h-4 w-4 shrink-0 rounded-sm" />
+                        ) : (
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-orbit-primary" />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <strong className="block truncate text-xs text-orbit-text">{tab.title}</strong>
+                          <small className="block truncate text-[10px] text-orbit-muted">{tabLocation(tab.url)}</small>
+                        </span>
+                        <span className="text-[10px] font-semibold text-orbit-primary">이동</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {turn.tabCandidateError && (
+                  <p className="mt-2 text-xs text-orbit-danger" role="alert">
+                    {turn.tabCandidateError}
+                  </p>
+                )}
 
                 {turn.error && (
                   <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-orbit-bg px-3 py-2 text-xs text-orbit-danger">

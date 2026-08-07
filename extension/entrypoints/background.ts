@@ -25,6 +25,8 @@ export default defineBackground(() => {
 
   chrome.tabs.onCreated.addListener(notifyTabsChanged);
   chrome.tabs.onRemoved.addListener(notifyTabsChanged);
+  chrome.tabs.onActivated.addListener(notifyTabsChanged);
+  chrome.windows.onFocusChanged.addListener(notifyTabsChanged);
   chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
     // loading: 탭 내비게이션 시작 시점에도 즉시 반영
     if (changeInfo.status === 'loading' || changeInfo.status === 'complete' || changeInfo.title !== undefined) {

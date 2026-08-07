@@ -1,0 +1,212 @@
+[
+  {
+    "id": "1",
+    "expected": "navigate_tab",
+    "query": "아까 보던 데로 다시 가자"
+  },
+  {
+    "id": "2",
+    "expected": "navigate_tab",
+    "query": "방금 작업하던 곳으로 돌아가줘"
+  },
+  {
+    "id": "3",
+    "expected": "navigate_tab",
+    "query": "보고 있던 유튜브 영상 계속 보자"
+  },
+  {
+    "id": "4",
+    "expected": "navigate_tab",
+    "query": "작성하던 문서 화면으로 전환해줘"
+  },
+  {
+    "id": "5",
+    "expected": "navigate_tab",
+    "query": "열어둔 메일 쪽으로 가줘"
+  },
+  {
+    "id": "6",
+    "expected": "navigate_tab",
+    "query": "오빗 코드 보던 데로 가자"
+  },
+  {
+    "id": "7",
+    "expected": "navigate_tab",
+    "query": "take me back to the GitHub page"
+  },
+  {
+    "id": "8",
+    "expected": "navigate_tab",
+    "query": "지금 떠 있는 디자인 화면 열어줘"
+  },
+  {
+    "id": "9",
+    "expected": "find_sessions",
+    "query": "리액트 공부했던 세션 찾아줘"
+  },
+  {
+    "id": "10",
+    "expected": "find_sessions",
+    "query": "제주 여행 조사한 기록 목록 보여줘"
+  },
+  {
+    "id": "11",
+    "expected": "find_sessions",
+    "query": "어느 세션에서 상태 관리를 찾아봤지?"
+  },
+  {
+    "id": "12",
+    "expected": "find_sessions",
+    "query": "보험 비교했던 탐색 묶음이 어디 있지?"
+  },
+  {
+    "id": "13",
+    "expected": "find_sessions",
+    "query": "예전에 항공권 알아본 작업 기록을 찾아줘"
+  },
+  {
+    "id": "14",
+    "expected": "find_sessions",
+    "query": "AI 에이전트 공부한 기록 위치를 알려줘"
+  },
+  {
+    "id": "15",
+    "expected": "find_sessions",
+    "query": "관련 브라우징 세션만 보여줘"
+  },
+  {
+    "id": "16",
+    "expected": "find_sessions",
+    "query": "내가 저장한 여행 조사 묶음을 찾고 싶어"
+  },
+  {
+    "id": "17",
+    "expected": "search_session",
+    "query": "리액트 세션에서 Zustand 장점이 뭐였지?"
+  },
+  {
+    "id": "18",
+    "expected": "search_session",
+    "query": "이 세션 안에서 결론이 뭐였는지 알려줘"
+  },
+  {
+    "id": "19",
+    "expected": "search_session",
+    "query": "해당 세션에서 방문한 사이트를 요약해줘"
+  },
+  {
+    "id": "20",
+    "expected": "search_session",
+    "query": "선택한 세션 내용 중 가격 정보만 알려줘"
+  },
+  {
+    "id": "21",
+    "expected": "search_session",
+    "query": "그 세션에서 마지막으로 확인한 내용은 뭐야?"
+  },
+  {
+    "id": "22",
+    "expected": "search_session",
+    "query": "보험 비교 세션 내부에서 가장 저렴한 곳을 찾아줘"
+  },
+  {
+    "id": "23",
+    "expected": "search_session",
+    "query": "제주 여행 세션에 있는 맛집 이름이 뭐였지?"
+  },
+  {
+    "id": "24",
+    "expected": "search_session",
+    "query": "이 기록 묶음 안에서 React Query 얘기한 부분 찾아줘"
+  },
+  {
+    "id": "25",
+    "expected": "search_memory",
+    "query": "지난주에 봤던 제주 맛집 이름이 뭐였지?"
+  },
+  {
+    "id": "26",
+    "expected": "search_memory",
+    "query": "전에 공부한 상태관리 라이브러리 차이를 정리해줘"
+  },
+  {
+    "id": "27",
+    "expected": "search_memory",
+    "query": "내 탐색 기록에서 보험료가 가장 저렴했던 회사를 알려줘"
+  },
+  {
+    "id": "28",
+    "expected": "search_memory",
+    "query": "AI 에이전트 관련해서 어떤 내용을 조사했어?"
+  },
+  {
+    "id": "29",
+    "expected": "search_memory",
+    "query": "최근에 찾아본 항공권 가격을 요약해줘"
+  },
+  {
+    "id": "30",
+    "expected": "search_memory",
+    "query": "내가 본 글에서 React Query의 장점이 뭐라고 했어?"
+  },
+  {
+    "id": "31",
+    "expected": "search_memory",
+    "query": "예전에 방문한 오사카 숙소 이름을 알려줘"
+  },
+  {
+    "id": "32",
+    "expected": "search_memory",
+    "query": "지난 브라우징 내용을 근거로 두 제품을 비교해줘"
+  },
+  {
+    "id": "33",
+    "expected": "search_memory",
+    "query": "내가 검색했던 모니터링 도구는 무엇이었지?"
+  },
+  {
+    "id": "34",
+    "expected": "search_memory",
+    "query": "저장된 기록을 바탕으로 다음 할 일을 알려줘"
+  },
+  {
+    "id": "35",
+    "expected": "search_memory",
+    "query": "오늘 서울 날씨가 어때?"
+  },
+  {
+    "id": "36",
+    "expected": "search_memory",
+    "query": "양자 컴퓨팅이 무엇인지 설명해줘"
+  },
+  {
+    "id": "37",
+    "expected": "search_memory",
+    "query": "탭 이동 기능이 어떻게 동작하는지 설명해줘"
+  },
+  {
+    "id": "38",
+    "expected": "search_memory",
+    "query": "유튜브 탭으로 이동이 안 되는 이유가 뭐야?"
+  },
+  {
+    "id": "39",
+    "expected": "search_memory",
+    "query": "전에 본 유튜브 영상 내용을 요약해줘"
+  },
+  {
+    "id": "40",
+    "expected": "search_memory",
+    "query": "GitHub에서 봤던 코드가 무슨 뜻인지 설명해줘"
+  },
+  {
+    "id": "41",
+    "expected": "search_memory",
+    "query": "메일에서 확인한 예약 번호가 뭐였지?"
+  },
+  {
+    "id": "42",
+    "expected": "search_memory",
+    "query": "리액트 페이지에서 본 내용을 정리해줘"
+  }
+]

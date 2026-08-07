@@ -39,7 +39,10 @@ async def _resolve_sources(
             raise HTTPException(status_code=404, detail="Session not found")
         return [_to_detail(session)]
 
-    return await _search_sessions_by_vector(body.query, 3, body.rerank, db)
+    limit = (
+        5 if body.intent == "find_sessions" else 1 if body.intent == "search_session" else 3
+    )
+    return await _search_sessions_by_vector(body.query, limit, body.rerank, db)
 
 
 async def _answer_events(
@@ -54,6 +57,15 @@ async def _answer_events(
     if not context.sources:
         message = "관련 탐색 기록을 찾지 못했어요. 다른 표현으로 질문해 주세요."
         yield encode_sse("delta", {"text": message})
+        yield encode_sse("done", {"model": None})
+        return
+
+    if context.intent == "find_sessions":
+        count = len(context.sources)
+        yield encode_sse(
+            "delta",
+            {"text": f"관련 세션 {count}개를 찾았어요. 아래 목록에서 확인해 주세요."},
+        )
         yield encode_sse("done", {"model": None})
         return
 
@@ -95,7 +107,7 @@ async def stream_answer(
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     sources = await _resolve_sources(body, db)
-    context = await prepare_ask_context(db, body.query, sources)
+    context = await prepare_ask_context(db, body.query, sources, body.intent)
     return StreamingResponse(
         _answer_events(request, context),
         media_type="text/event-stream",

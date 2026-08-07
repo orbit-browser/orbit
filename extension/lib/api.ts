@@ -5,6 +5,7 @@ import { readSseStream } from './sse';
 import type {
   AskStreamEvent,
   AskStreamRequest,
+  AssistantRouteResult,
   MemoryEvent,
   MemorySearchResult,
   MergeSuggestion,
@@ -12,6 +13,8 @@ import type {
   SessionSummary,
   SessionTimelineEvent,
   ServerSettings,
+  OpenTabItem,
+  TabActionResolveResult,
   TabItem,
   TodayEvent,
 } from './types';
@@ -97,6 +100,22 @@ interface BackendMergeSuggestion {
 
 interface BackendServerSettings {
   auto_merge_enabled: boolean;
+}
+
+interface BackendTabActionResolveResponse {
+  action: 'navigate_tab' | 'ask';
+  reason: 'matched' | 'non_navigation' | 'low_confidence';
+  tab_id: string | null;
+  score: number | null;
+  margin: number | null;
+  candidates: { tab_id: string; score: number }[];
+}
+
+interface BackendAssistantRouteResponse {
+  intent: 'navigate_tab' | 'find_sessions' | 'search_memory' | 'search_session';
+  confidence: number | null;
+  margin: number | null;
+  reason: 'rule' | 'semantic' | 'fallback';
 }
 
 // ── 타입 변환 ────────────────────────────────────────
@@ -385,6 +404,58 @@ export async function checkHealth(): Promise<boolean> {
   }
 }
 
+export async function resolveOpenTabAction(
+  query: string,
+  candidates: OpenTabItem[],
+  signal?: AbortSignal,
+): Promise<TabActionResolveResult> {
+  const requestSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+    : AbortSignal.timeout(8000);
+  const data = await request<BackendTabActionResolveResponse>('/tab-actions/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query,
+      candidates: candidates.slice(0, 100).map((tab) => ({
+        id: tab.id,
+        title: tab.title,
+        url: tab.url,
+        active: tab.active,
+      })),
+    }),
+    signal: requestSignal,
+  });
+  return {
+    action: data.action,
+    reason: data.reason,
+    tabId: data.tab_id,
+    score: data.score,
+    margin: data.margin,
+    candidates: (data.candidates ?? []).map((candidate) => ({
+      tabId: candidate.tab_id,
+      score: candidate.score,
+    })),
+  };
+}
+
+export async function resolveAssistantRoute(
+  query: string,
+  sessionId?: string,
+  signal?: AbortSignal,
+): Promise<AssistantRouteResult> {
+  const requestSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+    : AbortSignal.timeout(8000);
+  const data = await request<BackendAssistantRouteResponse>('/assistant/route', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, session_id: sessionId ?? null }),
+    signal: requestSignal,
+  });
+  return data;
+}
+
 export interface SearchResult {
   sessions: Session[];
   /** true면 백엔드/Qdrant 미연결로 로컬 substring 검색으로 대체된 결과 (AI 정렬 라벨 억제용) */
@@ -463,6 +534,7 @@ export async function* streamAsk(
       query: body.query,
       session_id: body.sessionId ?? null,
       rerank: body.rerank ?? true,
+      intent: body.intent ?? 'search_memory',
     }),
     signal,
   });

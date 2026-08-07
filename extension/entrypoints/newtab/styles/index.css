@@ -778,6 +778,82 @@ body {
   animation: ask-cursor 0.8s steps(2, start) infinite;
 }
 
+.ask-tab-candidates {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ask-tab-candidate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 13px;
+  background: var(--bg-sand);
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.ask-tab-candidate:hover {
+  border-color: color-mix(in srgb, var(--accent-orange) 55%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-orange) 5%, var(--bg-sand));
+}
+
+.ask-tab-candidate > img,
+.ask-tab-candidate > i {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 4px;
+}
+
+.ask-tab-candidate > i {
+  width: 8px;
+  height: 8px;
+  margin: 5px;
+  border-radius: 50%;
+  background: var(--accent-orange);
+}
+
+.ask-tab-candidate > span {
+  min-width: 0;
+  flex: 1;
+}
+
+.ask-tab-candidate strong,
+.ask-tab-candidate small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-tab-candidate strong {
+  font-size: 13px;
+}
+
+.ask-tab-candidate small {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.ask-tab-candidate b {
+  color: var(--accent-orange);
+  font-size: 11px;
+}
+
+.ask-tab-candidate-error {
+  margin-top: 8px !important;
+  color: #b8452b !important;
+  font-size: 12px !important;
+}
+
 @keyframes ask-cursor {
   50% { opacity: 0; }
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { navigateToAtlas } from '../../lib/navigation';
 import { patchNavState } from '../../lib/nav-state';
@@ -23,6 +23,7 @@ export function OrbitHero({
   onModeChange,
 }: OrbitHeroProps) {
   const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   /**
    * 시안에서는 검색 모드가 아무 동작도 하지 않았다.
@@ -36,6 +37,7 @@ export function OrbitHero({
     if (mode === 'ai') {
       setError(null);
       onAskAI(searchQuery);
+      requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
       return;
     }
 
@@ -122,13 +124,14 @@ export function OrbitHero({
         <form onSubmit={handleSubmit}>
           <div className="search-shell">
             <input
+              ref={inputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={
                 mode === 'search'
                   ? '검색어 또는 주소를 입력하세요'
-                  : '탐색 기록에 대해 무엇이든 물어보세요...'
+                  : '질문하거나 “GitHub 탭으로 이동해줘”라고 말해보세요'
               }
               className="search-field"
               onKeyDown={(e) => {

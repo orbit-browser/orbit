@@ -1,23 +1,33 @@
+import asyncio
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Iterable
+from urllib.parse import unquote, urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..ai.embedding import embed, embed_many
+from ..config import settings
 from ..db.models import ExplorationEvent, Session as SessionModel, SessionEvent
+from ..schemas.assistant import AssistantRetrievalIntent
 from ..schemas.session import SessionDetail
+from .tab_action_resolver import cosine_similarity
 
 MAX_SOURCES = 3
 MAX_EVENTS_PER_SESSION = 4
+MAX_EVENT_CANDIDATES_PER_SESSION = 12
 MAX_EXCERPT_CHARS = 1200
 MAX_CONTEXT_CHARS = 14_000
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class AskContext:
     sources: list[SessionDetail]
     prompt: str
+    intent: AssistantRetrievalIntent = "search_memory"
 
 
 def _event_score(session_event: SessionEvent, event: ExplorationEvent) -> float:
@@ -43,12 +53,81 @@ def select_context_events(
     return selected
 
 
+def build_event_passage(event: ExplorationEvent) -> str:
+    try:
+        parsed = urlsplit(event.url or "")
+        host = (parsed.hostname or "").removeprefix("www.")
+        path = unquote(parsed.path or "").strip("/")[:300]
+    except ValueError:
+        host, path = "", ""
+    fields = [
+        "브라우저 탐색 기록의 페이지",
+        f"제목: {event.title or '(제목 없음)'}",
+    ]
+    if event.domain or host:
+        fields.append(f"사이트: {event.domain or host}")
+    if path:
+        fields.append(f"경로: {path}")
+    if event.search_query:
+        fields.append(f"당시 검색어: {event.search_query[:500]}")
+    excerpt = (event.content_excerpt or "").strip()
+    if excerpt:
+        fields.append(f"내용: {excerpt[:MAX_EXCERPT_CHARS]}")
+    return "\n".join(fields)
+
+
+def _limit_event_candidates(
+    rows: Iterable[tuple[SessionEvent, ExplorationEvent]],
+) -> list[tuple[SessionEvent, ExplorationEvent]]:
+    grouped: dict[str, list[tuple[SessionEvent, ExplorationEvent]]] = defaultdict(list)
+    for session_event, event in rows:
+        grouped[session_event.session_id].append((session_event, event))
+    limited: list[tuple[SessionEvent, ExplorationEvent]] = []
+    for items in grouped.values():
+        items.sort(key=lambda item: _event_score(*item), reverse=True)
+        limited.extend(items[:MAX_EVENT_CANDIDATES_PER_SESSION])
+    return limited
+
+
+async def rank_context_events(
+    query: str,
+    rows: Iterable[tuple[SessionEvent, ExplorationEvent]],
+) -> dict[str, list[ExplorationEvent]]:
+    candidates = _limit_event_candidates(rows)
+    if not candidates:
+        return {}
+    query_vector, passage_vectors = await asyncio.gather(
+        embed(query),
+        embed_many(
+            [build_event_passage(event) for _session_event, event in candidates],
+            model=settings.embedding_passage_model,
+        ),
+    )
+    if len(passage_vectors) != len(candidates):
+        raise ValueError("embedding response count does not match event candidates")
+
+    ranked: dict[str, list[tuple[float, int, ExplorationEvent]]] = defaultdict(list)
+    for (session_event, event), vector in zip(candidates, passage_vectors):
+        ranked[session_event.session_id].append(
+            (cosine_similarity(query_vector, vector), session_event.sequence_order, event)
+        )
+    return {
+        session_id: [
+            item[2]
+            for item in sorted(items, key=lambda item: (-item[0], item[1]))[
+                :MAX_EVENTS_PER_SESSION
+            ]
+        ]
+        for session_id, items in ranked.items()
+    }
+
+
 async def _load_context_records(
     db: AsyncSession,
     session_ids: list[str],
-) -> tuple[dict[str, SessionModel], dict[str, list[ExplorationEvent]]]:
+) -> tuple[dict[str, SessionModel], list[tuple[SessionEvent, ExplorationEvent]]]:
     if not session_ids:
-        return {}, {}
+        return {}, []
 
     session_result = await db.execute(select(SessionModel).where(SessionModel.id.in_(session_ids)))
     session_models = {session.id: session for session in session_result.scalars().all()}
@@ -58,7 +137,7 @@ async def _load_context_records(
         .join(ExplorationEvent, SessionEvent.event_id == ExplorationEvent.id)
         .where(SessionEvent.session_id.in_(session_ids))
     )
-    return session_models, select_context_events(event_result.all())
+    return session_models, list(event_result.all())
 
 
 def _session_block(
@@ -122,10 +201,20 @@ async def prepare_ask_context(
     db: AsyncSession,
     query: str,
     sources: list[SessionDetail],
+    intent: AssistantRetrievalIntent = "search_memory",
 ) -> AskContext:
-    limited_sources = sources[:MAX_SOURCES]
+    source_limit = 5 if intent == "find_sessions" else MAX_SOURCES
+    limited_sources = sources[:source_limit]
+    if intent == "find_sessions":
+        return AskContext(sources=limited_sources, prompt="", intent=intent)
+
     session_ids = [source.session_id for source in limited_sources]
-    session_models, events_by_session = await _load_context_records(db, session_ids)
+    session_models, event_rows = await _load_context_records(db, session_ids)
+    try:
+        events_by_session = await rank_context_events(query, event_rows)
+    except Exception:
+        logger.warning("Ask 이벤트 의미 랭킹 실패, 기존 relevance 랭킹 사용", exc_info=True)
+        events_by_session = select_context_events(event_rows)
     return AskContext(
         sources=limited_sources,
         prompt=build_answer_prompt(
@@ -134,6 +223,7 @@ async def prepare_ask_context(
             session_models,
             events_by_session,
         ),
+        intent=intent,
     )
 
 

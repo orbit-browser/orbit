@@ -19,7 +19,14 @@ export default function App() {
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const atlasQuery = useAtlasData();
   const sessions = atlasQuery.data ?? [];
-  const { turns, ask, cancel, startNewConversation, isStreaming } = useAskConversation();
+  const {
+    turns,
+    ask,
+    cancel,
+    startNewConversation,
+    isStreaming,
+    selectTabCandidate,
+  } = useAskConversation();
 
   const { nav, patch } = useSharedNavState();
   const toggleNav = () => patch({ open: !getNavState().open });
@@ -93,6 +100,7 @@ export default function App() {
             onStartNewConversation={startNewConversation}
             onRetry={(query) => void ask(query)}
             onOpenSource={openSource}
+            onSelectTabCandidate={(turnId, tabId) => void selectTabCandidate(turnId, tabId)}
           />
         ) : atlasQuery.isPending ? (
           <div className="home-data-state" role="status">탐색 기록을 불러오는 중...</div>

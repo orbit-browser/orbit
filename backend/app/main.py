@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.analytics import router as analytics_router
+from .api.assistant import router as assistant_router
 from .api.ask import router as ask_router
 from .api.events import router as events_router
 from .api.search import router as search_router
@@ -18,6 +19,7 @@ from .api.sessions import recover_pending_sessions
 from .api.sessions import router as sessions_router
 from .api.settings import router as settings_router
 from .api.sync import router as sync_router
+from .api.tab_actions import router as tab_actions_router
 from .config import settings
 from .db.session import init_db
 from .db.vector import init_collection
@@ -58,6 +60,8 @@ app.include_router(events_router)
 app.include_router(sync_router)
 app.include_router(analytics_router)
 app.include_router(ask_router)
+app.include_router(tab_actions_router)
+app.include_router(assistant_router)
 
 
 @app.get("/health")
