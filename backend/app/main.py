@@ -16,6 +16,7 @@ from .api.analytics import router as analytics_router
 from .api.auth import router as auth_router
 from .api.deps import get_current_user
 from .api.events import router as events_router
+from .api.recommendations import router as recommendations_router
 from .api.search import router as search_router
 from .api.sessions import recover_pending_sessions
 from .api.sessions import router as sessions_router
@@ -68,6 +69,7 @@ app.include_router(search_router, dependencies=_authenticated)
 app.include_router(events_router, dependencies=_authenticated)
 app.include_router(sync_router, dependencies=_authenticated)
 app.include_router(analytics_router, dependencies=_authenticated)
+app.include_router(recommendations_router, dependencies=_authenticated)
 
 
 @app.get("/health")

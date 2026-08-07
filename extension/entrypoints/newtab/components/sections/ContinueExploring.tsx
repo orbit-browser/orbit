@@ -3,10 +3,21 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { ExploreCard } from './ExploreCard';
 import type { ExplorationEntry } from './RecentExploration';
 import type { RestoreTarget } from '../../lib/restore';
+import type { RecommendationKind, RecommendedSession } from '../../../../lib/api';
+
+/** 추천 성격 배지 문구 — 왜 이 성격으로 뽑혔는지 한눈에 보이게 한다. */
+const KIND_LABEL: Record<RecommendationKind, string> = {
+  continue: '이어가기',
+  related: '지금과 연관',
+  rediscover: '다시 보기',
+};
+
 
 interface ContinueExploringProps {
   active: ExplorationEntry | null;
   recommended: ExplorationEntry[];
+  /** 세션 id → 추천 성격·이유. 서버 추천이 없으면 비어 있다. */
+  reasons?: Map<string, RecommendedSession>;
   /** 해당 세션의 대시보드(아틀라스)로 이동 */
   onOpenDashboard: (entry: ExplorationEntry) => void;
   /** 세션에 속한 페이지를 탭으로 되살린다 */
@@ -19,6 +30,7 @@ const ROTATE_MS = 7000;
 export function ContinueExploring({
   active,
   recommended,
+  reasons,
   onOpenDashboard,
   onRestore,
 }: ContinueExploringProps) {
@@ -79,9 +91,13 @@ export function ContinueExploring({
         {current && <div className="rec-slot" key={current.session.id}>
           <ExploreCard
             session={current.session}
-            badge={current.session.category}
+            badge={
+              reasons?.get(current.session.id)
+                ? KIND_LABEL[reasons.get(current.session.id)!.kind]
+                : current.session.category
+            }
             meta={current.session.date}
-            reason="최근 탐색 기록에서 다시 이어볼 수 있어요"
+            reason={reasons?.get(current.session.id)?.reason}
             onOpenDashboard={() => onOpenDashboard(current)}
             onRestore={(target) => onRestore(current, target)}
           />

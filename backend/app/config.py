@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     jwt_expire_days: int = Field(default=30, ge=1)
 
+    # ── 추천 세션 ──────────────────────────────────────────────────────
+    # 추천 캐시 수명. 새 탭을 열면 캐시를 즉시 주고, 이 시간이 지났으면 응답 후
+    # 백그라운드에서 다시 계산한다(다음 새 탭부터 반영). LLM 호출을 사용자당
+    # 시간당 최대 2회로 묶기 위한 값 — 짧게 잡을수록 비용이 는다.
+    recommendation_ttl_minutes: int = Field(default=30, ge=1)
+
     # 데이터스토어
     database_url: str = "postgresql+asyncpg://orbit:orbit@localhost:5432/orbit"
     qdrant_url: str = "http://localhost:6333"

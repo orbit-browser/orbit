@@ -289,6 +289,52 @@ merge 구현 착수. 먼저 merge-design §9 열린 결정을 사용자와 합�
 - `merge_suggest_floor` 골든/실데이터 튜닝 후 DecisionLog 갱신.
 - P2(병합 실행 API + `list_sessions` status 필터 + `merged_from_session_id`), P3(undo), 대시보드 UI.
 
+## 2026-08-07 — 추천 세션 (feat/google-auth 2단계)
+
+### 요청
+
+최신순이나 단일 모델이 아니라 다중 신호 후보 생성 + LLM 리랭킹 구조.
+갱신 시점은 "새 탭을 띄우고 추천하는 시간 뒤쯤 다시 계산" — API 비용 고려, 설계는 위임.
+
+### 변경
+
+- `services/recommender/scoring.py` — 1차 점수(순수 함수, I/O 없음).
+  similarity/unfinished/recency/revisit/current_context 5신호, 지정 가중치 그대로.
+  recency는 반감기 3일 지수 감쇠, unfinished는 남은 할 일 3개에서 포화,
+  revisit는 서로 다른 날 4일에서 포화. 동점은 세션 id로 깨서 결정적으로 만들었다.
+- `services/recommender/llm_rerank.py` — 후보 → 3개 선정 + 추천 이유.
+  성격(continue/related/rediscover)을 섞고, LLM 실패·형식 오류·범위 밖 인덱스·중복은
+  전부 규칙 기반 폴백으로 흡수한다.
+- `services/recommender/service.py` — 신호 수집(요약의 todos/next_actions, 방문 일수,
+  컨텍스트 임베딩 유사도) + 캐시(stale-while-revalidate).
+- `db/models.py` — `recommendation_cache` 테이블(신규, create_all 대상).
+- `api/recommendations.py` — `GET /recommendations`. 추천 실패가 새 탭을 막지 않도록
+  빈 목록으로 응답하되 조용히 성공으로 위장하지 않는다.
+- `sync_pipeline` — 배치가 세션을 바꾸면 캐시를 낡은 것으로 표시.
+- 익스텐션 — `fetchRecommendations`, `useRecommendations`(staleTime 무한, 폴링 없음),
+  카드 배지를 추천 성격으로, 추천 이유를 카드에 노출. 서버 추천이 없으면 최근 세션 폴백.
+
+### 오류와 수정
+
+- **`extract_json` 예외 미처리.** LLM이 "죄송합니다…" 같은 문장을 주면 `_parse_picks` 가
+  JSONDecodeError로 터져 폴백까지 가지 못했다. 테스트가 먼저 잡았고 try/except로 감쌌다.
+- 캐시 테스트 헬퍼가 `items=None` 을 기본값으로 흡수해 "items가 실제 NULL인 행"을
+  만들 수 없었다. sentinel로 교체(테스트 쪽 버그).
+
+### 검증
+
+- backend **411 passed** — scoring 22, rerank 14, cache 11 신규.
+  인증 경계 테스트가 56 → **58**로 자동 증가했다. 라우터 단위 인증 의존성을 쓴 덕에
+  새 엔드포인트가 별도 조치 없이 보호 대상에 포함됐다.
+- extension **81 passed**, compile·build 통과.
+- **미실행:** 실제 LLM 호출 경로. `eval` 하네스와 마찬가지로 비용이 발생해
+  사용자 요청 시에만 돌린다. 폴백 경로는 전부 테스트로 덮었다.
+
+### 남은 일
+
+- 실데이터에서 가중치 튜닝(특히 `unfinished` 정의와 recency 반감기 3일).
+- implicit feedback 수집(추천 클릭·복원·무시) — 개인별 weight 학습의 전제.
+
 ## 2026-08-07 — 구글 로그인 기반 회원가입·로그인 (feat/google-auth)
 
 ### 요청

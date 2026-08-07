@@ -26,6 +26,7 @@ from ..services.noise_filter import split_noise
 from ..services.grouper import dedupe_events, group_by_time_gap
 from ..services.app_settings import is_auto_merge_enabled
 from ..services.merge_service import auto_merge_duplicates
+from ..services.recommender.service import invalidate as invalidate_recommendations
 from ..services.session_updater import apply_assignments, refresh_session_ai
 from ..services.subclusterer import subcluster
 
@@ -450,6 +451,9 @@ async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> No
         # '명백한 중복'만 배치 후 자동 병합(merge-design §2, DecisionLog 2026-08-07).
         if await is_auto_merge_enabled():
             await _run_auto_merge(user_id)
+
+        # 세션이 바뀌었으므로 추천을 낡은 것으로 표시한다 — 다음 새 탭에서 재계산된다.
+        await invalidate_recommendations(user_id)
 
         await _complete_batch(batch_id, event_count=len(claimed), model=_summarize_models(model_counts))
     except Exception as exc:

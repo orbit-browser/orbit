@@ -199,3 +199,18 @@ class User(Base):
     picture: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_login_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class RecommendationCache(Base):
+    """사용자별 추천 세션 캐시 (stale-while-revalidate).
+
+    새 탭은 하루에 수십 번 열린다. 열 때마다 LLM을 부르지 않기 위해 결과를 저장해 두고,
+    TTL이 지나면 응답은 캐시로 주면서 백그라운드에서 다시 계산한다.
+    """
+
+    __tablename__ = "recommendation_cache"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    #: [{session_id, title, kind, reason, score}, ...]
+    items: Mapped[list] = mapped_column(JSONB, default=list)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

@@ -537,3 +537,71 @@ export async function fetchAnalyticsOverview(days: number): Promise<AnalyticsOve
     })),
   };
 }
+
+// ── 추천 세션 (docs: plan.md 2단계) ─────────────────────
+
+export type RecommendationKind = 'continue' | 'related' | 'rediscover';
+
+export interface RecommendedSession {
+  sessionId: string;
+  title: string;
+  /** 추천 성격 — continue(이어가기) / related(연관) / rediscover(다시 보기) */
+  kind: RecommendationKind;
+  /** 왜 지금 이 세션인지 (한 문장) */
+  reason: string;
+  score: number;
+}
+
+export interface RecommendationResult {
+  items: RecommendedSession[];
+  /** 이 추천이 계산된 시각. 캐시가 비어 있으면 null */
+  computedAt: string | null;
+  /** true면 응답은 캐시이고 서버가 백그라운드에서 새로 계산 중이다 */
+  isStale: boolean;
+}
+
+interface BackendRecommendation {
+  session_id: string;
+  title: string;
+  kind: RecommendationKind;
+  reason: string;
+  score: number;
+}
+
+interface BackendRecommendationResponse {
+  items: BackendRecommendation[];
+  computed_at: string | null;
+  is_stale: boolean;
+}
+
+/**
+ * 새 탭의 "추천 세션".
+ *
+ * 서버가 캐시를 즉시 돌려주고 오래됐으면 백그라운드에서 다시 계산하므로,
+ * 클라이언트는 새 탭을 열 때 한 번만 부르면 된다. 화면의 캐러셀 회전은
+ * 이미 받은 결과를 돌려 보이는 것이라 추가 호출이 없다.
+ */
+export async function fetchRecommendations(
+  context: { currentTitle?: string; currentUrl?: string; query?: string } = {},
+): Promise<RecommendationResult> {
+  const params = new URLSearchParams();
+  if (context.currentTitle) params.set('current_title', context.currentTitle);
+  if (context.currentUrl) params.set('current_url', context.currentUrl);
+  if (context.query) params.set('q', context.query);
+  const qs = params.toString();
+
+  const data = await request<BackendRecommendationResponse>(
+    `/recommendations${qs ? `?${qs}` : ''}`,
+  );
+  return {
+    items: data.items.map((item) => ({
+      sessionId: item.session_id,
+      title: item.title,
+      kind: item.kind,
+      reason: item.reason,
+      score: item.score,
+    })),
+    computedAt: data.computed_at,
+    isStale: data.is_stale,
+  };
+}
