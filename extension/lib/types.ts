@@ -121,3 +121,22 @@ export interface MemorySearchResult {
   /** true면 백엔드 미연결로 세션 substring fallback을 사용한 결과 (이벤트는 항상 빈 배열) */
   degraded: boolean;
 }
+
+// ── Ask AI 스트리밍 ───────────────────────────────────────────────────
+
+export interface AskStreamRequest {
+  query: string;
+  sessionId?: string;
+  rerank?: boolean;
+}
+
+export type AskStreamEvent =
+  | { type: 'sources'; sessions: Session[] }
+  | { type: 'delta'; text: string }
+  | { type: 'done'; model: string | null }
+  | {
+      type: 'error';
+      code: 'stream_interrupted' | 'generation_failed' | string;
+      partial: boolean;
+      retryable: boolean;
+    };
