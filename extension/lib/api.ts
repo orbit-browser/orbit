@@ -4,9 +4,11 @@ import { isSensitiveUrl } from './sensitive-domains';
 import type {
   MemoryEvent,
   MemorySearchResult,
+  MergeSuggestion,
   Session,
   SessionSummary,
   SessionTimelineEvent,
+  ServerSettings,
   TabItem,
   TodayEvent,
 } from './types';
@@ -81,6 +83,19 @@ interface BackendMemorySearchResponse {
   events: BackendMemoryEvent[];
 }
 
+interface BackendMergeSuggestion {
+  survivor_id: string;
+  absorbed_id: string;
+  survivor_title: string;
+  absorbed_title: string;
+  score: number;
+  signals: { vector_score: number; keyword_overlap: string[] };
+}
+
+interface BackendServerSettings {
+  auto_merge_enabled: boolean;
+}
+
 // ── 타입 변환 ────────────────────────────────────────
 
 function formatTimeLabel(date: Date): string {
@@ -110,6 +125,7 @@ function mapSession(b: BackendSession): Session {
     })),
     createdAt: b.created_at,
     updatedAt: b.updated_at,
+    lastActivityAt: b.last_activity_at ?? undefined,
     // append로 성장하는 Auto Session은 마지막 활동 시각이 사용자 기억과 맞는 기준
     timeLabel: formatTimeLabel(new Date(b.last_activity_at ?? b.created_at)),
     summary: mapSummary(b.summary),
@@ -155,6 +171,17 @@ function mapMemoryEvent(b: BackendMemoryEvent): MemoryEvent {
     sessionId: b.session_id,
     sessionTitle: b.session_title,
     matchedBy: b.matched_by,
+  };
+}
+
+function mapMergeSuggestion(b: BackendMergeSuggestion): MergeSuggestion {
+  return {
+    survivorId: b.survivor_id,
+    absorbedId: b.absorbed_id,
+    survivorTitle: b.survivor_title,
+    absorbedTitle: b.absorbed_title,
+    score: b.score,
+    keywordOverlap: b.signals?.keyword_overlap ?? [],
   };
 }
 
@@ -262,6 +289,51 @@ export async function renameSession(id: string, title: string): Promise<void> {
 
 export async function deleteSession(id: string): Promise<void> {
   await request(`/sessions/${id}`, { method: 'DELETE' });
+}
+
+// ── 세션 병합 ──────────────────────────────────────────
+
+export async function fetchMergeSuggestions(): Promise<MergeSuggestion[]> {
+  const data = await request<BackendMergeSuggestion[]>('/sessions/merge-suggestions');
+  return data.map(mapMergeSuggestion);
+}
+
+export async function mergeSessions(survivorId: string, absorbedId: string): Promise<void> {
+  await request(`/sessions/${survivorId}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ absorbed_id: absorbedId }),
+  });
+}
+
+export async function unmergeSessions(survivorId: string, absorbedId: string): Promise<void> {
+  await request(`/sessions/${survivorId}/unmerge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ absorbed_id: absorbedId }),
+  });
+}
+
+// ── 서버 설정 ──────────────────────────────────────────
+
+export async function fetchServerSettings(): Promise<ServerSettings> {
+  const data = await request<BackendServerSettings>('/settings');
+  return { autoMergeEnabled: data.auto_merge_enabled };
+}
+
+export async function updateServerSettings(
+  patch: Partial<ServerSettings>,
+): Promise<ServerSettings> {
+  const body: Record<string, unknown> = {};
+  if (patch.autoMergeEnabled !== undefined) {
+    body.auto_merge_enabled = patch.autoMergeEnabled;
+  }
+  const data = await request<BackendServerSettings>('/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { autoMergeEnabled: data.auto_merge_enabled };
 }
 
 // ── 이벤트 배치 동기화 (docs/api-design-v2.md §1) ──────────────────

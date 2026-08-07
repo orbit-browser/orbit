@@ -1,6 +1,6 @@
 # Orbit 목표 아키텍처 — Auto Session / Personal Exploration Memory
 
-> 근거: 계획서 B, C, E. 이 문서는 백엔드·익스텐션을 관통하는 이벤트 흐름과 상태 기계를 정의한다. 테이블 DDL은 `docs/data-model-v2.md`, API 스펙은 `docs/api-design-v2.md`, UI 화면 구조는 계획서 C(사이드패널/웹 대시보드 재편)를 따르며 이 문서는 그 전제가 되는 파이프라인을 다룬다.
+> 근거: 계획서 B, C, E. 이 문서는 백엔드·익스텐션을 관통하는 이벤트 흐름과 상태 기계를 정의한다. 테이블 DDL은 `docs/data-model-v2.md`, API 스펙은 `docs/api-design-v2.md`, UI 화면 구조는 extension 새 탭·사이드패널을 따르며 이 문서는 그 전제가 되는 파이프라인을 다룬다.
 
 ## 1. 전체 흐름도
 

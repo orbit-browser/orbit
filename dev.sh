@@ -14,7 +14,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ── ANSI 색상 ────────────────────────────────────────────────────────
 RESET='\033[0m'; BOLD='\033[1m'
 C_CYAN='\033[0;36m'; C_GREEN='\033[0;32m'
-C_BLUE='\033[0;34m'; C_MAGENTA='\033[0;35m'
+C_MAGENTA='\033[0;35m'
 C_YELLOW='\033[0;33m'; C_RED='\033[0;31m'
 
 step() { printf "\n${BOLD}${C_CYAN}> %s${RESET}\n" "$*"; }
@@ -95,15 +95,7 @@ step "Backend (FastAPI :8000)"
 ) | tag "backend" "$C_GREEN" &
 PIDS+=($!)
 
-# ── 4. Frontend ──────────────────────────────────────────────────────
-step "Frontend (Vite :5173)"
-(
-    cd "$ROOT/frontend"
-    exec pnpm dev 2>&1
-) | tag "frontend" "$C_BLUE" &
-PIDS+=($!)
-
-# ── 5. Extension ─────────────────────────────────────────────────────
+# ── 4. Extension ─────────────────────────────────────────────────────
 step "Extension (WXT)"
 (
     cd "$ROOT/extension"
@@ -116,7 +108,6 @@ printf "\n"
 printf "  ${C_GREEN}${BOLD}All services running${RESET}\n\n"
 printf "  Backend   ${C_CYAN}http://localhost:8000${RESET}\n"
 printf "  API Docs  ${C_CYAN}http://localhost:8000/docs${RESET}\n"
-printf "  Frontend  ${C_CYAN}http://localhost:5173${RESET}\n"
 printf "  Extension extension/.output/chrome-mv3-dev\n"
 printf "            chrome://extensions > 개발자 모드 > 압축 해제된 확장 로드\n\n"
 printf "  ${C_YELLOW}Ctrl+C 로 전체 종료${RESET}\n\n"

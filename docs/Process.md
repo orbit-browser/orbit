@@ -24,10 +24,9 @@
 
 1. 관련 Backend 테스트
 2. 전체 Backend 테스트
-3. Extension TypeScript 검사와 빌드
-4. Frontend TypeScript 검사와 빌드
-5. 통합 스모크 테스트
-6. `git diff --check`
+3. Extension 단위 테스트, TypeScript 검사와 빌드
+4. 통합 스모크 테스트
+5. `git diff --check`
 
 실행하지 못한 검증은 이유와 함께 기록한다.
 

@@ -274,11 +274,11 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
 
 | 정책 | 내용 |
 |---|---|
-| `SessionDetail`은 superset | `docs/data-model-v2.md` §4의 신규 컬럼(`origin`, `status`, `event_count`, `keywords` 등)은 `SessionDetail`에 **선택적(optional) 필드**로만 추가한다. 기존 필드는 이름·타입·의미를 바꾸지 않는다 — 구 클라이언트(현재 Extension/Frontend)는 새 필드를 무시하면 그대로 동작한다. |
+| `SessionDetail`은 superset | `docs/data-model-v2.md` §4의 신규 컬럼(`origin`, `status`, `event_count`, `keywords` 등)은 `SessionDetail`에 **선택적(optional) 필드**로만 추가한다. 기존 필드는 이름·타입·의미를 바꾸지 않는다 — Extension은 새 필드를 무시하면 그대로 동작한다. |
 | `POST /sessions/cluster` 존치 | "지금 열린 탭 스냅샷 저장" 기능으로 그대로 유지한다(`CurrentSessionCard` 경로, `origin='snapshot'`으로 저장). Auto Session이 새 기본 경로가 되어도 이 엔드포인트를 제거하거나 시맨틱을 바꾸지 않는다. |
 | `retry-summary`는 origin 분기 | `POST /sessions/{id}/retry-summary`는 세션의 `origin`에 따라 다른 함수를 호출한다: `origin='snapshot'`이면 기존 `_ai_update`(탭 목록 기반 재요약) 그대로 사용, `origin='events'`이면 신규 `refresh_session_ai`(연결된 `session_events`를 다시 모아 재요약)를 호출한다. 응답 스키마(`SessionDetail`)는 동일하다. |
 | `GET /search` 기본값 유지 | `scope` 파라미터 생략 시 `scope=sessions`로 취급 — 기존 응답 형식(`list[SessionDetail]`)이 그대로 반환된다. |
-| 설정 API 없음 | 동기화 주기/유휴 기준 등은 익스텐션 로컬(chrome.storage) + 백엔드 env로만 관리한다. 이번 MVP에서는 이 값들을 조회/변경하는 API를 추가하지 않는다. |
+| 설정 범위 분리 | 동기화 주기/유휴 기준 등은 extension 로컬(chrome.storage)에서 관리한다. 자동병합 opt-in 상태만 `GET/PATCH /settings`로 서버에 저장한다. |
 
 ## 12. 오류 계약
 

@@ -14,17 +14,17 @@ Orbit은 "열린 브라우저 탭을 AI가 분류·요약해 저장하는 도구
 - **Auto Session**: 방문 이벤트마다 AI를 호출하지 않고, 동기화 트리거(수동/주기/개수/유휴) 시점에 쌓인 이벤트를 배치로 분석해 세션을 자동으로 생성·갱신한다. 세션은 사용자가 만드는 것이 아니라 스스로 성장한다.
 - **Exploration Timeline**: 시간순 방문 흐름과 세션별 탐색 경로를 보여줘 "어떻게 이 결론에 도달했는지"를 확인할 수 있게 한다.
 - **Search by Intent**: 제목이나 URL이 아닌 목적 중심 자연어("일본 여행 준비했던 거")로 과거 세션과 관련 방문 기록을 함께 찾는다.
-- **최소 Exploration Analytics**: 주제별 탐색 시간, 자주 보는 사이트, 반복 검색·방문 등 탐색 패턴을 최소한으로 집계해 보여준다.
+- **최소 Exploration Analytics**: 주제별 탐색 시간과 자주 보는 사이트를 사이드패널에서 간결하게 집계해 보여준다.
 - 저장된 탭 묶음을 Chrome에서 복원한다.
 - 민감한 페이지의 본문이 외부 AI 서비스로 전송되지 않도록 제한한다.
 
 ## 현재 구현 범위
 
-- `extension/`: WXT, React, TypeScript 기반 Chrome MV3 사이드패널
+- `extension/`: WXT, React, TypeScript 기반 Chrome MV3 새 탭·사이드패널
 - `backend/`: FastAPI, PostgreSQL, Qdrant 기반 세션 및 AI API
-- `frontend/`: React, Vite 기반 세션 조회용 웹 대시보드
 - LLM 탭 클러스터링, 요약, 임베딩 검색, 선택적 리랭킹
 - 요약 및 임베딩 처리 상태 추적과 재시도 API
+- 세션 병합 제안·개별/일괄 병합·되돌리기와 opt-in 자동병합 설정
 
 위 범위는 기존(탭 스냅샷 분류) 구현 현황이다. Personal Exploration Memory로의 전환 작업은 `feat/auto-session` 브랜치에서 `docs/Plan.md`에 따라 진행 중이다. 세부 구현 현황은 루트의 `README.md`와 `IMPLEMENTATION.md`를 참고한다. 알려진 결함과 개선 후보는 `docs/improvement-report.md`에 정리되어 있다.
 
@@ -42,14 +42,13 @@ Orbit은 "열린 브라우저 탭을 AI가 분류·요약해 저장하는 도구
 - **방문 이벤트마다 LLM을 호출하지 않는다.** 세션화 분석은 동기화 트리거 시점에만 배치로 수행한다(Auto Session).
 - 외부 AI API의 응답 지연, 호출 제한, 실패를 고려해야 한다. 특히 A.X-K1은 **3 RPS 제한**이 있어 배치 파이프라인의 LLM 호출은 순차 처리와 전역 레이트 리미터로 제한을 지켜야 한다.
 - 브라우저 데이터와 페이지 본문은 개인정보가 될 수 있다.
-- Extension, Backend, Frontend 사이의 API 타입과 상태 의미가 일치해야 한다.
+- Extension과 Backend 사이의 API 타입과 상태 의미가 일치해야 한다.
 - 로컬 데모 구성과 외부 배포 구성은 보안 요구가 다르다.
 - 실제 API 키나 네트워크에 의존하지 않는 테스트가 필요하다.
 
 ## 현재 열린 제품 결정
 
 - 저장한 페이지 본문의 보관 기간과 재요약 지원 범위
-- 웹 대시보드에서 세션 복원을 어디까지 지원할지
 - 외부 배포 시 인증, 허용 origin, 운영 환경 구성을 어떻게 할지
 
 해당 사항은 구현 전에 사용자 결정을 받고 `DecisionLog.md`에 기록한다.

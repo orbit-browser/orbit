@@ -419,6 +419,38 @@ body {
   color: #b8452b;
 }
 
+.home-data-state {
+  width: min(760px, calc(100% - 40px));
+  margin: 42px auto 0;
+  padding: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--text-secondary);
+  text-align: center;
+  font-size: 13px;
+}
+
+.home-data-state--error {
+  color: #b8452b;
+}
+
+.home-data-state button,
+.atlas-data-state button {
+  margin-left: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-orange);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.search-shell__submit:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
 /* ═══════════════ 바로가기 (크롬 새 탭의 그 자리) ═══════════════ */
 
 .shortcuts {

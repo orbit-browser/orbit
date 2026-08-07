@@ -35,7 +35,7 @@ Personal Exploration Memory는 이 파편들을 하나의 **탐색 궤도(Explor
 | 2 | Auto Session | 이벤트 수집 → 배치 세션화. 세션은 사용자가 만드는 게 아니라 이벤트가 쌓이며 자동으로 생성·갱신됨 | B | ✅ P1 |
 | 3 | Personal Memory | 원본 이벤트(사실)와 AI 해석(세션)을 분리해 저장하는 Memory 계층. 소스 확장(북마크/대화 등)의 기반 | H (단계적 확장) | 부분(Stage 1 — 방문 이벤트 + 열린 탭까지) |
 | 4 | Search by Intent | "탭 검색"이 아니라 "탐색 기억 검색" — 세션과 개별 방문 기록을 함께 반환하는 통합 검색 | D-1 | ✅ P2 |
-| 5 | Exploration Analytics | 주제별 탐색 시간, 자주 보는 사이트, 반복 검색/방문, 일별 탐색량 추이 등 집계 | D-2 + C-3 | ✅ 최소(P3) |
+| 5 | Exploration Analytics | 주제별 탐색 시간과 자주 보는 사이트를 사이드패널에서 간결하게 집계 | D-2 + C-3 | ✅ 최소(P3) |
 
 ## 4. 우선순위 (P1~P5)
 
@@ -64,7 +64,7 @@ Personal Exploration Memory는 이 파편들을 하나의 **탐색 궤도(Explor
 7. Exploration Timeline UI(사이드패널 홈) — `SyncStatusCard`, `TimelineDateHeader`, `TimelineItem`, `SessionBadge`
 8. 세션 상세 타임라인(`GET /sessions/{id}/events`, `GET /sessions/{id}/versions`) — SessionDetailView 확장
 9. Search by Intent(`GET /search?scope=memory`) — 세션 + 이벤트 통합 검색, SearchView 그룹 렌더
-10. Exploration Analytics(`GET /analytics/overview`) — 사이드패널 요약 카드 + 웹 대시보드 Analytics 섹션
+10. Exploration Analytics(`GET /analytics/overview`) — 사이드패널 요약 카드
 11. 개인정보 통제 — 수집 opt-in(기본 off), 이벤트/세션 삭제, 서버측 민감 도메인 이중 방어, 수집 상태 상시 표시
 12. 평가 구조 — 골든셋(`backend/eval/golden/*.json`) + `run_eval.py` + 지표 리포트
 
@@ -137,7 +137,7 @@ Personal Exploration Memory는 방문 이벤트를 상시 기록한다는 점에
 4. Timeline으로 탐색 경로 이해 — 사용자가 "어떤 흐름으로 결론에 도달했는지" 확인할 수 있다
 5. Intent 검색으로 과거 탐색 재발견 — 목적 중심 자연어 검색이 세션과 개별 방문 기록을 함께 반환한다
 6. 복원으로 작업 재개 — 검색/타임라인에서 찾은 탭 묶음을 그대로 다시 연다
-7. Analytics로 탐색 패턴 확인 — 주제별 탐색 시간, 반복 방문/검색 등을 대시보드에서 확인한다
+7. Analytics로 탐색 패턴 확인 — 주제별 탐색 시간과 자주 보는 사이트를 사이드패널에서 확인한다
 8. 기존 기능 무파손 — 탭 스냅샷 저장·검색·복원 등 기존 동작이 이번 전환으로 깨지지 않는다
 
 ## 9. 핵심 메시지

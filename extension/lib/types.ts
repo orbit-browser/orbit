@@ -41,11 +41,32 @@ export interface Session {
   createdAt: string;
   /** ISO 8601 */
   updatedAt: string;
-  /** 목록에 표시할 상대 시간 라벨 (mock 표시용) */
+  /** 마지막 탐색 이벤트 시각. snapshot 세션처럼 값이 없으면 undefined. */
+  lastActivityAt?: string;
+  /** 목록에 표시할 시간 라벨 */
   timeLabel: string;
   summary: SessionSummary;
   /** AI 요약 진행 상태 — pending/failed일 때 UI가 스피너·재시도 버튼을 노출 */
   summaryStatus: 'pending' | 'done' | 'failed';
+}
+
+// ── 세션 병합 제안 (docs/merge-design.md §6) ───────────────────────────
+
+export interface MergeSuggestion {
+  survivorId: string;
+  absorbedId: string;
+  survivorTitle: string;
+  absorbedTitle: string;
+  /** 두 세션 요약 임베딩의 코사인 유사도 (0~1) */
+  score: number;
+  /** 후보로 삼은 근거 — 겹치는 키워드/제목 토큰 */
+  keywordOverlap: string[];
+}
+
+/** 백엔드에 저장되는 사용자 선택 설정. extension 로컬 수집 설정과 별개다. */
+export interface ServerSettings {
+  /** 다음 동기화부터 명백한 중복만 자동 병합한다. 기본값은 false. */
+  autoMergeEnabled: boolean;
 }
 
 // ── Timeline / Memory 검색 (M4, docs/api-design-v2.md §3, §6, §8) ──────────

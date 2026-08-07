@@ -115,7 +115,7 @@ ALTER TABLE sessions ADD COLUMN confidence              REAL;
 
 - `origin='snapshot'`: 기존 `POST /sessions`/`POST /sessions/cluster` 경로로 만들어진 세션(기본값 — 기존 데이터와 신규 스냅샷 세션 모두 여기 해당).
 - `origin='events'`: Auto Session(배치 파이프라인)이 `action: create`로 새로 만든 세션.
-- 기존 프론트/검색/임베딩 코드가 참조하는 `summary`/`tabs` JSONB는 그대로 유지한다 — 형식을 바꾸지 않아야 `_to_detail()`(`api/sessions.py:39-65`), 프론트 매퍼(`extension/lib/api.ts`, `frontend/src/lib/api.ts`)가 무변경으로 동작한다.
+- extension 검색/임베딩 코드가 참조하는 `summary`/`tabs` JSONB는 그대로 유지한다 — 형식을 바꾸지 않아야 `_to_detail()`(`api/sessions.py:39-65`)과 extension 매퍼(`extension/lib/api.ts`)가 무변경으로 동작한다.
 
 ### 4.1 `tabs` JSONB 하위 호환 규칙
 

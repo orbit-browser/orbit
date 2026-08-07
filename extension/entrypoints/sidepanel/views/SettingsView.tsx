@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { checkHealth } from '../../../lib/api';
 import { useUIStore } from '../store/ui';
 import { useSettingsStore } from '../store/settings';
+import { useServerSettings, useUpdateServerSettings } from '../hooks/useServerSettings';
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -12,15 +13,27 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  checked,
+  onChange,
+  ariaLabel,
+  disabled = false,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  ariaLabel: string;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       onClick={() => onChange(!checked)}
+      disabled={disabled}
       className={
-        'relative h-5 w-9 shrink-0 rounded-full transition ' +
+        'relative h-5 w-9 shrink-0 rounded-full transition disabled:cursor-default disabled:opacity-50 ' +
         (checked ? 'bg-orbit-primary' : 'bg-orbit-border')
       }
     >
@@ -39,11 +52,13 @@ function SettingRow({
   description,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   description?: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between gap-3 px-3 py-2.5">
@@ -51,7 +66,7 @@ function SettingRow({
         <p className="text-sm">{label}</p>
         {description && <p className="text-xs text-orbit-muted">{description}</p>}
       </div>
-      <Toggle checked={checked} onChange={onChange} />
+      <Toggle checked={checked} onChange={onChange} ariaLabel={label} disabled={disabled} />
     </div>
   );
 }
@@ -135,6 +150,12 @@ function NumberRow({
 export function SettingsView() {
   const showToast = useUIStore((s) => s.showToast);
   const {
+    data: serverSettings,
+    isLoading: serverSettingsLoading,
+    isError: serverSettingsError,
+  } = useServerSettings();
+  const updateServerSettings = useUpdateServerSettings();
+  const {
     rerankEnabled,
     excludeSensitive,
     collectionEnabled,
@@ -182,6 +203,36 @@ export function SettingsView() {
         <InfoRow label="단축키" value="Alt+Shift+O" />
         <InfoRow label="버전" value="0.0.1" />
       </div>
+
+      <section className="space-y-2">
+        <p className="text-xs font-semibold text-orbit-muted">세션 관리</p>
+        <div className="divide-y divide-orbit-border rounded-orbit-card border border-orbit-border bg-orbit-surface">
+          <SettingRow
+            label="자동 병합"
+            description={
+              serverSettingsError
+                ? '서버 설정을 불러오지 못했어요'
+                : '다음 동기화에서 제목까지 거의 같은 중복만 자동으로 합쳐요'
+            }
+            checked={serverSettings?.autoMergeEnabled ?? false}
+            disabled={serverSettingsLoading || serverSettingsError || updateServerSettings.isPending}
+            onChange={(autoMergeEnabled) => {
+              updateServerSettings.mutate(
+                { autoMergeEnabled },
+                {
+                  onSuccess: (settings) =>
+                    showToast(
+                      settings.autoMergeEnabled
+                        ? '자동 병합을 켰어요'
+                        : '자동 병합을 껐어요',
+                    ),
+                  onError: () => showToast('자동 병합 설정을 저장하지 못했어요'),
+                },
+              );
+            }}
+          />
+        </div>
+      </section>
 
       <section className="space-y-2">
         <p className="text-xs font-semibold text-orbit-muted">수집·동기화</p>

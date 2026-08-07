@@ -16,7 +16,7 @@ PNPM_STORE_DIR="$ROOT/.pnpm-store"
 # Colors
 RESET='\033[0m'; BOLD='\033[1m'
 C_CYAN='\033[0;36m'; C_GREEN='\033[0;32m'
-C_BLUE='\033[0;34m'; C_MAGENTA='\033[0;35m'
+C_MAGENTA='\033[0;35m'
 C_YELLOW='\033[0;33m'; C_RED='\033[0;31m'
 
 step() { printf "\n${BOLD}${C_CYAN}> %s${RESET}\n" "$*"; }
@@ -54,7 +54,6 @@ done
 [[ -x "$CONDA_DIR/bin/python" ]] || die "Missing conda env: $CONDA_DIR"
 [[ -x "$CONDA_DIR/bin/uvicorn" ]] || die "Missing backend dependency: uvicorn"
 [[ -x "$CONDA_DIR/bin/pnpm" ]] || die "Missing Node package manager: pnpm"
-[[ -x "$ROOT/frontend/node_modules/.bin/vite" ]] || die "Missing frontend deps: run pnpm install in frontend"
 [[ -x "$ROOT/extension/node_modules/.bin/wxt" ]] || die "Missing extension deps: run pnpm install in extension"
 "$CONDA_DIR/bin/python" -c "import greenlet" >/dev/null 2>&1 || die "Missing backend dependency: greenlet"
 
@@ -90,13 +89,6 @@ step "Backend (FastAPI :8000)"
 ) | tag "backend" "$C_GREEN" &
 PIDS+=($!)
 
-step "Frontend (Vite :5173)"
-(
-    cd "$ROOT/frontend"
-    exec ./node_modules/.bin/vite 2>&1
-) | tag "frontend" "$C_BLUE" &
-PIDS+=($!)
-
 step "Extension (WXT)"
 (
     cd "$ROOT/extension"
@@ -108,7 +100,6 @@ printf "\n"
 printf "  ${C_GREEN}${BOLD}All services running with .conda${RESET}\n\n"
 printf "  Backend   ${C_CYAN}http://localhost:8000${RESET}\n"
 printf "  API Docs  ${C_CYAN}http://localhost:8000/docs${RESET}\n"
-printf "  Frontend  ${C_CYAN}http://localhost:5173${RESET}\n"
 printf "  Extension extension/.output/chrome-mv3-dev\n"
 printf "            chrome://extensions > Developer mode > Load unpacked\n\n"
 printf "  ${C_YELLOW}Ctrl+C stops all services${RESET}\n\n"

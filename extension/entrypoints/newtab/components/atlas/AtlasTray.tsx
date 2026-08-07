@@ -1,11 +1,10 @@
 import { useRef } from 'react';
-import type { OrbitNode, SessionNode } from './data';
+import type { SessionNode } from './data';
 import { formatMinutes } from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
 interface AtlasTrayProps {
-  orbit: OrbitNode | null;
   session: SessionNode;
   selectedPageId: string | null;
   onSelectPage: (pageId: string) => void;
@@ -18,7 +17,6 @@ interface AtlasTrayProps {
 const initialOf = (domain: string) => domain.replace(/^WWW\./, '').charAt(0).toUpperCase();
 
 export function AtlasTray({
-  orbit,
   session,
   selectedPageId,
   onSelectPage,
@@ -84,7 +82,7 @@ export function AtlasTray({
                 onKeyDown={(e) => e.key === 'Enter' && onSelectPage(page.id)}
                 role="button"
                 tabIndex={0}
-                style={orbit ? ({ '--card-hue': orbit.hue } as React.CSSProperties) : undefined}
+                style={{ '--card-hue': session.hue } as React.CSSProperties}
               >
                 <div className="atlas-card__top">
                   <div className="atlas-card__icon">{initialOf(page.domain)}</div>

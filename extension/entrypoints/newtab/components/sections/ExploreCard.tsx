@@ -1,10 +1,9 @@
 import { RotateCw } from 'lucide-react';
-import type { OrbitNode, SessionNode } from '../atlas/data';
+import type { SessionNode } from '../atlas/data';
 import { formatMinutes } from '../atlas/data';
 import type { RestoreTarget } from '../../lib/restore';
 
 interface ExploreCardProps {
-  orbit: OrbitNode;
   session: SessionNode;
   /** 좌측 상단 배지 */
   badge: string;
@@ -26,7 +25,6 @@ interface ExploreCardProps {
  * 복원 버튼에 올리면 "새 창으로" 옵션이 왼쪽으로 펼쳐진다(세션 상세와 같은 조작).
  */
 export function ExploreCard({
-  orbit,
   session,
   badge,
   meta,
@@ -52,8 +50,8 @@ export function ExploreCard({
       <p className="explore-card__desc">{session.summary.overview}</p>
 
       <div className="explore-card__stats">
-        <span style={{ color: orbit.hue }}>
-          <i className={`ph ${orbit.icon}`} /> {orbit.title}
+        <span style={{ color: session.hue }}>
+          <i className={`ph ${session.icon}`} /> 탐색 세션
         </span>
         <span className="dot-sep" />
         <span>페이지 {session.pages.length}개</span>

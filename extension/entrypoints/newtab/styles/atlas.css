@@ -1127,6 +1127,16 @@ body.atlas-resizing .atlas-nav__resizer::after {
   opacity: 0.35;
 }
 
+.atlas-data-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
 /* ════════════════════════ 하단 페이지 트레이 ════════════════════════ */
 
 .atlas-tray {

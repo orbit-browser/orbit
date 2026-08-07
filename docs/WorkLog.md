@@ -2,6 +2,90 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-08-07 — newtab 목업 제거 + Session/Page 백엔드 연결
+
+### 요청과 결정
+
+- 새 탭 대시보드가 계속 mock 데이터로 보이는 문제를 확인했다.
+- 백엔드에는 Orbit 관계가 없고 Session/Event만 있으므로 가상 그룹을 만들지 않기로 했다.
+- 사용자 결정에 따라 Session 이름을 Atlas 중심 원에 표시하고, 해당 페이지 이벤트를
+  `sequence_order` 순서대로 한 궤도에 배치하는 2단계 IA를 적용했다.
+
+### 변경
+
+- `components/atlas/data.ts` — 578줄 정적 `ATLAS_ORBITS`를 제거하고 Session/Event →
+  Atlas 뷰 모델 변환을 추가했다. 이벤트가 없는 snapshot 세션은 tabs로 보완한다.
+- `hooks/useAtlasData.ts` — `/sessions`와 세션별 `/events`를 조회한다. 이벤트 요청은 최대
+  6개씩 처리하고 React Query 캐시를 사용한다.
+- `main.tsx` — newtab에 `QueryClientProvider`를 연결했다.
+- 홈 카드·타임라인·드로어와 Atlas 네비게이터·캔버스·트레이·상세 패널을 실제 데이터로 전환했다.
+  loading, error/retry, empty, 페이지 없는 세션 상태를 처리했다.
+- Atlas 네비게이터를 Session → Page 2단계로 단순화하고 중심 원은 세션명, 궤도 노드는
+  시간순 페이지 이벤트로 변경했다.
+- AI 질문 모드는 `/search?scope=memory&rerank=true` 결과의 실제 세션으로 이동한다.
+- `lib/types.ts` Session에 선택적 `lastActivityAt`을 추가해 실제 마지막 활동 기준으로 정렬한다.
+- `tests/unit/atlas-data.test.ts` — 시간 순서, 재방문 수, tabs fallback, 최신순/상태,
+  빈 페이지 helper를 검증한다.
+- 후속 개선: 한 궤도당 페이지를 최대 8개로 제한하고, 초과분은 방문 순서를 유지한 채
+  바깥쪽 동심 궤도에 배치했다. 0개·8개·17개와 잘못된 제한값 경계를 테스트했다.
+
+### 오류와 해결
+
+- PowerShell 실행 정책이 `pnpm.ps1`을 차단해 공식 명령의 실행 파일을 `pnpm.cmd`로 바꿨다.
+- 첫 설계는 백엔드에 없는 단일 가상 Orbit 아래 모든 세션을 넣으려 했으나, 사용자 피드백에 따라
+  Session 자체를 중심 노드로 사용하는 2단계 구조로 계획과 구현을 수정했다.
+- 최종 전체 테스트 첫 실행에서 기존 sync engine 테스트 1개가 서버 sync mock을 보지 못해 실패했다.
+  해당 파일 단독 재실행은 7개 모두 통과했고, 전체 테스트 재실행도 67개 모두 통과해 간헐 실패로 기록했다.
+
+### 검증
+
+- `pnpm.cmd test`: **69 passed (8 files)**.
+- `pnpm.cmd compile`: 통과.
+- `pnpm.cmd build`: 통과(WXT chrome-mv3, 778.1 kB).
+- 로컬 백엔드 `GET /health`: 200, `GET /sessions`: 실제 세션 14개,
+  첫 세션 `GET /sessions/{id}/events`: 실제 이벤트 1개 응답 확인.
+- 미실시: Chrome에 빌드를 다시 로드한 뒤 실제 새 탭 렌더링을 눈으로 확인하는 브라우저 스모크.
+
+## 2026-08-07 — merge UI 사이드패널 포팅 + 독립 웹 frontend 제거
+
+### 요청과 결정
+
+- `main`에 병합 기능이 추가됐지만 extension의 업데이트된 UI에는 없다는 문제를 확인.
+- 실제 서버 연결 UI는 extension 사이드패널이고 newtab 홈·아틀라스는 목업 데이터 기반임을 조사했다.
+- 사용자 승인에 따라 병합 기능을 사이드패널로 옮기고 `frontend/`를 제거했다.
+- 웹 전용 상세 Analytics(반복 방문·반복 검색·일별 추이)는 종료하고 사이드패널 최소 요약은 유지했다.
+
+### 변경
+
+- `extension/lib/types.ts`·`lib/api.ts` — 병합 제안·실행·되돌리기와 서버 자동병합 설정 계약/매퍼/API 추가.
+- `extension/lib/merge.ts` — 일괄병합에서 이미 성공한 병합과 겹치는 세션 쌍을 거르는 순수 로직 추가.
+- `entrypoints/sidepanel/hooks/useMergeSuggestions.ts`·`useServerSettings.ts` — Query/Mutation과 관련 캐시 무효화 추가.
+- `components/MergeSuggestionsSection.tsx` — 세션 목록에 개별/일괄 병합, 확인창, 유사도·키워드 근거,
+  개별/일괄 되돌리기 액션 추가. 로딩·오류·제안 없음은 기존 목록을 방해하지 않도록 숨김.
+- `SettingsView.tsx` — "세션 관리" 영역에 서버 저장 자동병합 opt-in 토글 추가. 로딩·오류·저장 중 상태 처리.
+- `store/ui.ts`·`components/Toast.tsx` — 액션 토스트, 6초 유지, 명시적 닫기, 연속 토스트 타이머 정리와 클릭 가능 UI 추가.
+- `tests/unit/merge.test.ts`·`ui-store.test.ts` — API wire 계약, 중복 세션 가드, 토스트 유지/타이머 교체 테스트 추가.
+- 추적 중인 `frontend/` 소스·설정·lockfile 제거. ignored 로컬 `.env`·`node_modules`·`dist`는 보존.
+- `dev.sh`·`dev_conda.sh`에서 frontend 의존성 검사·Vite 실행·안내 제거.
+- 현재 제품 구조와 병합 정책을 설명하는 README, AGENTS, IA, 프로젝트/아키텍처/API/데이터/프로세스 문서 갱신.
+
+### 오류와 해결
+
+- PowerShell 실행 정책이 `pnpm.ps1`을 차단해 첫 기준선 명령이 실행되지 않았다. Windows용 `pnpm.cmd`로 재실행했다.
+- 스크립트 수정 후 Windows 체크아웃 줄바꿈이 mixed/CRLF가 되어 `bash -n`이 실패했다. `dev.sh`와
+  `dev_conda.sh`를 LF로 정규화한 뒤 구문 검사를 통과했다.
+
+### 검증
+
+- 변경 전 extension: `pnpm.cmd test` 57 passed, `pnpm.cmd compile` 통과, `pnpm.cmd build` 통과.
+- 변경 전 frontend: `pnpm.cmd build` 통과(1851 modules transformed).
+- 변경 후 extension: `pnpm.cmd test` **63 passed (7 files)**, `pnpm.cmd compile` 통과,
+  `pnpm.cmd build` 통과(WXT chrome-mv3, 794.02 kB).
+- `bash -n dev.sh dev_conda.sh` 통과.
+- `git diff --check` 통과.
+- 미실시: 백엔드 코드는 변경하지 않아 pytest 미실행. 실 브라우저 렌더 스모크와 실제 병합 클릭은
+  실행 환경 및 사용자 데이터 변경이 필요해 수행하지 않음.
+
 ## 2026-08-07 — 자동병합 사용자 토글(UI 버튼) + 설정 저장소 (feat/merge-suggestions 이어서)
 
 ### 요청
