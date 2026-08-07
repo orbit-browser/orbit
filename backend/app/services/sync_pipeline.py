@@ -18,12 +18,14 @@ from ..ai.embedding import embed_many
 from ..config import settings
 from ..db.models import ExplorationEvent, Session as SessionModel, SyncBatch, SyncBatchEvent
 from ..db.session import AsyncSessionLocal
-from ..db.vector import search_similar_with_scores
+from ..db.vector import delete_point, search_similar_with_scores
 from ..services import intent_analyzer
 from ..services.event_filter import is_system_url
 from ..services.intent_analyzer import Assignment
 from ..services.noise_filter import split_noise
 from ..services.grouper import dedupe_events, group_by_time_gap
+from ..services.app_settings import is_auto_merge_enabled
+from ..services.merge_service import auto_merge_duplicates
 from ..services.session_updater import apply_assignments, refresh_session_ai
 from ..services.subclusterer import subcluster
 
@@ -252,6 +254,9 @@ async def _fetch_candidates(vector: list[float]) -> list[dict]:
         sessions_result = await db.execute(
             select(SessionModel).where(
                 SessionModel.id.in_(combined_ids),
+                # merged 세션은 후보에서 제외 — Qdrant 포인트 삭제가 실패해 벡터 후보로 새어들어도
+                # 병합된 세션에 다시 append되지 않게 이중 방어한다(merge P2).
+                SessionModel.status == "active",
                 func.coalesce(SessionModel.last_activity_at, SessionModel.created_at)
                 >= recency_floor,
             )
@@ -368,6 +373,27 @@ def _summarize_models(counts: dict[str, int]) -> str | None:
     return ",".join(parts)[:50]
 
 
+async def _run_auto_merge() -> None:
+    """자동 병합 실행(배치 후, opt-in). 병합된 생존 세션 재요약 + 흡수 세션 Qdrant 포인트 삭제.
+
+    실패해도 배치 자체는 성공으로 마무리한다(자동 병합은 부가 기능 — 배치 완료를 막지 않는다).
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            merged_pairs = await auto_merge_duplicates(db)
+    except Exception as exc:
+        logger.warning("자동 병합 실패: %s", exc)
+        return
+    for survivor_id, absorbed_id in merged_pairs:
+        try:
+            await delete_point(absorbed_id)
+            await refresh_session_ai(survivor_id)
+        except Exception as exc:
+            logger.warning("자동 병합 후처리 실패(survivor=%s): %s", survivor_id, exc)
+    if merged_pairs:
+        logger.info("자동 병합 %d건 완료", len(merged_pairs))
+
+
 async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
     try:
         kept, discarded_ids = dedupe_events(claimed)
@@ -394,6 +420,11 @@ async def _process_batch(batch_id: str, claimed: list[dict]) -> None:
                 await refresh_session_ai(session_id)
             except Exception as exc:
                 logger.warning("세션 재요약 실패(session_id=%s): %s", session_id, exc)
+
+        # opt-in 자동 병합(기본 OFF) — 사용자 토글(app_settings, DB) 우선, 없으면 env 기본값.
+        # '명백한 중복'만 배치 후 자동 병합(merge-design §2, DecisionLog 2026-08-07).
+        if await is_auto_merge_enabled():
+            await _run_auto_merge()
 
         await _complete_batch(batch_id, event_count=len(claimed), model=_summarize_models(model_counts))
     except Exception as exc:

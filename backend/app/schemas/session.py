@@ -25,6 +25,12 @@ class PatchSessionRequest(BaseModel):
     title: str = Field(min_length=1, max_length=100)
 
 
+class MergeRequest(BaseModel):
+    """병합/되돌리기 요청 — survivor는 경로, absorbed는 본문 (merge P2·P3)."""
+
+    absorbed_id: str = Field(min_length=1)
+
+
 # ── 공통 ──────────────────────────────────────────────
 
 
@@ -70,6 +76,24 @@ class SessionEventItem(BaseModel):
     active_duration_ms: int | None = None
     relevance_score: float | None = None
     sequence_order: int
+
+
+class MergeSignal(BaseModel):
+    """병합 제안 근거 신호 (docs/merge-design.md §3.2)."""
+
+    vector_score: float
+    keyword_overlap: list[str]
+
+
+class MergeSuggestion(BaseModel):
+    """세션 병합 후보 (merge P1, docs/merge-design.md §6). 읽기 전용 제안 — 실행은 P2."""
+
+    survivor_id: str
+    absorbed_id: str
+    survivor_title: str
+    absorbed_title: str
+    score: float
+    signals: MergeSignal
 
 
 class SessionVersionItem(BaseModel):

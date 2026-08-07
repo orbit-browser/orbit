@@ -17,6 +17,8 @@ from ..db.models import (
 from ..db.session import AsyncSessionLocal, get_db
 from ..db.vector import delete_point
 from ..schemas.session import (
+    MergeRequest,
+    MergeSuggestion,
     PatchSessionRequest,
     SaveSessionRequest,
     SessionDetail,
@@ -26,6 +28,10 @@ from ..schemas.session import (
     TabItemRequest,
     TabItemResponse,
 )
+from ..services.merge_service import MergeError, merge_sessions, unmerge_sessions
+from ..services.merge_suggester import find_merge_suggestions
+
+_MERGE_ERROR_STATUS = {"not_found": 404, "invalid": 400, "conflict": 409}
 from ..services.embedding_sync import build_embedding_text as _build_embedding_text
 from ..services.embedding_sync import embed_and_upsert as _embed_and_upsert
 from ..services.session_updater import record_version, refresh_session_ai
@@ -179,12 +185,27 @@ async def list_sessions(
 ) -> list[SessionDetail]:
     # append로 탭이 추가된 세션이 위로 올라오도록 마지막 활동 기준 정렬
     # (last_activity_at이 없는 snapshot 세션은 created_at fallback)
+    # merged 세션은 다른 세션으로 흡수됐으므로 목록에서 제외한다(archived는 그대로 노출 — merge P2).
     result = await db.execute(
-        select(SessionModel).order_by(
+        select(SessionModel)
+        .where(SessionModel.status != "merged")
+        .order_by(
             func.coalesce(SessionModel.last_activity_at, SessionModel.created_at).desc()
         )
     )
     return [_to_detail(s) for s in result.scalars().all()]
+
+
+@router.get("/merge-suggestions", response_model=list[MergeSuggestion])
+async def get_merge_suggestions(
+    db: AsyncSession = Depends(get_db),
+) -> list[MergeSuggestion]:
+    """같은 주제로 쪼개진 세션의 병합 후보를 점수순 반환 (merge P1, 읽기 전용).
+
+    실제 병합은 P2에서 사용자 확인 후 수행한다 — 이 엔드포인트는 아무것도 변경하지 않는다.
+    정적 경로이므로 아래 `/{session_id}`보다 먼저 등록되어야 한다.
+    """
+    return await find_merge_suggestions(db)
 
 
 @router.get("/{session_id}", response_model=SessionDetail)
@@ -322,6 +343,53 @@ async def retry_summary(
     else:
         background_tasks.add_task(_ai_update, session.id, session.tabs or [])
     return _to_detail(session)
+
+
+async def _post_merge_ai(survivor_id: str, absorbed_id: str) -> None:
+    """병합 후처리(백그라운드) — 흡수된 세션의 Qdrant 포인트 삭제 + 생존 세션 재요약/재임베딩."""
+    await delete_point(absorbed_id)
+    await refresh_session_ai(survivor_id)
+
+
+async def _post_unmerge_ai(survivor_id: str, absorbed_id: str) -> None:
+    """되돌리기 후처리(백그라운드) — 두 세션 모두 재요약/재임베딩(absorbed 포인트 재생성 포함)."""
+    await refresh_session_ai(survivor_id)
+    await refresh_session_ai(absorbed_id)
+
+
+@router.post("/{survivor_id}/merge", response_model=SessionDetail)
+async def merge_session(
+    survivor_id: str,
+    body: MergeRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> SessionDetail:
+    """두 세션을 병합한다 (merge P2). 파괴적·가역 — 사용자 확인 후에만 호출한다.
+
+    DB 병합은 동기(단일 트랜잭션), 재요약/재임베딩·Qdrant 정리는 응답 후 백그라운드.
+    """
+    try:
+        survivor = await merge_sessions(db, survivor_id, body.absorbed_id)
+    except MergeError as exc:
+        raise HTTPException(status_code=_MERGE_ERROR_STATUS[exc.code], detail=str(exc))
+    background_tasks.add_task(_post_merge_ai, survivor_id, body.absorbed_id)
+    return _to_detail(survivor)
+
+
+@router.post("/{survivor_id}/unmerge", response_model=SessionDetail)
+async def unmerge_session(
+    survivor_id: str,
+    body: MergeRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> SessionDetail:
+    """이전 병합을 되돌린다 (merge P3). 갱신된 survivor를 반환하고 두 세션을 백그라운드 재요약한다."""
+    try:
+        survivor, _absorbed = await unmerge_sessions(db, survivor_id, body.absorbed_id)
+    except MergeError as exc:
+        raise HTTPException(status_code=_MERGE_ERROR_STATUS[exc.code], detail=str(exc))
+    background_tasks.add_task(_post_unmerge_ai, survivor_id, body.absorbed_id)
+    return _to_detail(survivor)
 
 
 async def _run_pending_recovery(

@@ -192,11 +192,15 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
     async def fake_complete(batch_id, event_count, model=None):
         calls["complete"].append((batch_id, event_count, model))
 
+    async def fake_auto_merge_enabled():
+        return False
+
     monkeypatch.setattr(sync_pipeline, "dedupe_events", fake_dedupe)
     monkeypatch.setattr(sync_pipeline, "group_by_time_gap", fake_group_by_time_gap)
     monkeypatch.setattr(sync_pipeline, "_process_group", fake_process_group)
     monkeypatch.setattr(sync_pipeline, "_set_status", fake_set_status)
     monkeypatch.setattr(sync_pipeline, "refresh_session_ai", fake_refresh)
+    monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
     monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
 
     asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}, {"id": "b"}]))
@@ -219,9 +223,13 @@ def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
     async def fake_complete(*_a, **_k):
         pass
 
+    async def fake_auto_merge_enabled():
+        return False
+
     monkeypatch.setattr(sync_pipeline, "dedupe_events", fake_dedupe)
     monkeypatch.setattr(sync_pipeline, "group_by_time_gap", lambda *a, **k: [])
     monkeypatch.setattr(sync_pipeline, "_set_status", fake_set_status)
+    monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
     monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
 
     asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}]))

@@ -48,5 +48,23 @@ class Settings(BaseSettings):
     append_score_floor: float = Field(default=0.35, ge=0.0, le=1.0)  # 검색 0.28보다 높게
     append_max_age_days: int = Field(default=3, ge=0)  # 후보 recency 7일보다 타이트
 
+    # 세션 병합 제안 (merge P1, docs/merge-design.md §3.2). append_score_floor(0.35)보다 높게 잡아
+    #   "거의 같은 주제"만 후보로. 0.52 = 도그푸딩 실데이터 튜닝(2026-08-07, 18세션 153쌍, 읽기 전용 측정).
+    #   골든셋만으론 0.56이 나왔으나 실 세션 요약은 코사인이 더 낮게 분포(정답 낭만인프라↔인프라모니터링 0.533,
+    #   merge-design §1 명시 케이스)해 0.56이면 놓침. 키워드 게이트 통과 쌍의 실데이터 분리 구간
+    #   [0.44 최상위 음성, 0.533 최하위 정답] 사이 0.52 채택.
+    merge_suggest_floor: float = Field(default=0.52, ge=0.0, le=1.0)
+    merge_suggest_max_pairs: int = Field(default=50, ge=1)  # 제안 응답 상한(과다 방지)
+
+    # 자동 병합 (opt-in, 기본 OFF). 문서화된 "자동 파괴 금지" 원칙(merge-design §2, AGENTS §11)을
+    #   깨는 기능이므로 명시적으로 켜야 하고, 켜져도 "명백한 중복"만 배치 후 자동 병합한다:
+    #   코사인 >= auto_merge_floor(제안 floor 0.52보다 훨씬 높게) AND 제목 토큰 자카드 >= auto_merge_title_jaccard.
+    #   모든 자동 병합은 로그로 남기고 unmerge로 되돌릴 수 있다.
+    auto_merge_enabled: bool = False
+    # 코사인 floor는 보조 안전장치, 실제 게이트는 제목 자카드(near-identical title). 0.80이면 실데이터의
+    #   제목 완전 동일 중복(예: 가비아 0.847)이 대상이 되고, 제목이 다른 쌍(제주항공권 검색↔예약)은 자카드에서 걸린다.
+    auto_merge_floor: float = Field(default=0.80, ge=0.0, le=1.0)
+    auto_merge_title_jaccard: float = Field(default=0.8, ge=0.0, le=1.0)
+
 
 settings = Settings()

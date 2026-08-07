@@ -1,4 +1,10 @@
-import type { AnalyticsOverview, Session, SessionSummary } from './types';
+import type {
+  AnalyticsOverview,
+  AppSettings,
+  MergeSuggestion,
+  Session,
+  SessionSummary,
+} from './types';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -204,6 +210,71 @@ function mapAnalyticsOverview(b: BackendAnalyticsOverview, days: number): Analyt
 export async function fetchAnalyticsOverview(days: number): Promise<AnalyticsOverview> {
   const data = await request<BackendAnalyticsOverview>(`/analytics/overview?days=${days}`);
   return mapAnalyticsOverview(data, days);
+}
+
+// ── 세션 병합 (merge P1·P4, docs/merge-design.md §6) ──────────────────
+
+interface BackendMergeSuggestion {
+  survivor_id: string;
+  absorbed_id: string;
+  survivor_title: string;
+  absorbed_title: string;
+  score: number;
+  signals: { vector_score: number; keyword_overlap: string[] };
+}
+
+function mapMergeSuggestion(b: BackendMergeSuggestion): MergeSuggestion {
+  return {
+    survivorId: b.survivor_id,
+    absorbedId: b.absorbed_id,
+    survivorTitle: b.survivor_title,
+    absorbedTitle: b.absorbed_title,
+    score: b.score,
+    keywordOverlap: b.signals?.keyword_overlap ?? [],
+  };
+}
+
+export async function fetchMergeSuggestions(): Promise<MergeSuggestion[]> {
+  const data = await request<BackendMergeSuggestion[]>('/sessions/merge-suggestions');
+  return data.map(mapMergeSuggestion);
+}
+
+export async function mergeSessions(survivorId: string, absorbedId: string): Promise<void> {
+  await request(`/sessions/${survivorId}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ absorbed_id: absorbedId }),
+  });
+}
+
+export async function unmergeSessions(survivorId: string, absorbedId: string): Promise<void> {
+  await request(`/sessions/${survivorId}/unmerge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ absorbed_id: absorbedId }),
+  });
+}
+
+// ── 앱 설정 (사용자 토글, merge 자동병합 등) ──────────────────────────
+
+interface BackendAppSettings {
+  auto_merge_enabled: boolean;
+}
+
+export async function fetchSettings(): Promise<AppSettings> {
+  const d = await request<BackendAppSettings>('/settings');
+  return { autoMergeEnabled: d.auto_merge_enabled };
+}
+
+export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
+  const body: Record<string, unknown> = {};
+  if (patch.autoMergeEnabled !== undefined) body.auto_merge_enabled = patch.autoMergeEnabled;
+  const d = await request<BackendAppSettings>('/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { autoMergeEnabled: d.auto_merge_enabled };
 }
 
 export async function checkHealth(): Promise<boolean> {

@@ -56,6 +56,25 @@ async def delete_point(session_id: str) -> None:
         logger.warning("Qdrant 포인트 삭제 실패 (session_id=%s): %s", session_id, exc)
 
 
+async def get_vector(session_id: str) -> list[float] | None:
+    """Qdrant에 저장된 세션 임베딩 벡터를 조회. 포인트가 없거나 조회 실패 시 None (merge P1)."""
+    try:
+        client = get_qdrant()
+        records = await client.retrieve(
+            collection_name=COLLECTION,
+            ids=[session_id],
+            with_vectors=True,
+        )
+    except Exception as exc:
+        logger.warning("Qdrant 벡터 조회 실패 (session_id=%s): %s", session_id, exc)
+        return None
+    if not records:
+        return None
+    vector = records[0].vector
+    # 단일 무명 벡터만 사용 — named vector(dict) 형태는 이 컬렉션에서 발생하지 않음
+    return vector if isinstance(vector, list) else None
+
+
 async def search_similar(query_vector: list[float], limit: int = 5) -> list[str]:
     client = get_qdrant()
     result = await client.query_points(

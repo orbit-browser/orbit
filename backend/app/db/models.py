@@ -50,6 +50,9 @@ class Session(Base):
     event_count: Mapped[int] = mapped_column(Integer, default=0)
     keywords: Mapped[list] = mapped_column(JSONB, default=list)
     confidence: Mapped[float | None] = mapped_column(REAL, default=None)
+    # 병합(merge) — 흡수된 세션이 가리키는 생존 세션 id. NULL=병합 안 됨(docs/merge-design.md §5).
+    # 기록은 P2 병합 실행부터. P0에서는 컬럼만 준비(additive).
+    merged_into: Mapped[str | None] = mapped_column(String(36), default=None)
 
 
 class ExplorationEvent(Base):
@@ -137,7 +140,24 @@ class SessionEvent(Base):
     sequence_order: Mapped[int] = mapped_column(Integer)
     # llm(기본) | rule(fallback) | user(MVP 범위 밖, 값만 예약)
     assigned_by: Mapped[str] = mapped_column(String(20), default="llm")
+    # 병합(merge P2) — 이 행이 병합으로 옮겨온 원 세션 id. NULL=원래 이 세션 소속. undo 복원 기준.
+    merged_from_session_id: Mapped[str | None] = mapped_column(String(36), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AppSetting(Base):
+    """앱 전역 설정(단일 사용자 개인앱) — key-value. 런타임에 사용자가 토글하는 선호값을 저장한다.
+
+    env(config)는 기본값, 이 테이블 값이 있으면 우선. 신규 테이블이라 create_all이 생성한다.
+    """
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[object] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
 
 
 class SessionVersion(Base):

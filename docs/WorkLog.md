@@ -2,6 +2,209 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-08-07 — 자동병합 사용자 토글(UI 버튼) + 설정 저장소 (feat/merge-suggestions 이어서)
+
+### 요청
+
+"자동병합은 버튼을 만들어 사용자가 선택할 수 있게". env 플래그가 아니라 런타임 UI 토글 필요.
+
+### 변경 (backend — 앱 설정 저장소)
+
+- `app/db/models.py` — `AppSetting`(key-value, JSONB) 신규 테이블. create_all이 생성(마이그레이션 불필요).
+- `app/services/app_settings.py`(신규) — `get_bool`/`set_bool` + `is_auto_merge_enabled()`(DB 값 우선, 없으면 env 기본값).
+- `app/schemas/settings.py`·`app/api/settings.py`(신규) — `GET /settings`·`PATCH /settings`(auto_merge_enabled 토글).
+- `app/main.py` — settings 라우터 등록.
+- `app/services/sync_pipeline.py` — 자동병합 게이트를 `settings.auto_merge_enabled`(env 고정) → `await is_auto_merge_enabled()`(런타임 DB 값)로 교체.
+- `tests/test_sync_pipeline.py` — `_process_batch` 테스트 2곳에 신규 협력자 `is_auto_merge_enabled` 대역 추가(실 DB 접근 방지).
+- `tests/test_app_settings.py`(신규) — get/set bool 6종(기본값·저장값·비-bool 폴백·insert/update).
+
+### 변경 (frontend — 토글 UI)
+
+- `lib/types.ts`·`lib/api.ts` — `AppSettings{autoMergeEnabled}` + `fetchSettings`/`updateSettings`.
+- `hooks/useSettings.ts`(신규) — 설정 조회 + 갱신(성공 시 캐시 즉시 setQueryData).
+- `components/merge/MergeSuggestionsSection.tsx` — 헤더에 `AutoMergeToggle` 스위치. 켜짐 안내 문구.
+  섹션 노출 규칙 변경: 설정 로드 성공 시 노출, 단 "자동병합 OFF + 제안 0"이면 숨김(자동병합 ON이면 끌 수 있게 항상 노출).
+
+### 검증
+
+- **backend**: `pytest -p no:asyncio` **291 passed**. 라우트 `GET/PATCH /settings` 등록 확인.
+- **frontend**: `pnpm build`(tsc 포함) 1851 모듈, 타입 에러 0.
+- **라이브 브라우저 토글 스모크**: 대시보드에서 토글 클릭 → `GET /settings` `true` + 스위치 [checked] + 안내 문구 노출 →
+  다시 클릭 → `false` 복구. 서버 왕복 완전 동작 확인. **자동병합은 OFF 기본값으로 원복하고 종료**(세션 데이터 무변경).
+
+### 남은 일 / TODO
+
+- 자동병합은 이제 UI 토글로 사용자가 켜고 끌 수 있음(기본 OFF). 켜면 다음 동기화 배치에서 명백한 중복만 자동 병합.
+- (선택) 임계값(cos 0.80/제목 자카드 0.80)도 UI 노출할지 여부.
+
+## 2026-08-07 — 일괄병합 + gated 자동병합(기본 OFF) (feat/merge-suggestions 이어서)
+
+### 요청
+
+"P4 계속 진행·검증 + 병합 화면에 일괄병합 추가 + 자동병합 제안·위험 고려".
+
+### 판단 (일괄병합 ≠ 자동병합)
+
+- **일괄병합**(사람이 한 번 확인, 가역) → human-in-loop이라 안전 → 구현.
+- **자동병합**(배치 후 시스템 실행) → 문서화된 "자동 파괴 금지"(merge-design §2, AGENTS §11)와 충돌 →
+  임의로 켜지 않고 **opt-in·기본 OFF·고임계 '명백한 중복'만·로그·가역** 메커니즘만 구현. 사용자 결정 대기.
+
+### 변경 (frontend — 일괄병합)
+
+- `frontend/src/components/merge/MergeSuggestionsSection.tsx` — "모두 병합" 버튼 추가. 순차 병합하되
+  한 배치에서 이미 소비된 세션이 다시 등장하면 건너뛰고(stale 충돌 방지), 성공분은 "모두 되돌리기" 토스트로 일괄 undo.
+
+### 변경 (backend — gated 자동병합, 기본 OFF)
+
+- `app/config.py` — `auto_merge_enabled=False`(기본), `auto_merge_floor=0.80`, `auto_merge_title_jaccard=0.80`.
+- `app/services/merge_service.py` — `_title_jaccard`, `is_auto_merge_candidate`(순수: cos≥floor AND 제목 자카드≥임계),
+  `auto_merge_duplicates(db)`(제안 중 명백한 중복만 병합, 소비 세션 스킵, (survivor,absorbed) 목록 반환).
+- `app/services/sync_pipeline.py` — 배치 재요약 뒤 `if settings.auto_merge_enabled: _run_auto_merge()`(기본 OFF라
+  평소 비용 0). 병합 생존 세션 재요약 + 흡수 세션 Qdrant 포인트 삭제. 실패해도 배치는 성공 마무리.
+- `tests/test_merge_service.py` — 자동병합 후보 판정 5종(제목 자카드·floor·제목상이 거부).
+
+### 검증
+
+- **backend**: `pytest -p no:asyncio` **286 passed**(자동병합 5종 추가). import 순환 없음(sync_pipeline↔merge_service).
+- **frontend**: `pnpm build`(tsc 포함) 1850 모듈, 타입 에러 0.
+- **자동병합 게이트 실데이터 프리뷰(읽기 전용, 실행 안 함)**: 실 제안 5쌍에 게이트 적용 시 가비아 중복
+  (cos 0.847·제목 자카드 1.00)만 AUTO, 나머지(제주항공권·이터널리턴·낭만인프라)는 제목 상이(자카드 0.17~0.60)로 전부 skip.
+- **미실시**: 실 브라우저 렌더 스모크 — 실 DB에 두 번째 백엔드를 붙이면 기동 복구 로직이 사용자 실데이터를
+  변경할 수 있어 데이터 보호상 보류(격리 시드 환경에서 별도 확인 제안).
+
+### 남은 일 / TODO
+
+- 자동병합 **켤지 여부는 사용자 결정 대기**(현재 OFF). 켜려면 env `AUTO_MERGE_ENABLED=true`.
+- (선택) 격리 시드 환경 실 브라우저 E2E 스모크, 배치 후 제안 뱃지, 익스텐션 사이드패널.
+
+## 2026-08-07 — 세션 병합 P4 대시보드 UI + 실데이터 재튜닝 (feat/merge-suggestions 이어서)
+
+### 요청
+
+"P4 진행 + 도그푸딩 실데이터로 한번 더 튜닝".
+
+### 실데이터 재튜닝 (읽기 전용)
+
+- 도그푸딩 실 DB(18세션)+Qdrant 벡터로 153쌍 코사인 + 키워드 게이트를 읽기 전용 측정.
+- 실 세션 요약은 골든보다 코사인이 낮게 분포 → 골든값 0.56이면 정답(낭만인프라↔인프라모니터링 0.533,
+  이터널리턴강의↔나어나이 0.544)을 놓침. 분리 구간 [0.44, 0.533] 사이 **0.52** 확정.
+- 실 orchestrator `find_merge_suggestions`로 최종 확인: floor 0.52에서 제안 5쌍 전부 진짜 과분할
+  (가비아 중복·제주항공권 9+3·이터널리턴 2건·낭만인프라). `app/config.py` merge_suggest_floor=0.52.
+
+### P4 — 대시보드 병합 제안 UI (frontend)
+
+백엔드 변경 없음(기존 `GET /merge-suggestions` + `POST /merge`·`/unmerge`를 대시보드가 온디맨드 소비).
+
+- `frontend/src/lib/types.ts` — `MergeSuggestion` 타입.
+- `frontend/src/lib/api.ts` — `fetchMergeSuggestions`/`mergeSessions`/`unmergeSessions` + snake→camel 매핑.
+- `frontend/src/hooks/useMergeSuggestions.ts`(신규) — react-query 훅(제안 조회 + merge/unmerge mutation,
+  성공 시 sessions·merge-suggestions·관련 session 캐시 무효화).
+- `frontend/src/store/ui.ts`·`components/Toast.tsx` — 토스트에 선택적 액션(되돌리기) 지원(액션 시 6초 표시).
+- `frontend/src/components/merge/MergeSuggestionsSection.tsx`(신규) — 제안 쌍 카드 목록 + 병합 버튼.
+  로딩/에러/제안 없음이면 조용히 숨김(AnalyticsSection 방어 패턴). 병합은 confirm() 확인 후 실행,
+  성공 시 "되돌리기" 액션 토스트로 unmerge 노출.
+- `frontend/src/views/HomeView.tsx` — 세션 목록과 탐색 분석 사이에 `<MergeSuggestionsSection/>` 삽입.
+
+### 검증
+
+- **frontend**: `pnpm build`(tsc --noEmit 포함) — 1850 모듈 변환, 타입 에러 0, 빌드 성공.
+- **실 백엔드 경로(읽기 전용)**: additive 마이그레이션(merged_into·merged_from_session_id 컬럼 추가, 멱등·데이터
+  미변경) 적용 후 `find_merge_suggestions` 실행 → 실데이터 5쌍 정상 반환(Qdrant get_vector +
+  search_similar_with_scores@0.52 + evaluate_pair 전 경로).
+- **backend**: `pytest -p no:asyncio` 281 통과 유지.
+- 미실시: 실 브라우저 렌더 스모크(양 서버 기동 필요). 실 세션 병합 클릭은 사용자 데이터 보호를 위해 하지 않음.
+
+### 남은 일 / TODO
+
+- (선택) 실 브라우저 E2E 스모크 — 대시보드에서 병합 제안 섹션 렌더/병합/되돌리기 흐름 육안 확인.
+- (선택) 배치 후 제안 자동 생성 + 뱃지, 익스텐션 사이드패널 노출은 미구현(대시보드 우선 결정에 따라 보류).
+- 실 DB에 additive 컬럼이 적용됨 — main 체크아웃 시에도 무해(미사용 nullable).
+
+## 2026-08-07 — 세션 병합 P2 실행 + P3 undo + floor 튜닝 (feat/merge-suggestions 이어서)
+
+### 요청
+
+"이 브랜치에서 전체 구현 + 테스트 + 튜닝까지". P0+P1에 이어 P2(병합 실행)·P3(undo) 구현 + `merge_suggest_floor` 실측 튜닝.
+
+### 변경
+
+- `app/db/models.py` — `SessionEvent.merged_from_session_id VARCHAR(36) NULL`(undo 복원 기준).
+- `app/db/migrations.py` — 러너를 `{table: [(col, ddl)]}` 다중 테이블로 일반화(멱등 유지), session_events 컬럼 추가.
+- `app/services/merge_service.py`(신규) — `merge_sessions`/`unmerge_sessions` + 게이트웨이(`_fetch_events_ordered`,
+  `_move_event`, `_delete_event`, `_recompute_session_stats`) + 순수 `_union_keywords`. `MergeError(code)`→HTTP 매핑.
+- `app/schemas/session.py` — `MergeRequest{absorbed_id}`.
+- `app/api/sessions.py` — `POST /sessions/{id}/merge`·`/unmerge`(동기 DB + 백그라운드 재요약/재임베딩),
+  `list_sessions`에 `status!='merged'` 필터.
+- `app/services/sync_pipeline.py` — `_fetch_candidates` 최종 조회에 `status=='active'` 이중 방어(Qdrant 삭제 실패 대비).
+- `app/config.py` — `merge_suggest_floor` 0.6 → 0.56(골든) → **0.52**(실데이터 튜닝 최종).
+- `tests/test_merge_service.py`(신규) — merge/unmerge 검증 분기·정상 경로·`_union_keywords` 10종.
+- `eval/merge_golden.json`·`eval/tune_merge_floor.py`(신규) — 병합 탐지 골든셋 + 실 임베딩 floor 튜닝 하네스.
+
+### 검증
+
+- `python -m pytest -p no:asyncio` — **281 passed**(P0+P1 15 + P2/P3 10 신규 포함).
+- 앱 전체 임포트·라우트 등록 확인(merge/unmerge/merge-suggestions 정상 등록).
+- **실 SQL 통합**: 일회용 postgres 컨테이너(포트 55432, 사용자 데이터 미접촉)에 A/B+events 삽입 →
+  merge → 검증(A 5건·B 0건·shared dedup·b1/b2 merged_from='B' 태그·재계산·keyword 합집합·B `status='merged'`) →
+  unmerge → 검증(A 3건·B 2건·태그 제거·B 재활성화). 전 항목 통과 후 컨테이너 제거.
+- **튜닝(골든)**: `python -m eval.tune_merge_floor`(실 Upstage passage 임베딩) — 양성 0.645~0.739, 음성 0.236~0.472,
+  완전 분리(gap +0.173) → 밴드 중앙값 0.56.
+- **튜닝(실데이터, 최종)**: 도그푸딩 18세션 153쌍 읽기 전용 측정(실 Qdrant 벡터+키워드 게이트) — 실 요약은 코사인이
+  더 낮게 분포해 0.56이 정답을 놓침(낭만인프라 0.533, 이터널리턴강의↔나어나이 0.544). 분리 구간 [0.44, 0.533] 사이
+  **0.52** 확정. 0.52에서 제안 5쌍 전부 진짜 과분할(가비아 중복·제주항공권 9+3·이터널리턴 2건·낭만인프라).
+  실데이터 접근은 읽기 전용(필요 컬럼만 select, 스키마·데이터 미변경).
+
+### 남은 일 / TODO
+
+- P4(배치 후 자동 제안 생성 + 대시보드/사이드패널 UI). UI 위치는 대시보드 우선으로 합의됨.
+- 병합 전용 version note는 record_version 시그니처에 없어 미기록(재요약이 새 version 자연 생성) — 필요 시 추후.
+- 골든 양성 4개는 curated 소표본 — 실데이터 제안 품질은 P4 노출 후 재측정.
+
+## 2026-08-07 — 세션 병합 P0 스키마 + P1 제안 API (feat/merge-suggestions)
+
+### 요청
+
+merge 구현 착수. 먼저 merge-design §9 열린 결정을 사용자와 합의한 뒤 P0+P1만 구현.
+
+### 결정 (2026-08-07 확정, DecisionLog 참조)
+
+범위=P0(스키마)+P1(읽기 전용 제안), 탐지=벡터 floor AND 키워드 겹침(정밀 우선),
+생존=이벤트 많은 쪽(동률 시 이른 started_at→id), UI 위치=웹 대시보드 우선(구현은 P2).
+
+### 조사 / 사실 정정
+
+- 세션 요약 임베딩은 Qdrant `orbit_sessions`(COSINE, dim 4096)에 `embedding_status='done'`일 때만 저장.
+  `search_similar_with_scores`로 점수 기반 근접 검색 가능.
+- 마이그레이션 러너(`db/migrations.py`)는 sessions 테이블 컬럼 추가만 담당(멱등 ALTER).
+- **[정정]** merge-design §5의 "list API는 status='active'만 반환" 가정은 **틀림** —
+  `list_sessions`에 status 필터가 없다. 이번 범위(merged 세션 미생성)에서는 무해하나 **P2에서 필터 필수**.
+- FastAPI 라우트 순서상 `/sessions/merge-suggestions`를 `/sessions/{session_id}`보다 먼저 등록해야 함.
+
+### 변경
+
+- `app/db/models.py` — `Session.merged_into VARCHAR(36) NULL` 추가(P0, 기록은 P2부터).
+- `app/db/migrations.py` — `_SESSIONS_COLUMNS`에 `merged_into` 멱등 ALTER 추가.
+  `session_events.merged_from_session_id`는 이벤트 이전이 실제 일어나는 P2로 연기(러너 일반화 필요·현재 미사용).
+- `app/config.py` — `merge_suggest_floor`(기본 0.6, 미측정 잠정값), `merge_suggest_max_pairs`(50).
+- `app/db/vector.py` — `get_vector(session_id)` 추가(저장 벡터 조회, 실패/부재 시 None).
+- `app/services/merge_suggester.py`(신규) — 순수 판정 함수(`evaluate_pair`, `keyword_overlap`,
+  `_pick_survivor`) + 오케스트레이터(`find_merge_suggestions`, 읽기 전용).
+- `app/schemas/session.py` — `MergeSignal`, `MergeSuggestion` 추가.
+- `app/api/sessions.py` — `GET /sessions/merge-suggestions`(읽기 전용, `/{session_id}`보다 먼저 등록).
+- `tests/test_merge_suggester.py`(신규) — 순수 함수 15종(floor 경계·AND 미충족·생존자 tie-break·제목 fallback).
+- `docs/Plan.md` — merge P0+P1 계획으로 갱신.
+
+### 검증
+
+- `python -m pytest -p no:asyncio` — **271 passed**(기존 256 + 신규 15).
+- 라우트 등록 순서 확인: `/sessions/merge-suggestions`가 `/sessions/{session_id}` 앞에 등록됨.
+- 오케스트레이터(Qdrant/DB 의존)는 단위 테스트 미대상 — 로직을 순수 함수에 집중(AGENTS §12).
+
+### 남은 일
+
+- `merge_suggest_floor` 골든/실데이터 튜닝 후 DecisionLog 갱신.
+- P2(병합 실행 API + `list_sessions` status 필터 + `merged_from_session_id`), P3(undo), 대시보드 UI.
+
 ## 2026-08-07 — 세션 진입을 대시보드로 통일 + 세션 복원 (feat/design-upgrade 3차)
 
 ### 요청
