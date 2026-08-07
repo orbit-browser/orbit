@@ -5,7 +5,7 @@ export function Toast() {
   if (!toast) return null;
   return (
     <div className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
-      <div className="rounded-lg bg-orbit-text/90 text-white text-xs px-3 py-2 shadow-lg">
+      <div className="rounded-lg bg-orbit-text/90 text-white text-xs px-3 py-2 shadow-orbit-overlay">
         {toast}
       </div>
     </div>

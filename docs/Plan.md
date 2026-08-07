@@ -1,136 +1,264 @@
-# 그룹 내 서브클러스터링 + 그룹 간 append 게이팅
+# 디자인 개편 — orbit_front 목업 이식 및 새 탭 홈 연결
 
-**상태:** 구현·골든·실데이터 검증 완료 (2026-08-06). 남은 일 = 게이트 cross-day 튜닝, merge(create-bias).
-**브랜치:** `feat/subcluster-append-gating`
+**상태:** 1차(홈·사이드패널) → 2차(아틀라스 이식 + 바로가기) → 3차(세션 진입 통일 + 복원) 완료 (2026-08-07)
+**브랜치:** `feat/design-upgrade`
 
-> 결과 요약: 골든 11개 Assignment/Purity/Coverage 100%, backend pytest 256 통과.
-> 실데이터 재세션화 2회에서 메가 뭉침 재발 없음(핵심 불안정 해소). 상세는 WorkLog·DecisionLog(2026-08-06).
-
-> 직전 계획(AI 챗 정규화·노이즈 보강)은 완료·병합됨(#3). 이번은 DecisionLog
-> "[재확인] 그룹 간 과잉 append" 항목의 구조적 해법 1+2를 구현한다.
+> 직전 계획(그룹 내 서브클러스터링 + append 게이팅)은 완료·병합됨(#4). 이번 작업은
+> 백엔드 파이프라인을 건드리지 않는 **프론트 전용 변경**이다.
 
 ## 작업 목표
 
-Auto Session 재세션화 품질이 run마다 출렁이는 구조적 불안정을 잡는다. 두 원인을 각각 겨냥:
+1. `orbit-browser/orbit_front` 목업의 **메인 화면을 크롬 새 탭 스타팅 화면**으로 이식한다.
+   기본 브라우저 첫 화면처럼 주소창은 비어 있고, 홈 검색창에 검색어나 URL을 넣으면
+   각각 검색·주소 이동이 된다. **연결은 여기까지만** 한다.
+2. 기존 사이드패널 디자인을 목업의 디자인 언어(샌드 배경 + 테라코타 액센트)로 통일한다.
+3. 배경이 함께 붙어 나오는 현재 아이콘을 **투명 배경 마크**로 교체한다.
 
-- **그룹 내 다주제 뭉침** → ① 임베딩 서브클러스터링으로 LLM 호출 전 주제 선분리.
-- **그룹 간 과잉 append** → ② append 게이팅(벡터 유사도 하한 + 시간 근접)으로 오래됐거나
-  안 비슷한 후보 세션에 조용히 붙는 것을 결정적으로 차단.
+## 현재 상태와 조사 결과
 
-프롬프트 튜닝(v4·v5)은 특정 케이스만 잡고 구조적 불안정은 못 잡음이 확인됨(DecisionLog 2026-08-05).
+### 목업 (`orbit-browser/orbit_front`, 별도 저장소)
 
-## 조사 결과 (현재 구조)
+* Vite + React 19 + Tailwind v4. 디자인 토큰은 `src/index.css:14-28`에 집약.
 
-`sync_pipeline._process_group` 흐름: `is_system_url` → `split_noise` → **그룹 전체 1회 임베딩**
-→ `_fetch_candidates`(벡터 top3 + 최근 24h ≤5) → `intent_analyzer.analyze(그룹 전체)` → `apply_assignments`.
+  | 토큰 | 값 |
+  | --- | --- |
+  | `--bg-sand` | `#fefaf6` (페이지 배경, 그라디언트 금지) |
+  | `--bg-canvas` | `#ffffff` |
+  | `--accent-orange` | `#f07550` |
+  | `--accent-orange-muted` | `#f7a488` |
+  | `--text-main` | `#2b2521` |
+  | `--text-muted` | `#7d7069` |
+  | `--border-subtle` | `rgba(170, 116, 90, 0.18)` |
+  | `--shadow-warm` | `rgba(178, 112, 84, 0.12)` |
+  | `--radius-lg / md / pill` | `28px / 16px / 100px` |
 
-- 다주제 그룹 전체가 한 임베딩·한 LLM 호출로 들어가 뭉침 여지가 큼.
-- `search_similar_with_scores`는 score를 계산하지만 `_fetch_candidates`가 **점수를 버림** → 게이팅에 재활용.
-- `apply_assignments`는 이미 append 대상 소실 시 create fallback을 지원(§session_updater) →
-  게이트의 append→create 강등이 기존 경로에 자연히 얹힘.
-- numpy 2.2.6 사용 가능(코사인). Upstage 임베딩은 배열 입력 지원(그룹당 1회 HTTP 배치 가능).
+* 메인 화면 구성 = `src/App.tsx`
+  `Header`(사이드바 토글 + 유저 메뉴) · `NavigatorDrawer` · `OrbitHero`(시그니처 토성 SVG +
+  검색 셸 + 검색 범위) · `RecentExploration`(좌) · `ContinueExploring`(우) · `SessionDetail`(모달).
+* 더미 데이터는 `src/components/atlas/data.ts` (578줄, Orbit → Session → Page 구조).
+* 아이콘은 Phosphor를 **CDN `<script>`** 로 로드 (`index.html`). MV3 CSP에서 불가 → lucide로 대체 필요.
+* 폰트는 Google Fonts `@import`. MV3에서는 원격 폰트를 쓰지 않는 것이 기존 결정
+  (`extension/assets/fonts/README.md`) → 시스템 폰트 스택으로 폴백.
 
-## 설계 결정 (사용자 승인: 조건부 하드 스플릿)
+### 익스텐션 (`extension/`)
 
-서브클러스터가 2개 이상일 때만 클러스터별로 후보검색+LLM 분석을 분리한다. 단일주제 그룹은
-클러스터 1개 → 호출 1회(기존과 동일). 뭉침을 구조적으로 차단하고, LLM 호출 증가는 실제
-다주제 그룹에서만 발생(EXAONE 429는 기존 A.X 폴백이 흡수).
+* 엔트리포인트는 `background` · `content` · `sidepanel` 3개. **newtab 없음** →
+  스타팅 화면을 만들려면 신규 엔트리포인트 + `chrome_url_overrides.newtab` 필요.
+* 현재 토큰(`entrypoints/sidepanel/styles/tailwind.css`)은 `#f2660a` / `#f7f8fa` / 회색 계열로
+  목업의 샌드·테라코타 톤과 불일치.
+* `wxt.config.ts:22,27`이 `/orbit_icon.png`를 아이콘으로 지정. 이 파일은
+  **1242×1242 주황 단색 배경** 이미지라 크롬 사이드패널 헤더에서 배경과 분리돼 보인다.
+  (사용자가 지적한 증상의 원인. 헤더 로고는 익스텐션 코드가 아니라 크롬이 manifest
+  아이콘으로 그린다.)
+* `orbit_front/src/assets/orbit-mark.png`(256×212, 알파 있음)가 배경 없는 동일 마크.
 
-**과분할(주 리스크) 완화:**
-- 보수적 임계값 — 명백히 다를 때만 쪼갬(2026-07-05 "소표본 임베딩 클러스터링 불안정" 경고 존중).
-- **collect-then-apply** — 모든 클러스터의 후보검색·analyze를 먼저 끝낸 뒤 apply. 클러스터가
-  서로가 방금 만든 세션을 후보로 보지 못하게 해 쪼갠 걸 다시 붙이는 것을 막는다.
+## 사용자 결정 (2026-08-07 확인)
 
-## 계약 (구현 전 확정)
+| 항목 | 결정 |
+| --- | --- |
+| 검색창 외 버튼·메뉴 | **렌더하되 전부 비활성.** 목업과 같은 화면을 유지하되 클릭 시 동작 없음 |
+| 홈 카드 데이터 | **목업 더미 데이터 그대로.** 백엔드 연결 안 함 |
+| 사이드패널 개편 범위 | **토큰·아이콘 교체 + 부품 정리.** 화면 구조와 기능은 유지 |
+| 검색 엔진 | **사용자 기본 검색엔진**(`chrome.search` API). `search` 권한 추가 |
 
-### 1. `app/services/subclusterer.py` (신규, 순수 함수·DB/IO 없음)
+## 포함 범위
 
-```python
-def subcluster(embeddings: list[list[float]], threshold: float) -> list[list[int]]:
-    """이벤트 임베딩을 average-linkage 응집으로 서브클러스터링, 인덱스 그룹 목록 반환.
-    - 평균 코사인 ≥ threshold인 가장 유사한 클러스터 쌍을 반복 병합, 미달이면 정지.
-    - 결정적: 등장 순서 보존, tie-break는 (min index) 오름차순.
-    - 단일주제(모두 유사)면 [[0..n-1]] 한 그룹. 이벤트 0개면 [], 1개면 [[0]].
-    """
-```
+* `extension/entrypoints/newtab/` 신규 — 홈 화면 일체
+* `extension/public/` — 투명 배경 아이콘 세트
+* `extension/wxt.config.ts` — 아이콘 경로, `search` 권한
+* `extension/entrypoints/sidepanel/styles/tailwind.css` — 디자인 토큰
+* 사이드패널 컴포넌트의 반경·그림자·버튼·배지 스타일 정리
 
-### 2. `app/ai/embedding.py` — `embed_many` 추가
+## 제외 범위
 
-```python
-async def embed_many(texts: list[str], *, model: str | None = None) -> list[list[float]]:
-    """여러 텍스트를 1회 요청으로 임베딩(Upstage 배열 입력). 순서 보존, 빈 입력은 []."""
-```
-
-### 3. `app/services/sync_pipeline.py` — `_process_group` 재작성 + 게이트
-
-- `_event_embedding_text(event)` — 제목 + 도메인 + 검색어(있으면).
-- `_centroid(vectors)` — 정규화 평균(클러스터 후보검색용 query 벡터).
-- `_fetch_candidates` 반환 dict에 `score`(벡터 매치 점수, 최근-only 후보는 None)와
-  `last_activity_days_ago` 유지.
-- `_gate_appends(assignments, candidates)` (순수 함수) — action=="append"이고
-  target 후보의 `score < settings.append_score_floor`(벡터 매치인 경우) 또는
-  `last_activity_days_ago > settings.append_max_age_days`이면 **create로 강등**
-  (title/purpose 없으면 session_updater의 fallback 제목 사용).
-- 흐름: system·noise 필터 → `embed_many` → `subcluster` → (phase1) 클러스터별
-  centroid로 `_fetch_candidates` → `analyze` → `_gate_appends`, 모델·pending 수집 →
-  (phase2) 클러스터별 `apply_assignments`. `touched`·모델 카운트는 클러스터 합산.
-
-### 4. `app/config.py` — 임계값(env 오버라이드 가능, 실측 튜닝 대상)
-
-```python
-subcluster_threshold: float = Field(default=0.5, ge=0.0, le=1.0)   # 낮을수록 덜 쪼갬(보수적)
-append_score_floor: float = Field(default=0.40, ge=0.0, le=1.0)    # 검색 0.28보다 높게(append는 강한 커밋)
-append_max_age_days: int = Field(default=3, ge=0)                  # 후보 recency 7일보다 타이트
-```
-
-### 5. `eval/run_eval.py` — 서브클러스터링 경로 반영 (골든 정합성)
-
-- 그룹별 `embed_many`(이벤트 텍스트) → `subcluster` → 클러스터별 `analyze` 호출.
-- `--record`/`--replay`에 임베딩 맵 추가(재현성·비용 통제). call_key에 cluster_index 추가.
-- eval은 Qdrant 미사용이라 후보는 `existing_sessions`를 그대로 전달(게이트는 eval 범위 밖,
-  단위 테스트로 검증). → eval은 **서브클러스터링 + 프롬프트** 품질을 검증.
-
-## 검증 범위 분리 (정직성)
-
-- **단위 테스트**: `subcluster()`(합성 벡터로 분리/미분리·결정성), `_gate_appends()`
-  (합성 score·days_ago로 강등/유지), `embed_many`(배열 매핑·빈 입력).
-- **골든셋**(사용자 승인: "골든셋으로 검증"): 서브클러스터링 + LLM 무회귀 — 특히
-  `mixed_topics_with_noise`가 travel/coding 2개로 분리되고, `existing_session_continue`·
-  `trip_flow_with_tool_visits`는 단일 클러스터 유지(과분할 없음).
-- **실데이터 재세션화**: 게이트 포함 전 경로 통합 검증(실 Qdrant 점수). run별 안정성 관찰.
-
-## 임계값 튜닝 순서
-
-1. 골든셋 이벤트 임베딩의 실제 코사인 분포를 측정(mixed_topics의 travel↔coding 거리,
-   trip_flow 내부 거리) → `subcluster_threshold`를 분리 구간에 위치.
-2. `append_score_floor`는 실데이터의 정당한 continuation 점수와 loose 매치 점수 분리 구간.
-3. 보수적 우선(과분할·과잉게이트 회피) — 애매하면 덜 쪼개고 덜 강등.
+* 백엔드, 이벤트 수집기, 동기화 엔진 — 일절 건드리지 않음
+* 홈의 백엔드 실데이터 연결, 인증 흐름
+* 아틀라스(`orbit_front`의 두 번째 화면) 이식
+* 사이드패널 화면 구조·정보구조 재설계
+* `orbit_front` 저장소 자체의 변경
 
 ## 변경할 파일
 
-| 파일 | 변경 |
-|---|---|
-| `backend/app/services/subclusterer.py` | 신규 — subcluster 순수 함수 |
-| `backend/app/ai/embedding.py` | embed_many 추가 |
-| `backend/app/services/sync_pipeline.py` | _process_group 재작성, _gate_appends, _fetch_candidates score 노출 |
-| `backend/app/config.py` | 임계값 3종 |
-| `backend/eval/run_eval.py` | 서브클러스터 경로 + 임베딩 record/replay |
-| `backend/tests/test_subclusterer.py` | 신규 |
-| `backend/tests/test_sync_pipeline.py` | _process_group·_gate_appends 케이스 |
-| `backend/tests/test_embedding.py` | embed_many (신규 또는 기존에 추가) |
-| `docs/DecisionLog.md`, `docs/WorkLog.md` | 결정·작업 기록 |
+### 신규
 
-## 위험과 사용자 결정
+```
+extension/public/orbit-mark-16.png / -32.png / -48.png / -128.png
+extension/entrypoints/newtab/index.html
+extension/entrypoints/newtab/main.tsx
+extension/entrypoints/newtab/App.tsx
+extension/entrypoints/newtab/styles/home.css
+extension/entrypoints/newtab/components/HomeHeader.tsx
+extension/entrypoints/newtab/components/SignatureOrbit.tsx
+extension/entrypoints/newtab/components/HomeSearch.tsx
+extension/entrypoints/newtab/components/RecentExploration.tsx
+extension/entrypoints/newtab/components/ContinueExploring.tsx
+extension/entrypoints/newtab/components/ExploreCard.tsx
+extension/entrypoints/newtab/data/home-mock.ts
+extension/lib/omnibox.ts
+extension/tests/omnibox.test.ts
+```
 
-- **과분할**(주 리스크): 보수적 임계값 + collect-then-apply + 골든/실데이터 튜닝으로 완화.
-- **비용/429**: 다주제 그룹만 호출 증가, EXAONE→A.X 폴백이 흡수. 배치당 임베딩 1 HTTP 추가(소액).
-- **2026-07-05 결정 재검토**: 임베딩 클러스터링을 "거친 선분리(LLM 보조)"로 한정 도입 —
-  DecisionLog에 재검토로 명시.
-- 임계값은 실측 전 임시값 — 골든/실데이터로 확정 후 DecisionLog 갱신.
+### 수정
+
+```
+extension/wxt.config.ts
+extension/entrypoints/sidepanel/styles/tailwind.css
+extension/entrypoints/sidepanel/components/*.tsx  (반경·그림자·버튼 톤)
+extension/entrypoints/sidepanel/views/*.tsx        (동일)
+docs/Plan.md · docs/Process.md · docs/WorkLog.md · docs/DecisionLog.md · docs/IA.md
+```
+
+## 계약 — 구현 전 확정
+
+### `extension/lib/omnibox.ts`
+
+주소창 입력 해석기. 새 탭 홈과 향후 다른 진입점이 같은 규칙을 쓰도록 분리한다.
+
+```ts
+export type OmniboxIntent =
+  | { kind: 'navigate'; url: string }
+  | { kind: 'search'; query: string };
+
+/**
+ * 브라우저 주소창과 같은 규칙으로 입력을 해석한다.
+ * - http/https/file 스킴이 명시되면 그대로 이동
+ * - localhost[:port], IPv4, "점 + TLD" 형태의 공백 없는 문자열이면 https:// 를 붙여 이동
+ * - 그 외(공백 포함, 점 없음, 위험 스킴)는 검색
+ *
+ * javascript:, data:, chrome: 등은 검색으로 강등한다 — 홈 입력으로 특권 스킴을
+ * 실행시키지 않기 위한 경계 검증이다.
+ */
+export function parseOmniboxInput(raw: string): OmniboxIntent;
+```
+
+실행 측은 홈 컴포넌트가 담당한다.
+
+```ts
+// navigate → location.assign(url)  (새 탭 자신을 목적지로 대체 = 기본 브라우저 동작)
+// search   → chrome.search.query({ text, disposition: 'CURRENT_TAB' })
+//            실패 시 사용자에게 오류 토스트, 조용히 삼키지 않는다
+```
+
+### 홈 컴포넌트 규약
+
+* 비활성 컨트롤은 **`disabled` 속성 + `aria-disabled` + `title="준비 중"`** 로 통일한다.
+  숨기지 않고 렌더하되, 클릭 핸들러를 아예 붙이지 않는다.
+* 더미 데이터임이 코드에서 드러나도록 모듈명을 `home-mock.ts`로 두고 주석에 명시한다.
+
+### manifest 변경
+
+```ts
+permissions: [..., 'search'],   // 사용자 기본 검색엔진 사용
+icons/action.default_icon: 16/32/48/128 투명 마크
+// chrome_url_overrides.newtab 은 WXT 가 newtab 엔트리포인트에서 자동 생성
+```
+
+## 구현 순서
+
+1. **에셋** — `orbit-mark.png`를 정사각 캔버스에 알파 유지로 패딩 후 16/32/48/128 생성,
+   `wxt.config.ts` 아이콘 교체. (효과가 가장 즉각적이고 나머지와 독립적)
+2. **계약** — `lib/omnibox.ts` + 단위 테스트. 실패·경계 입력을 먼저 고정한다.
+3. **홈 골격** — newtab 엔트리포인트, `home.css` 토큰 이식, 히어로 + 검색만으로 동작 확인.
+4. **홈 섹션** — 더미 데이터, 최근 탐색·이어서 탐색·추천 카드, 비활성 컨트롤.
+5. **사이드패널** — 토큰 교체 → 부품 톤 정리.
+6. **검증 및 문서**.
+
+## 테스트 및 검증 방법
+
+```bash
+cd extension && pnpm test      # vitest — omnibox 파서 포함
+cd extension && pnpm compile   # tsc --noEmit
+cd extension && pnpm build     # wxt build
+```
+
+수동 스모크 (사용자 환경에서 확인 필요):
+
+* 새 탭을 열었을 때 주소창이 비어 있는지
+* `github.com` → 이동 / `orbit 세션 클러스터링` → 기본 검색엔진 검색
+* `javascript:alert(1)` 입력이 검색으로 처리되는지
+* 사이드패널 헤더 아이콘에 배경 사각형이 사라졌는지
+
+## 위험
+
+| 위험 | 대응 |
+| --- | --- |
+| 새 탭 오버라이드는 브라우저 전역 경험을 바꾼다 | 사용자 승인 완료. 되돌리려면 newtab 엔트리포인트 삭제만 하면 됨 |
+| `chrome.search` 권한 추가 → 스토어 심사 시 사유 필요 | README·DecisionLog에 사유 기록 |
+| 목업 CSS를 그대로 옮기면 사이드패널 Tailwind와 충돌 가능 | 홈은 별도 CSS 파일·별도 엔트리포인트로 격리, 사이드패널은 Tailwind 토큰만 교체 |
+| 목업의 Phosphor CDN 아이콘은 MV3에서 로드 불가 | lucide-react(기존 의존성)로 대체 |
+| 더미 데이터가 실데이터처럼 오인될 수 있음 | 모듈명·주석으로 명시, DecisionLog에 한시적 조치임을 기록 |
+
+## 2차 확장 — 아틀라스 전체 이식 + 바로가기 (2026-08-07 추가 요청)
+
+1차에서는 홈의 검색창만 연결하고 나머지 컨트롤을 비활성으로 두었으나, 사용자가
+**"목업 채로 들고와줘"** 로 범위를 넓혔다. 두 번째 화면(아틀라스)과 네비게이션,
+마우스 상호작용을 시안 그대로 이식한다.
+
+### 추가 결정 (2026-08-07)
+
+| 항목 | 결정 |
+| --- | --- |
+| 이식 범위 | 시안에서 **도달 가능한 컴포넌트 전부**. 죽은 코드(`OrbitDetailPanel`·`OrbitAtlasCanvas`·`OrbitSidebar`·`DesignedByVariantChip` — 어디서도 import 안 됨)는 제외 |
+| 비활성 컨트롤 | 해제. 네비게이터·유저메뉴·세션 상세·아틀라스 진입 모두 시안대로 동작 |
+| 라우팅 | 해시 라우팅(`#/orbit-atlas`). 시안의 경로 라우팅은 확장 페이지(`newtab.html`)에서 새로고침 시 깨진다 |
+| Phosphor 아이콘 | CDN `<script>` → **woff2 로컬 번들**. 41종이 쓰여 lucide 매핑은 손실이 크다 |
+| 검색창 아래 | `검색 범위` 제거, **바로가기**(크롬 새 탭과 같은 역할)로 교체. 펼침/접힘 지원 |
+| 바로가기 초기 목록 | `chrome.topSites`. 사용자가 추가·삭제하면 그때부터 사용자 목록만 사용 |
+| 바로가기 아이콘 | `favicon` 권한 + 확장 내장 `_favicon/`. 외부 파비콘 서비스에 방문 기록을 흘리지 않는다 |
+| 탭 제목 | `Orbit` → `새 탭` |
+
+### 추가/변경 파일
+
+```
+extension/entrypoints/newtab/
+├─ App.tsx                    # 시안 홈 (교체)
+├─ pages/OrbitAtlasPage.tsx   # 아틀라스 진입
+├─ components/VariantAtlasReplica.tsx
+├─ components/atlas/{data,AtlasCanvas,AtlasDetail,AtlasHeader,AtlasNavigator,AtlasTray}
+├─ components/layout/{BrandMark,Header,NavigatorDrawer,SidebarToggle,UserMenu}
+├─ components/sections/{OrbitHero,RecentExploration,ContinueExploring,ExploreCard,SessionDetail}
+├─ components/sections/Shortcuts.tsx   # 신규 — 바로가기
+├─ lib/{navigation,nav-state,shortcuts}.ts
+└─ styles/{index,atlas,phosphor}.css
+extension/public/fonts/Phosphor.woff2
+extension/tests/unit/shortcuts.test.ts
+```
+
+1차에서 만든 단순화 컴포넌트(`HomeHeader`·`HomeSearch`·`SignatureOrbit`·`home-mock.ts`·
+`home.css` 등)는 시안 원본으로 대체되며 삭제됐다.
+
+### 시안 대비 의도적 차이
+
+목업을 그대로 옮기되 확장에서 동작할 수 없거나 거짓말이 되는 부분만 고쳤다.
+
+| 항목 | 시안 | 확장 | 이유 |
+| --- | --- | --- | --- |
+| 라우팅 | `/orbit-atlas` | `#/orbit-atlas` | 확장 페이지에서 경로 pushState 는 새로고침 시 깨짐 |
+| 아이콘 | Phosphor CDN | woff2 로컬 번들 | MV3 CSP |
+| 폰트 | Google Fonts | 시스템 스택 폴백 | 원격 폰트 미사용 원칙 |
+| 검색 모드 | 동작 없음 | 주소 이동 / 기본 검색엔진 | 새 탭의 주소창 역할을 겸함 |
+| 검색 placeholder | `탐색 기록 검색...` | `검색어 또는 주소를 입력하세요` | 실제 동작과 맞춤 |
+| 검색창 아래 | 검색 범위 | 바로가기 | 사용자 요청 |
+| 브랜드 마크 | 소스 에셋 import | `/orbit-mark.png` | 확장 public 에셋 |
+
+## 3차 — 세션 진입 통일 + 세션 복원 (2026-08-07 추가 요청)
+
+| 항목 | 결정 |
+| --- | --- |
+| 세션 상세 모달 | **제거.** 최근 탐색·`상세 보기`·AI 응답 모두 그 세션의 대시보드로 이동 |
+| 카드 두 번째 버튼 | `이어서 탐색` → **`세션 복원`**. hover 시 `새 창으로 세션 복원` 펼침 |
+| 복원 구현 | 사이드패널과 같은 `lib/chrome-bridge.ts` 재사용 (`lib/restore.ts` 로 감쌈) |
+| 홈 더미 데이터 | **변경 불필요** — 참조 7쌍 모두 이미 실제 대시보드 세션에 매칭됨을 확인 |
+| 네비게이터 기본값 | 닫힘. 단 **Orbit 그래픽으로 대시보드 진입할 때만** 펼친 채 연다 |
+
+제거: `components/sections/SessionDetail.tsx`, `styles/index.css` 의 모달 전용 스타일 281줄.
+추가: `lib/restore.ts`.
 
 ## 완료 조건
 
-- 단위 테스트(subcluster·gate·embed_many) 통과.
-- 골든셋 무회귀 + mixed_topics 주제 분리 확인.
-- 실데이터 재세션화에서 메가 뭉침 재현 안 됨(run 반복 안정).
-- backend pytest 전체 통과, 임계값 DecisionLog 기록, WorkLog 갱신.
+* 새 탭이 목업 메인 화면으로 뜨고, 검색창이 검색·주소 이동 둘 다 처리한다.
+* 그 외 컨트롤은 목업과 같은 모습으로 보이되 동작하지 않는다.
+* 사이드패널이 목업과 같은 팔레트·타이포·반경·그림자를 쓴다.
+* 크롬 사이드패널 헤더 아이콘에 배경 사각형이 없다.
+* `pnpm test` · `pnpm compile` · `pnpm build` 통과.
+* `WorkLog.md` · `DecisionLog.md` 갱신.

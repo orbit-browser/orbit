@@ -12,6 +12,12 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
   안전한 IndexedDB 로컬 큐, 수동/주기/개수/유휴 4트리거 배치 동기화
 - **Auto Session** — 배치마다 LLM이 이벤트 그룹을 append(기존 세션에 추가)/create(신규
   생성)/hold(보류)/discard(제외)로 판단해 세션을 사용자 개입 없이 자동 생성·갱신
+- **Orbit 홈(새 탭)** — 크롬 새 탭을 대체하는 시작 화면. 브라우저 주소창과 같게 검색어는
+  사용자의 기본 검색엔진으로, 주소는 그대로 이동한다. 검색창 아래에는 자주 방문한 사이트
+  기반 **바로가기**(추가·삭제·접기 가능)가 붙는다
+- **Orbit 아틀라스(`#/orbit-atlas`)** — 주제(Orbit)를 궤도로 그리는 두 번째 화면.
+  좌측 네비게이터, 캔버스, 페이지 트레이, 상세 패널. 홈과 네비게이터 상태를 공유한다.
+  두 화면 모두 현재는 목업 데이터로 동작한다
 - **Exploration Timeline** — 사이드패널 기본 화면. 날짜별 이벤트 스트림 + 세션 배지 +
   수집/동기화 상태 카드, 세션 상세에서 탐색 경로를 시간순으로 복기
 - **Search by Intent** — 세션(벡터 검색)과 관련 방문 기록을 함께 반환하는 통합 검색
@@ -100,7 +106,15 @@ pnpm install
 pnpm dev
 ```
 
-확장 아이콘을 클릭하면 사이드패널이 열립니다. 프로덕션 번들은 `pnpm build`.
+확장 아이콘을 클릭하면 사이드패널이 열립니다. 프로덕션 번들은 `pnpm build`
+(산출물 `extension/.output/chrome-mv3` → `chrome://extensions` > 개발자 모드 > 압축해제 로드).
+
+설치하면 **새 탭이 Orbit 홈으로 대체**됩니다(`chrome_url_overrides.newtab`).
+되돌리려면 확장을 비활성화하거나 `extension/entrypoints/newtab/`을 제거하고 다시 빌드하세요.
+
+익스텐션 권한: `tabs`, `storage`, `sidePanel`, `webNavigation`, `alarms`, `idle`,
+그리고 새 탭 홈이 쓰는 `search`(사용자의 기본 검색엔진 사용),
+`topSites`(바로가기 초기 목록), `favicon`(바로가기 아이콘 — 외부 요청 없음).
 
 ### 테스트
 
