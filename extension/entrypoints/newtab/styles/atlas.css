@@ -1141,6 +1141,13 @@ body.atlas-resizing .atlas-nav__resizer::after {
   gap: 10px;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/*
+ * 등장 애니메이션은 최초 1회만. `both` fill 이라 끝난 뒤에도 transform 을 잡고 있어서,
+ * 클래스가 붙었다 떨어질 때마다 다시 재생되고 위치 고정도 덮어쓴다.
+ */
+.atlas-stage__hint--enter {
   animation: atlas-rise 0.4s ease both;
 }
 
@@ -1172,7 +1179,11 @@ body.atlas-resizing .atlas-nav__resizer::after {
 
 /* × 에 올리면 오른쪽으로 펼쳐진다 */
 .atlas-stage__hint-never {
-  max-width: 0;
+  /*
+   * 접혀 있을 땐 폭 0 — 알약이 X 에 딱 맞게 끝난다(빈 공간 없음).
+   * 펼칠 땐 고정 폭으로 늘어난다. 폭을 고정하는 이유는 아래 알약 보정 계산 때문이다.
+   */
+  width: 0;
   padding: 0;
   border: none;
   background: transparent;
@@ -1182,16 +1193,20 @@ body.atlas-resizing .atlas-nav__resizer::after {
   white-space: nowrap;
   overflow: hidden;
   opacity: 0;
+  pointer-events: none;
   cursor: pointer;
-  transition: max-width 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease, padding 0.28s;
+  transition: width 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease,
+    padding 0.26s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .atlas-stage__hint-actions:hover .atlas-stage__hint-never,
 .atlas-stage__hint-never:focus-visible {
-  max-width: 120px;
-  padding-right: 8px;
+  width: 84px;
+  padding-left: 8px;
   opacity: 1;
+  pointer-events: auto;
 }
+
 
 .atlas-stage__hint-never:hover {
   color: var(--accent-hover);
@@ -1370,6 +1385,110 @@ body.atlas-resizing .atlas-nav__resizer::after {
   align-items: flex-start;
   gap: 10px;
   min-width: 0;
+}
+
+/* 열기 — 마우스를 올리면 옵션이 위로 쌓이며 드러난다.
+   카드 안에 자리를 만들면 레이아웃이 밀리므로 절대 위치로 띄운다. */
+.atlas-card__open {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.atlas-card__open-stack {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 12px 28px rgba(178, 112, 84, 0.16);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0.22s;
+}
+
+.atlas-card__open:hover .atlas-card__open-stack,
+.atlas-card__open:focus-within .atlas-card__open-stack {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* 아래 항목이 먼저, 위 항목이 나중에 올라와 쌓이는 느낌을 만든다 */
+.atlas-card__open:hover .atlas-card__open-option:nth-child(2) {
+  transition-delay: 0.03s;
+}
+
+.atlas-card__open-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-family: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.atlas-card__open-option:hover {
+  background: rgba(178, 112, 84, 0.06);
+}
+
+.atlas-card__open-option i {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* 페이지 카드 우클릭 메뉴 — 커서 위치에 띄운다 */
+.atlas-page-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 148px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 16px 40px rgba(178, 112, 84, 0.16);
+  animation: atlas-menu-in 0.14s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes atlas-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.atlas-page-menu__item {
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.atlas-page-menu__item:hover {
+  background: rgba(178, 112, 84, 0.06);
 }
 
 .atlas-card__icon {
@@ -1608,17 +1727,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
   color: var(--accent);
 }
 
-.atlas-detail__topic-icon .session-favicons .session-favicon {
-  width: 20px;
-  height: 20px;
-  margin-left: -7px;
-  box-shadow: 0 0 0 1.5px var(--accent-soft);
-}
-
-.atlas-detail__topic-icon .session-favicons .session-favicon:first-child {
-  margin-left: 0;
-}
-
+/* 대표 아이콘 하나 — 컨테이너(46px)에 꽉 차게 */
 .atlas-detail__topic-mark {
   display: grid;
   place-items: center;
@@ -1628,21 +1737,71 @@ body.atlas-resizing .atlas-nav__resizer::after {
   font-weight: 700;
 }
 
-/* breadcrumb 은 글자 옆이라 더 작게 */
-.atlas-detail__crumb .session-favicons .session-favicon {
-  width: 12px;
-  height: 12px;
-  margin-left: -4px;
-  border-radius: 3px;
+.atlas-detail__topic-mark .page-favicon__img {
+  width: 26px;
+  height: 26px;
 }
 
-.atlas-detail__crumb .session-favicons .session-favicon:first-child {
-  margin-left: 0;
+/* breadcrumb 은 글자 옆이라 작게 */
+.atlas-detail__crumb-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  font-size: 8px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.atlas-detail__crumb-mark .page-favicon__img {
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
 }
 
 .atlas-detail__topic-icon i {
   font-size: 20px;
   color: inherit;
+}
+
+/* 제목 인라인 편집 — 크기·굵기를 표시 상태와 맞춰 전환이 튀지 않게 */
+.atlas-detail__title-input {
+  width: 100%;
+  padding: 1px 6px;
+  margin-left: -6px;
+  border: 1px solid var(--accent-muted);
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  outline: none;
+}
+
+/* "새 창으로 모두 열기" 는 마우스를 올렸을 때만 드러난다 */
+.atlas-detail__action--alt {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-top: 0;
+  border-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease,
+    padding 0.24s, margin-top 0.24s;
+}
+
+.atlas-detail__actions--open:hover .atlas-detail__action--alt,
+.atlas-detail__action--alt:focus-visible {
+  max-height: 48px;
+  opacity: 1;
+  border-width: 1px;
+}
+
+.atlas-detail__action-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #b8452b;
 }
 
 .atlas-detail__topic-text {
