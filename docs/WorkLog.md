@@ -2,6 +2,41 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-08-07 — 자동병합 사용자 토글(UI 버튼) + 설정 저장소 (feat/merge-suggestions 이어서)
+
+### 요청
+
+"자동병합은 버튼을 만들어 사용자가 선택할 수 있게". env 플래그가 아니라 런타임 UI 토글 필요.
+
+### 변경 (backend — 앱 설정 저장소)
+
+- `app/db/models.py` — `AppSetting`(key-value, JSONB) 신규 테이블. create_all이 생성(마이그레이션 불필요).
+- `app/services/app_settings.py`(신규) — `get_bool`/`set_bool` + `is_auto_merge_enabled()`(DB 값 우선, 없으면 env 기본값).
+- `app/schemas/settings.py`·`app/api/settings.py`(신규) — `GET /settings`·`PATCH /settings`(auto_merge_enabled 토글).
+- `app/main.py` — settings 라우터 등록.
+- `app/services/sync_pipeline.py` — 자동병합 게이트를 `settings.auto_merge_enabled`(env 고정) → `await is_auto_merge_enabled()`(런타임 DB 값)로 교체.
+- `tests/test_sync_pipeline.py` — `_process_batch` 테스트 2곳에 신규 협력자 `is_auto_merge_enabled` 대역 추가(실 DB 접근 방지).
+- `tests/test_app_settings.py`(신규) — get/set bool 6종(기본값·저장값·비-bool 폴백·insert/update).
+
+### 변경 (frontend — 토글 UI)
+
+- `lib/types.ts`·`lib/api.ts` — `AppSettings{autoMergeEnabled}` + `fetchSettings`/`updateSettings`.
+- `hooks/useSettings.ts`(신규) — 설정 조회 + 갱신(성공 시 캐시 즉시 setQueryData).
+- `components/merge/MergeSuggestionsSection.tsx` — 헤더에 `AutoMergeToggle` 스위치. 켜짐 안내 문구.
+  섹션 노출 규칙 변경: 설정 로드 성공 시 노출, 단 "자동병합 OFF + 제안 0"이면 숨김(자동병합 ON이면 끌 수 있게 항상 노출).
+
+### 검증
+
+- **backend**: `pytest -p no:asyncio` **291 passed**. 라우트 `GET/PATCH /settings` 등록 확인.
+- **frontend**: `pnpm build`(tsc 포함) 1851 모듈, 타입 에러 0.
+- **라이브 브라우저 토글 스모크**: 대시보드에서 토글 클릭 → `GET /settings` `true` + 스위치 [checked] + 안내 문구 노출 →
+  다시 클릭 → `false` 복구. 서버 왕복 완전 동작 확인. **자동병합은 OFF 기본값으로 원복하고 종료**(세션 데이터 무변경).
+
+### 남은 일 / TODO
+
+- 자동병합은 이제 UI 토글로 사용자가 켜고 끌 수 있음(기본 OFF). 켜면 다음 동기화 배치에서 명백한 중복만 자동 병합.
+- (선택) 임계값(cos 0.80/제목 자카드 0.80)도 UI 노출할지 여부.
+
 ## 2026-08-07 — 일괄병합 + gated 자동병합(기본 OFF) (feat/merge-suggestions 이어서)
 
 ### 요청
