@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Search, Archive, Sparkles, Layers } from 'lucide-react';
 import { useSessions, useSearch } from '../hooks/useSessions';
 import { SessionCard } from '../components/SessionCard';
+import { MergeSuggestionsSection } from '../components/merge/MergeSuggestionsSection';
 import { AnalyticsSection } from '../components/analytics/AnalyticsSection';
 
 type LocalMode = 'sessions' | 'search';
@@ -184,6 +185,8 @@ export function HomeView() {
           )}
         </div>
       </div>
+
+      <MergeSuggestionsSection />
 
       <AnalyticsSection />
 

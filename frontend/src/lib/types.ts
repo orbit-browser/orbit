@@ -25,6 +25,19 @@ export interface Session {
   summaryStatus: 'pending' | 'done' | 'failed';
 }
 
+// ── 세션 병합 제안 (merge P1·P4, docs/merge-design.md §6) ──────────────
+
+export interface MergeSuggestion {
+  survivorId: string;
+  absorbedId: string;
+  survivorTitle: string;
+  absorbedTitle: string;
+  /** 두 세션 요약 임베딩의 코사인 유사도 (0~1) */
+  score: number;
+  /** 후보로 삼은 근거 — 겹치는 키워드/제목 토큰 */
+  keywordOverlap: string[];
+}
+
 // ── Exploration Analytics (docs/api-design-v2.md §9) ──────────────────
 // 백엔드가 병렬 구현 중이므로 각 배열 필드는 없을 수 있다 — lib/api.ts에서
 // 옵셔널 처리 후 빈 배열로 정규화한다.
