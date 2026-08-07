@@ -1,4 +1,10 @@
-import type { AnalyticsOverview, MergeSuggestion, Session, SessionSummary } from './types';
+import type {
+  AnalyticsOverview,
+  AppSettings,
+  MergeSuggestion,
+  Session,
+  SessionSummary,
+} from './types';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -247,6 +253,28 @@ export async function unmergeSessions(survivorId: string, absorbedId: string): P
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ absorbed_id: absorbedId }),
   });
+}
+
+// ── 앱 설정 (사용자 토글, merge 자동병합 등) ──────────────────────────
+
+interface BackendAppSettings {
+  auto_merge_enabled: boolean;
+}
+
+export async function fetchSettings(): Promise<AppSettings> {
+  const d = await request<BackendAppSettings>('/settings');
+  return { autoMergeEnabled: d.auto_merge_enabled };
+}
+
+export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
+  const body: Record<string, unknown> = {};
+  if (patch.autoMergeEnabled !== undefined) body.auto_merge_enabled = patch.autoMergeEnabled;
+  const d = await request<BackendAppSettings>('/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { autoMergeEnabled: d.auto_merge_enabled };
 }
 
 export async function checkHealth(): Promise<boolean> {
