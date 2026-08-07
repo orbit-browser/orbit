@@ -53,6 +53,11 @@ class Session(Base):
     # 병합(merge) — 흡수된 세션이 가리키는 생존 세션 id. NULL=병합 안 됨(docs/merge-design.md §5).
     # 기록은 P2 병합 실행부터. P0에서는 컬럼만 준비(additive).
     merged_into: Mapped[str | None] = mapped_column(String(36), default=None)
+    # 사용자가 만든 폴더 소속. NULL=미정리. 세션은 폴더 하나에만 속한다(단일 소속).
+    # FK를 걸지 않는다 — 이 컬럼은 기존 테이블에 ALTER로 추가되고, 폴더 삭제는
+    # 애플리케이션에서 NULL 되돌리기로 처리한다. 조회 측은 존재하지 않는 폴더 id를
+    # 미정리로 간주해 방어한다.
+    folder_id: Mapped[str | None] = mapped_column(String(36), default=None, index=True)
 
 
 class ExplorationEvent(Base):
@@ -199,6 +204,31 @@ class User(Base):
     picture: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_login_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Folder(Base):
+    """사용자가 직접 만드는 세션 폴더 (주제 그룹).
+
+    자동 클러스터링이 아니라 수동 정리 수단이다. 세션은 폴더 하나에만 속하며
+    (`Session.folder_id`), 폴더를 지워도 세션은 남고 소속만 풀린다.
+    """
+
+    __tablename__ = "folders"
+    __table_args__ = (
+        Index("ix_folders_user_position", "user_id", "position"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    # 캔버스 중심 노드와 궤도에 쓰는 색. 생성 시 팔레트에서 순환 배정한다.
+    hue: Mapped[str] = mapped_column(String(20))
+    # 사용자가 정한 표시 순서. 같은 값이면 created_at 으로 결정적으로 정렬한다.
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
 
 
 class RecommendationCache(Base):

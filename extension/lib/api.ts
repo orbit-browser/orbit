@@ -6,6 +6,8 @@ import type {
   AskStreamEvent,
   AskStreamRequest,
   AssistantRouteResult,
+  Folder,
+  FolderAssignResult,
   MemoryEvent,
   MemorySearchResult,
   MergeSuggestion,
@@ -49,6 +51,23 @@ interface BackendSession {
   created_at: string;
   updated_at: string;
   last_activity_at: string | null;
+  folder_id: string | null;
+}
+
+interface BackendFolder {
+  folder_id: string;
+  name: string;
+  hue: string;
+  position: number;
+  session_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface BackendFolderAssignResult {
+  folder_id: string;
+  assigned: string[];
+  skipped: string[];
 }
 
 interface BackendTodayEvent {
@@ -154,6 +173,19 @@ function mapSession(b: BackendSession): Session {
     timeLabel: formatTimeLabel(new Date(b.last_activity_at ?? b.created_at)),
     summary: mapSummary(b.summary),
     summaryStatus: b.summary_status,
+    folderId: b.folder_id ?? undefined,
+  };
+}
+
+function mapFolder(b: BackendFolder): Folder {
+  return {
+    id: b.folder_id,
+    name: b.name,
+    hue: b.hue,
+    position: b.position,
+    sessionCount: b.session_count,
+    createdAt: b.created_at,
+    updatedAt: b.updated_at,
   };
 }
 
@@ -247,6 +279,56 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export async function fetchSessions(): Promise<Session[]> {
   const data = await request<BackendSession[]>('/sessions');
   return data.map(mapSession);
+}
+
+// ── 사용자 폴더 (docs/api-design-v2.md §13) ───────────
+
+export async function fetchFolders(): Promise<Folder[]> {
+  const data = await request<BackendFolder[]>('/folders');
+  return data.map(mapFolder);
+}
+
+export async function createFolder(name: string): Promise<Folder> {
+  const data = await request<BackendFolder>('/folders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return mapFolder(data);
+}
+
+export async function renameFolder(folderId: string, name: string): Promise<Folder> {
+  const data = await request<BackendFolder>(`/folders/${folderId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return mapFolder(data);
+}
+
+/** 폴더만 지운다 — 안에 있던 세션은 미정리로 되돌아갈 뿐 삭제되지 않는다. */
+export async function deleteFolder(folderId: string): Promise<void> {
+  await request<void>(`/folders/${folderId}`, { method: 'DELETE' });
+}
+
+/** 세션을 폴더로 옮긴다. 드래그 한 건도 같은 경로를 쓴다(단일 소속이라 이동). */
+export async function assignSessionsToFolder(
+  folderId: string,
+  sessionIds: string[],
+): Promise<FolderAssignResult> {
+  const data = await request<BackendFolderAssignResult>(`/folders/${folderId}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_ids: sessionIds }),
+  });
+  return { folderId: data.folder_id, assigned: data.assigned, skipped: data.skipped };
+}
+
+export async function removeSessionFromFolder(
+  folderId: string,
+  sessionId: string,
+): Promise<void> {
+  await request<void>(`/folders/${folderId}/sessions/${sessionId}`, { method: 'DELETE' });
 }
 
 export async function fetchSession(id: string): Promise<Session | undefined> {

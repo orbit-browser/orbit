@@ -2,6 +2,266 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-08-07 — 사용자 폴더와 궤도 캔버스 2뎁스
+
+### 배경
+
+대시보드 세션 목록이 1뎁스 시간순이라 기록이 쌓이면 스크롤 외에는 찾을 방법이 없었다.
+캔버스를 살펴보니 `AtlasCanvas.tsx` 의 궤도는 `PAGES_PER_ORBIT = 8` 로 페이지를 8개씩
+잘라 담는 페이지네이션이라 궤도 반경이 아무 정보도 전달하지 않았고,
+`atlas/data.ts:139-142` 에는 "백엔드에 Orbit 엔티티가 없어 세션을 중심 노드로 직접
+쓴다"는 주석이 남아 있었다. 주제 계층은 원래 설계에 있었으나 미구현 상태였다.
+
+궤도=세션 매핑을 그대로 넣으면 깨지는 지점을 먼저 계산했다. `ORBIT_GAP = 58`,
+`R_ABS_MAX = 390`, 최소 반경 150 이라 궤도는 실질 5줄이 한계고, 세션당 페이지 20~40개를
+반원 아크에 배치하면 점이 100개 넘게 겹친다. 그래서 밀도 통제(궤도 정원 + 동시 렌더 상한)를
+설계에 먼저 넣었다.
+
+### 변경
+
+**backend**
+
+- `app/db/models.py` — `Folder` 신규 테이블, `Session.folder_id` 추가(단일 소속)
+- `app/db/migrations.py` — `sessions.folder_id` 를 additive 컬럼으로 등록
+- `app/schemas/folder.py` — 신규. 이름 60자, 일괄 배정 200건 상한
+- `app/schemas/session.py` — `SessionDetail.folder_id` (superset 정책)
+- `app/api/folders.py` — 신규 라우터. CRUD + 일괄 배정 + 폴더에서 빼기
+- `app/api/sessions.py` — `_to_detail` 에 `folder_id` 매핑
+- `app/main.py` — `folders_router` 를 인증 의존성과 함께 등록
+
+**extension**
+
+- `lib/types.ts` — `Folder`, `FolderAssignResult`, `Session.folderId`
+- `lib/api.ts` — 폴더 API 클라이언트 5종
+- `entrypoints/newtab/hooks/useAtlasData.ts` — 세션과 폴더를 함께 조회해
+  `{sessions, folders, unfiled}` 로 반환
+- `entrypoints/newtab/hooks/useFolders.ts` — 신규. 폴더 변경 뮤테이션 묶음
+- `entrypoints/newtab/components/atlas/data.ts` — 궤도 각도·회전 순수 함수,
+  `OrbitScene` 빌더, 폴더 그룹핑
+- `entrypoints/newtab/components/atlas/AtlasCanvas.tsx` — 씬 기반으로 재작성
+- `entrypoints/newtab/components/atlas/AtlasNavigator.tsx` — 3뎁스 트리, 드래그앤드롭
+- `entrypoints/newtab/components/atlas/FolderAssignDialog.tsx` — 신규. 일괄 선택
+- `entrypoints/newtab/components/VariantAtlasReplica.tsx` — 폴더/세션 씬 분기
+- `entrypoints/newtab/components/layout/NavigatorDrawer.tsx`, `App.tsx` — 새 계약 반영
+- `entrypoints/newtab/lib/nav-state.ts` — `focusedFolderId` 추가
+- `entrypoints/newtab/styles/atlas.css` — 폴더 행, 궤도 라벨, 축 이동, 대화상자
+
+### 해결한 문제
+
+- **`test_ask_ownership.py` 실패** — `SessionDetail.folder_id` 를 추가하자 `_to_detail` 이
+  `session.folder_id` 를 읽는데 테스트의 `SimpleNamespace` 페이크에 그 속성이 없어
+  `AttributeError`. `getattr(..., None)` 로 감싸면 실제 누락도 함께 감춰지므로,
+  페이크가 실제 모델을 반영하도록 `folder_id=None` 을 추가했다.
+- **휠 이벤트가 먹지 않는 문제** — React 의 `onWheel` 은 passive 로 등록돼
+  `preventDefault` 가 동작하지 않아 궤도 축을 옮기면 페이지도 같이 스크롤된다.
+  `stageRef` 에 `{ passive: false }` 로 직접 리스너를 걸었다.
+- **축 이동 버튼이 트레이에 가리는 문제** — `bottom: 0` 이면 높이 250px 짜리 하단 트레이
+  뒤에 깔린다. `bottomInset` 을 인라인 `bottom` 으로 써서 트레이 위에 띄웠다.
+
+### 설계 결정
+
+- **궤도 각도 모델** — 앞면 반원 180도를 7슬롯으로 나눠 점 간격을 고정하고, 같은 간격을
+  원 한 바퀴에 이어 붙여 정원 14개를 얻었다. 간격이 일정해 "뒤에서 돌아 나온다"가
+  물리적으로 일관되고, 앞면/뒤편 판정이 `0 < angle < 180` 한 줄로 끝난다.
+- **동시 렌더 궤도 4개 + 창 밖 1개** — 전부 그리면 바깥 궤도가 화면 폭을 넘어 좌우가
+  잘린다. 창 밖 첫 궤도만 흐리게 걸쳐 두어 "더 있다"를 시각적으로 남겼다.
+- **궤도 라벨을 30도 지점에 배치** — 아크 끝점(y=0)에 두면 궤도마다 x 만 다르고 y 가 같아
+  라벨이 겹친다. 30도면 `ry` 차이가 y 간격으로 벌어지고 첫 점과 둘째 점 사이라 점도 가리지 않는다.
+- **낙관적 갱신을 쓰지 않음** — 일괄 배정은 서버가 소유권을 확인해 일부만 반영될 수 있어
+  (`skipped`) 화면이 먼저 앞서가면 실제 결과와 어긋난다.
+- **`sessions.folder_id` 에 FK 없음** — ALTER 로 추가되는 컬럼이고 폴더 삭제는
+  애플리케이션이 NULL 되돌리기로 처리한다. 조회 측은 존재하지 않는 폴더 id 를 미정리로
+  간주해 방어한다(다른 기기에서 폴더가 지워졌을 때 세션이 사라져 보이지 않도록).
+
+### 검증
+
+```
+cd backend && python -m pytest -p no:asyncio     # 483 passed
+cd extension && pnpm test                        # 13 files, 118 passed
+cd extension && pnpm compile                     # 오류 없음
+cd extension && pnpm build                       # 852.96 kB, 13.5s
+```
+
+- 인증 경계 테스트(`test_auth_boundary.py`)가 신규 폴더 경로 6개를 자동으로 커버한다(76 passed).
+- `app.openapi()` 로 `/folders`, `/folders/{folder_id}`, `/folders/{folder_id}/sessions`,
+  `/folders/{folder_id}/sessions/{session_id}` 등록을 확인했다.
+
+### 남은 일
+
+- **실제 브라우저 스모크가 남아 있다.** 폴더 생성·드래그 배정·궤도 회전·축 이동은
+  단위 테스트와 타입 검사로만 확인했고 실제 확장에서 눌러 보지 않았다.
+- 폴더 순서 변경(`position`)은 API·스키마만 있고 UI가 없다.
+- 폴더 씬에서 세션이 5개를 넘을 때의 실데이터 밀도는 확인하지 않았다.
+
+### 후속 (2026-08-07) — 실제 화면 확인에서 나온 두 건
+
+**폴더 생성이 404로 실패** — 원인은 코드가 아니라 백엔드가 새 코드로 재기동되지 않은 것.
+`GET /folders` 가 404 였고 postgres 에 `folders` 테이블과 `sessions.folder_id` 가 모두
+없었다. 테이블 생성(`create_all`)과 컬럼 추가(`run_migrations`)는 `app/main.py` 의
+lifespan 에서만 실행되므로 스키마를 바꾼 뒤에는 서버 재시작이 필수다.
+
+**궤도 라벨이 화면 왼쪽 밖으로 잘림** — 라벨을 궤도 왼쪽 바깥에 `translate(-100%)` 로
+붙였는데, 궤도가 화면 폭을 거의 채우면 라벨(최대 190px)과 회전 컨트롤(약 120px)이 놓일
+자리가 없다. 두 가지로 고쳤다.
+
+- 궤도가 하나뿐인 세션 씬은 궤도 라벨을 비운다 — 중심 노드 아래 제목과 같은 글자라 중복이었다.
+- 왼쪽 여백이 라벨+컨트롤 폭에 못 미치면 `atlas-track--flip` 으로 아크 안쪽에 배치한다.
+  고정 임계값 대신 라벨 유무와 회전 가능 여부로 필요 폭을 계산한다.
+
+`tests/unit/atlas-data.test.ts` 에 라벨 규칙 테스트 2건 추가(120 passed).
+
+**기존 플레이키 테스트 수정** — `tests/unit/engine.test.ts` 의 "BATCH_SIZE(50) 초과
+pending" 테스트가 전체 실행 시 간헐 실패했다(6회 중 1회, 격리 실행은 6회 모두 통과).
+
+`sync/engine.ts` 의 drain 순서는 `postEventBatch` → `markSynced`(배치마다 반복) →
+`triggerServerSync` 다. 테스트는 `waitUntil` 로 synced 표시만 기다린 뒤 **밖에서**
+`mockServerSync` 를 단언해, 마지막 한 걸음이 아직 남아 있으면 실패했다. 부하가 큰 전체
+실행에서만 드러나는 경합이다.
+
+세션화 트리거까지 확인해야 하는 단언을 `waitUntil` 안으로 옮겼다(3곳). 검증 내용은 그대로
+두고 기다리는 조건만 정확히 했다 — 단언을 지우거나 약화시키지 않았다. 오히려 "세션화 트리거
+실패는 drain 을 실패시키지 않는다" 테스트는 트리거가 실제로 호출됐는지 확인하지 않아
+공허하게 통과할 수 있었으므로 `toHaveBeenCalledTimes(1)` 을 추가해 강화했다.
+
+전체 스위트 8회 연속 120 passed 로 재현되지 않음을 확인했다.
+
+**개발 서버 기동 방식** — 실행 중이던 백엔드는 `--reload` 없이 떠 있어(`python -m uvicorn
+app.main:app --host 127.0.0.1 --port 8000`) 코드 변경이 반영되지 않았다. `--reload` 를 붙여
+다시 띄웠고, `folders` 테이블과 `sessions.folder_id` 생성, `GET /folders` 가 404 에서 401 로
+바뀐 것을 확인했다. `dev.sh`/`dev_conda.sh` 는 원래 `--reload` 를 쓴다 — 수동 기동에서만
+빠져 있었다.
+
+### 후속 (2026-08-08) — 287823c 원본 디자인에 맞춤
+
+사용자가 "디자인이 안 맞는다"고 지적했다. 최초 Atlas 를 만든 커밋 `287823c`
+(`feat(newtab): Orbit 홈·대시보드를 새 탭으로 제공하고 디자인 토큰 통일`)의
+Orbit(주제) → Session → Page 3계층 디자인과 대조해 세 가지 어긋남을 찾았다.
+
+| | 원본 287823c | 내 구현(수정 전) |
+|---|---|---|
+| 세션 라벨 | 호 최하단의 **칩** (제목 · `Np · 시간` · 날짜) | 궤도 왼쪽 바깥 텍스트 |
+| 페이지 점 | **선택한 세션 것만** 위성으로 | 모든 궤도의 점을 동시에 |
+| 네비 계층 | 폴더=컬러 아이콘, 세션=`atlas-row--session` | 폴더=색 점, 세션이 `--orbit` 오용 |
+
+`atlas-chip` 계열 CSS 는 원본 그대로 파일에 남아 있었는데 내가 쓰지 않고 새 스타일을
+따로 만들고 있었다. 원본 부품을 되살리는 방향으로 맞췄다.
+
+**궤도 회전 모델을 각도 기반에서 슬롯 기반으로 교체** — 칩이 붙은 궤도는 최하단을 비워야
+해서 점 간격이 궤도마다 달라진다. 각도를 데이터 계층에서 계산하던 `orbitAngle`/
+`isFrontAngle` 을 `orbitSlot`/`isVisibleSlot` 으로 바꾸고, 슬롯 → 각도 변환은 칩 유무를
+아는 캔버스가 맡는다. 칩이 있으면 원본 `satelliteAngle` 의 `acos` 기반 컷오프로 칩 폭만큼
+비우고 좌우로 갈라 놓는다.
+
+**"선택한 세션만 펼치기" 가 밀도 문제도 함께 푼다** — 초기 구현에서 궤도 정원과 동시 렌더
+상한으로 막으려던 점 겹침이, 한 번에 한 세션만 펼치면 구조적으로 사라진다. 화면에 남는
+위성이 최대 7개다. 나머지 궤도는 칩만으로 무엇이 있는지 알린다.
+
+**칩 클릭은 화면을 바꾸지 않는다** — 세션 씬으로 넘어가지 않고 그 자리에서 페이지만
+펼친다(다시 누르면 접힘). 폴더 안을 훑는 동안 화면이 전환되면 어디를 보고 있었는지 잃는다.
+
+그 밖에 원본 값으로 되돌린 것: `RATIO` 0.68 → **0.8**, `R_ABS_MAX` 390 → **360**,
+궤도선 농도 그라데이션(`arcOpacity` — 안쪽이 진하고 바깥이 옅음), 궤도선 상단 페이드
+마스크(`atlas-arc-mask`), 반경을 트레이 열린 최악 높이 기준으로 잡는 계산.
+
+변경 파일: `atlas/data.ts`, `atlas/AtlasCanvas.tsx`, `atlas/AtlasNavigator.tsx`,
+`VariantAtlasReplica.tsx`, `styles/atlas.css`, `tests/unit/atlas-data.test.ts`.
+
+검증: `pnpm test` 122 passed, `pnpm compile` 오류 없음, `pnpm build` 854.06 kB.
+실제 브라우저 확인은 사용자 몫으로 남아 있다.
+
+### 블로그 소재
+
+- "궤도 UI 의 밀도 한계를 UI 를 그리기 전에 계산하기" — `ORBIT_GAP`, `R_ABS_MAX` 로
+  궤도 상한을 먼저 구하고 설계를 거기 맞춘 과정
+- "2뎁스는 오분류의 비용을 키운다" — 자동 클러스터링 대신 수동 폴더를 택한 이유와
+  검색을 평면으로 유지한 완화책
+
+## 2026-08-07 — 확장 ID 고정(manifest key) — 팀 다중 환경 로그인 준비
+
+### 배경
+
+구글 로그인 구현 현황을 점검하다가, 개발 루프가 구조적으로 깨지는 지점을 찾았다.
+`manifest.key` 가 없어 확장 ID 가 **설치 경로에서 유도**되고 있었다. 그 결과
+`pnpm dev`(`.output/chrome-mv3-dev`)와 `pnpm build`(`.output/chrome-mv3`)가 서로 다른 ID 를
+갖는데, 구글 OAuth 클라이언트에는 항목 ID 를 하나만 등록한다. 둘 중 한쪽에서만 로그인이
+되고, 재설치·경로 이동·다른 팀원 머신에서도 모두 깨진다.
+
+점검 중 `.output/chrome-mv3-dev` 가 08-05 산출물이라 `oauth2`·`identity` 가 아예 없는 것도
+확인했다(구글 로그인 구현 이전 빌드). 결함이 아니라 낡은 산출물이며 재빌드로 해소됐다.
+
+### 변경
+
+- `extension/wxt.config.ts` — RSA 2048 공개키(SPKI DER base64)를 `EXTENSION_KEY` 상수로 두고
+  `manifest.key` 에 주입. **`.env` 가 아니라 소스에 커밋**했다. `client_id` 와 달리 환경마다
+  달라지면 안 되는 값이라 환경변수 성격이 아니고, 팀원이 각자 채우면 오히려 ID 가 갈린다.
+  공개키라 비밀이 아니다.
+- `.gitignore` — `.keys/` 추가. 짝이 되는 개인키(`extension/.keys/extension.pem`)가 유출되면
+  제3자가 같은 ID 로 확장을 서명할 수 있다.
+- `extension/.env.example`, `backend/.env.example` — 고정된 항목 ID 를 명시하고, 확장 ID 는
+  채울 값이 아님을 안내. 팀원 계정이 OAuth 동의 화면의 테스트 사용자로 등록되어야 한다는
+  조건을 추가(미등록 계정은 403 access_denied).
+
+### 검증
+
+- `pnpm compile` 통과, `pnpm build` 통과(830.26 kB).
+- `npx wxt build --mode development` 로 dev 산출물 재생성.
+- 두 산출물의 `manifest.key` 에서 확장 ID 를 직접 유도해 일치를 확인했다 —
+  dev·build 모두 `aghgamoeifieijjckhpfkmhiibacnhml`. `oauth2.client_id` 주입과
+  `identity` 권한도 양쪽 모두 확인.
+- 점검 과정에서 실행한 기존 테스트: backend `test_auth.py`+`test_auth_boundary.py` **79 passed**,
+  extension `pnpm test` **105 passed (13 files)**.
+- **런타임 점검(8010 포트에 현재 코드로 별도 기동).** 인증 경계 4종(`/sessions`,
+  `/events/pending-count`, `/recommendations`, `/analytics/overview`) 토큰 없이 401,
+  위조 bearer 401, `/auth/google` 에 가짜 토큰 → 실제 구글 `tokeninfo` 왕복 후 401
+  "유효하지 않은 access token입니다". `/auth/*` 3개와 `/recommendations` 노출 확인.
+- **8000 포트에 인증 이전 버전 서버가 떠 있었다.** `/auth/google` 404, `/sessions` 가 토큰
+  없이 **200**. 프로세스는 당일 21:41 기동(`python -m uvicorn app.main:app --port 8000`)인데
+  적재된 코드에 인증이 없다. 확장이 붙는 대상이 이 서버라 **재시작 전에는 로그인이 불가능**하다.
+  사용자 프로세스라 종료하지 않고 별도 포트로 검증했다.
+- **P0 실증.** `.env.example` 39행의 안내 문구만으로 서명 키를 추측해 만료 10년짜리 토큰을
+  만들었더니 `/auth/me` 가 "계정을 찾을 수 없습니다"(= **서명 검증 통과**)로 응답했다.
+  대조군(무관한 키)은 "유효하지 않은 토큰입니다"로 차단됐다. 현재 유일한 방어는 해당 UUID 의
+  계정이 DB 에 없다는 것뿐이며, 한 번 로그인해 자기 `user_id` 를 알면 무기한 토큰을 자가 발급할 수 있다.
+- **DB 상태.** `users` 0행, `recommendation_cache` 생성됨. `user_id='local'` 레거시 데이터는
+  sessions 25 / events 199 / sync_batches 30 — `claim_legacy_data` 규칙상 **가장 먼저 가입한
+  계정 한 명**이 전부 가져간다. 팀 테스트 시 로그인 순서에 주의해야 한다.
+- **미실행:** 실제 브라우저 로그인 플로우. `chrome.identity` 는 확장 컨텍스트에서 크롬 프로필
+  계정으로 동작해 에이전트가 대신 수행할 수 없다. 아래 남은 일이 선행되어야 한다.
+
+### 점검 중 발견한 미해결 문제
+
+- **(P0) `backend/.env` 의 `JWT_SECRET` 이 `.env.example` 의 안내 명령 문자열 리터럴**
+  (`$(python -c "...")`). `.env` 는 셸이 아니라 명령 치환이 일어나지 않는다. 로드해서 확인함
+  (길이 63, `$(` 로 시작). 서명 키가 공개 문서의 값이라 임의 `sub` 로 토큰 위조가 가능하다.
+  교체 시 전원 재로그인이 필요해 사용자 승인 대기 중.
+- **(P1) 비로그인 상태 수집분의 소유권.** `collector.ts` 는 `collectionEnabled` 만 보고 로그인
+  여부를 확인하지 않으며 `signOut()` 은 큐를 비우지 않는다. 계정 A 로그아웃 중 쌓인 이벤트가
+  계정 B 로그인 시 B 에게 전송된다. 팀 다중 계정 테스트에서 드러나기 쉬운 경로다.
+- **(P3) `config.py:35`** 주석의 "부팅 시 경고"가 실제로는 없다. 설정 누락이 조용히 넘어간다.
+
+### 후속 조치 — JWT_SECRET 교체와 서버 재시작 (같은 날)
+
+- `backend/.env` 의 `JWT_SECRET` 을 `secrets.token_urlsafe(48)` 난수로 교체(63자 리터럴 → 64자).
+  `.env` 에 LLM API 키가 함께 있어 파일 전체를 읽지 않고 해당 줄만 정규식 치환했고,
+  교체 전 백업 생성 + 나머지 45줄 동일성 검증을 스크립트가 수행했다.
+  백업(`backend/.env.env.bak-*`)은 `.gitignore` 의 `.env.*` 규칙으로 무시된다.
+- 8000 포트의 낡은 프로세스를 종료하고 현재 코드로 재기동했다.
+- 재기동 후 검증:
+  - `/auth/google`·`/auth/logout`·`/auth/me` + `/recommendations` 노출 확인(총 27 paths).
+  - 인증 경계 4종 토큰 없이 **401**, 위조 bearer **401**.
+  - **이전에 서명 검증을 통과했던 위조 토큰이 이제 "유효하지 않은 토큰입니다"로 차단**됨.
+    P0 해소를 회귀로 확인한 셈이다.
+
+### 남은 일
+
+- Google Cloud Console 에서 OAuth 클라이언트의 항목 ID 를 `aghgamoeifieijjckhpfkmhiibacnhml`
+  로 맞추고, 팀원 구글 계정을 테스트 사용자에 등록.
+- 확장 재설치(크롬에서 기존 Orbit 제거 후 `.output/chrome-mv3` 재로드). `key` 추가로 확장 ID 가
+  바뀌므로 기존 설치본의 `chrome.storage.local`(로그인 세션·설정)과 IndexedDB 큐는 승계되지 않는다.
+- 팀원이 다른 머신에서 테스트할 때의 백엔드 접속 방식(각자 로컬 / 공유 서버) 미결정.
+  공유 서버로 갈 경우 `host_permissions` 와 `VITE_API_BASE_URL` 갱신, `JWT_SECRET` 공유 정책이
+  함께 필요하다.
+
 ## 2026-08-07 — PR #11 최신 main 인증 변경 통합
 
 - PR 생성 직후 원격 `main`의 Google 로그인·사용자별 데이터 격리·추천 세션 변경과 충돌한 것을 확인했다.

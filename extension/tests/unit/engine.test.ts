@@ -38,7 +38,13 @@ async function seedPending(count: number): Promise<string[]> {
   return ids;
 }
 
-/** requestDrain은 fire-and-forget이므로 조건 충족을 폴링으로 기다린다. */
+/**
+ * requestDrain은 fire-and-forget이므로 조건 충족을 폴링으로 기다린다.
+ *
+ * drain 순서는 `postEventBatch` → `markSynced`(배치마다 반복) → `triggerServerSync` 다.
+ * synced 표시만 기다리고 밖에서 세션화 트리거를 단언하면, 마지막 한 걸음이 아직 남아
+ * 있어 간헐적으로 실패한다 — 트리거까지 확인해야 하는 단언은 이 안에 넣는다.
+ */
 function waitUntil(assertion: () => void | Promise<void>) {
   return vi.waitFor(assertion, { timeout: 3000 });
 }
@@ -52,11 +58,11 @@ describe('drain 성공 경로', () => {
 
     await waitUntil(async () => {
       expect(await listByStatus('synced')).toHaveLength(2);
+      expect(mockServerSync).toHaveBeenCalledWith('manual');
     });
     expect(mockPost).toHaveBeenCalledTimes(1);
     const [, wireEvents] = mockPost.mock.calls[0];
     expect(wireEvents).toHaveLength(2);
-    expect(mockServerSync).toHaveBeenCalledWith('manual');
 
     const status = await getSyncStatus();
     expect(status.lastSyncAt).toBeTruthy();
@@ -70,12 +76,12 @@ describe('drain 성공 경로', () => {
 
     await waitUntil(async () => {
       expect(await listByStatus('synced')).toHaveLength(60);
+      // 서버 세션화 트리거는 drain당 1회만 — 배치를 두 번 보내도 늘지 않는다
+      expect(mockServerSync).toHaveBeenCalledTimes(1);
     });
     expect(mockPost).toHaveBeenCalledTimes(2);
     expect(mockPost.mock.calls[0][1]).toHaveLength(50);
     expect(mockPost.mock.calls[1][1]).toHaveLength(10);
-    // 서버 세션화 트리거는 drain당 1회만
-    expect(mockServerSync).toHaveBeenCalledTimes(1);
     expect(mockServerSync).toHaveBeenCalledWith('periodic');
   });
 
@@ -152,6 +158,8 @@ describe('drain 실패 경로', () => {
 
     await waitUntil(async () => {
       expect(await listByStatus('synced')).toHaveLength(1);
+      // 트리거가 실제로 호출돼 거절당하기 전에는 "실패해도 무사하다"를 검증할 수 없다
+      expect(mockServerSync).toHaveBeenCalledTimes(1);
     });
     const status = await getSyncStatus();
     expect(status.lastError).toBeNull();

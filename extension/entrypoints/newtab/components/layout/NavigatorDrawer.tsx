@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import { AtlasNavigator } from '../atlas/AtlasNavigator';
-import type { SessionNode } from '../atlas/data';
+import type { FolderNode, SessionNode } from '../atlas/data';
 import { navigateToAtlas } from '../../lib/navigation';
 import { useSharedNavState } from '../../lib/nav-state';
 
 interface NavigatorDrawerProps {
   sessions: SessionNode[];
+  folders: FolderNode[];
+  unfiled: SessionNode[];
   open: boolean;
   onClose: () => void;
   escapeEnabled?: boolean;
@@ -13,6 +15,8 @@ interface NavigatorDrawerProps {
 
 export function NavigatorDrawer({
   sessions,
+  folders,
+  unfiled,
   open,
   onClose,
   escapeEnabled = true,
@@ -37,23 +41,50 @@ export function NavigatorDrawer({
     >
       <AtlasNavigator
         sessions={sessions}
+        folders={folders}
+        unfiled={unfiled}
         query={nav.query}
         onQueryChange={(query) => patch({ query })}
+        focusedFolderId={nav.focusedFolderId}
         focusedSessionId={nav.focusedOrbitId}
         selectedPageId={nav.selectedPageId}
+        expandedFolderIds={nav.expandedOrbitIds}
         expandedSessionIds={nav.expandedSessionIds}
+        onToggleFolder={(id) => toggleIn('expandedOrbitIds', id)}
         onToggleSession={(id) => toggleIn('expandedSessionIds', id)}
+        onSelectFolder={(folderId) => {
+          patch({
+            focusedFolderId: folderId,
+            focusedOrbitId: null,
+            selectedSessionId: null,
+            selectedPageId: null,
+          });
+          expandIn('expandedOrbitIds', folderId);
+          navigateToAtlas({ orbitId: folderId });
+        }}
         onSelectSession={(sessionId) => {
-          patch({ focusedOrbitId: sessionId, selectedSessionId: null, selectedPageId: null });
+          patch({
+            focusedFolderId: null,
+            focusedOrbitId: sessionId,
+            selectedSessionId: null,
+            selectedPageId: null,
+          });
           expandIn('expandedSessionIds', sessionId);
           navigateToAtlas({ sessionId });
         }}
         onSelectPage={(sessionId, pageId) => {
-          patch({ focusedOrbitId: sessionId, selectedSessionId: null, selectedPageId: pageId });
+          patch({
+            focusedFolderId: null,
+            focusedOrbitId: sessionId,
+            selectedSessionId: null,
+            selectedPageId: pageId,
+          });
           expandIn('expandedSessionIds', sessionId);
           navigateToAtlas({ sessionId, pageId });
         }}
-        onCollapseAll={() => patch({ expandedSessionIds: new Set() })}
+        onCollapseAll={() =>
+          patch({ expandedSessionIds: new Set(), expandedOrbitIds: new Set() })
+        }
         width={nav.width}
         onWidthChange={(width) => patch({ width })}
         searchOpen={nav.searchOpen}

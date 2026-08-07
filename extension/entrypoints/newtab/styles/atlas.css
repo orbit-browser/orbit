@@ -686,6 +686,118 @@ body.atlas-resizing {
   animation: atlas-pulse 2s ease-in-out infinite;
 }
 
+/* ── 폴더 행 ── */
+.atlas-row--folder {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* 드롭 대상 강조 — 놓을 수 있는 자리라는 걸 손이 놓이기 전에 알려 준다. */
+.atlas-row--drop,
+.atlas-nav__section--drop {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 새 폴더 입력 줄은 caret 이 없어 아이콘이 그 자리만큼 들어와야 정렬이 맞는다. */
+.atlas-row--drafting .atlas-row__icon {
+  margin-left: 16px;
+}
+
+.atlas-row__input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.atlas-row__action,
+.atlas-row__unfile {
+  display: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.atlas-row:hover .atlas-row__action,
+.atlas-row:hover .atlas-row__unfile,
+.atlas-row__action:focus-visible,
+.atlas-row__unfile:focus-visible {
+  display: grid;
+}
+
+.atlas-row__action:hover,
+.atlas-row__unfile:hover {
+  background: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.atlas-folder__children {
+  margin-left: 15px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.atlas-folder__empty {
+  padding: 8px 10px 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+
+/* ── 섹션 구분 ── */
+.atlas-nav__section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px 0 4px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.atlas-nav__section-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+/* 검색 결과에서 이 세션이 어느 폴더에 있는지 — 계층을 무시한 결과라 출처를 밝혀 준다. */
+.atlas-nav__crumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 0 4px;
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+
+.atlas-nav__error {
+  margin: 0 10px 6px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d64545 10%, transparent);
+  color: #a63232;
+  font-size: 11.5px;
+}
+
 .atlas-nav__mark {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
   color: inherit;
@@ -978,6 +1090,103 @@ body.atlas-resizing .atlas-nav__resizer::after {
   font-size: 12px;
   color: var(--text-secondary);
   opacity: 0.75;
+}
+
+/* ── 궤도 회전 컨트롤 ── */
+/* 펼친 궤도 아래 가운데. 뒤편에 남은 개수를 함께 보여준다. */
+.atlas-rotate {
+  position: absolute;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  border-radius: var(--r-pill);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-soft);
+  white-space: nowrap;
+  z-index: 24;
+}
+
+.atlas-rotate button {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.atlas-rotate button:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.atlas-rotate__count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+/* ── 궤도 축(반경 방향) 이동 ── */
+/* 창 밖으로 나간 궤도가 있다는 신호. 아래쪽은 흐림으로 덮어 잘린 티를 낸다. */
+.atlas-stage__axis {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 34;
+  pointer-events: none;
+}
+
+/* bottom 은 트레이 높이만큼 인라인으로 띄운다 — 트레이 뒤에 깔리면 안 보인다. */
+.atlas-stage__axis--out {
+  padding: 56px 0 14px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  background: linear-gradient(to bottom, transparent, var(--bg-page) 62%);
+}
+
+.atlas-stage__axis--in {
+  top: 8px;
+}
+
+.atlas-stage__axis button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.atlas-stage__axis button:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+/* 창 밖 궤도 — 보이되 만질 수 없다. */
+.atlas-arc--beyond {
+  stroke-dasharray: 3 6;
+}
+
+.atlas-arc--focused {
+  stroke-width: 2.2;
+}
+
+.atlas-sat--beyond {
+  opacity: 0.18;
+  pointer-events: none;
 }
 
 /* ── 세션 레이블 칩 ── */
@@ -2165,6 +2374,218 @@ body.atlas-resizing .atlas-nav__resizer::after {
   .atlas-header__breadcrumb {
     display: none;
   }
+}
+
+/* ── 폴더 일괄 추가 대화상자 ── */
+.atlas-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+}
+
+.atlas-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(40, 26, 20, 0.28);
+}
+
+.atlas-modal__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(460px, calc(100vw - 48px));
+  max-height: min(600px, calc(100vh - 96px));
+  padding: 18px;
+  gap: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--bg-card);
+  box-shadow: 0 24px 60px rgba(120, 74, 52, 0.18);
+}
+
+.atlas-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.atlas-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.atlas-modal__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.atlas-modal__sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.atlas-modal__close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.atlas-modal__close:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.atlas-modal__search {
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.atlas-modal__search:focus {
+  border-color: var(--accent);
+}
+
+.atlas-modal__list {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.atlas-modal__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 9px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.atlas-modal__row:hover {
+  background: var(--bg-card-hover);
+}
+
+.atlas-modal__row--on {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.atlas-modal__row input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.atlas-modal__row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.atlas-modal__row-title {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-modal__row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.atlas-modal__moved {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.atlas-modal__empty {
+  padding: 28px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+}
+
+.atlas-modal__error {
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d64545 10%, transparent);
+  color: #a63232;
+  font-size: 12px;
+}
+
+.atlas-modal__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.atlas-modal__count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.atlas-modal__actions {
+  display: flex;
+  gap: 7px;
+}
+
+.atlas-modal__actions button {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.atlas-modal__actions button:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent-muted);
+}
+
+.atlas-modal__primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
+
+.atlas-modal__primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 @media (max-width: 1080px) {

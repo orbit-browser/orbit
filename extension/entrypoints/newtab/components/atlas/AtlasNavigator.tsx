@@ -1,20 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { navigate } from '../../lib/navigation';
 import { SessionFavicons } from './SessionFavicons';
+import { FolderAssignDialog } from './FolderAssignDialog';
 import { loadSeenSessions, markSessionSeen } from '../../lib/seen-sessions';
 import { useSessionSync } from '../../hooks/useSessionSync';
-import type { SessionNode } from './data';
+import { useFolderMutations } from '../../hooks/useFolders';
+import type { FolderNode, SessionNode } from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
+/** 드래그 중인 세션을 실어 나르는 키. 다른 곳에서 온 드롭은 무시한다. */
+const DRAG_TYPE = 'application/x-orbit-session';
+
 interface AtlasNavigatorProps {
+  folders: FolderNode[];
+  unfiled: SessionNode[];
+  /** 폴더 소속과 무관한 전체 세션 — 검색과 일괄 추가 후보에 쓴다. */
   sessions: SessionNode[];
   query: string;
   onQueryChange: (value: string) => void;
+  focusedFolderId: string | null;
   focusedSessionId: string | null;
   selectedPageId: string | null;
+  expandedFolderIds: Set<string>;
   expandedSessionIds: Set<string>;
+  onToggleFolder: (id: string) => void;
   onToggleSession: (id: string) => void;
+  onSelectFolder: (id: string) => void;
   onSelectSession: (id: string) => void;
   onSelectPage: (sessionId: string, pageId: string) => void;
   onCollapseAll: () => void;
@@ -43,13 +55,19 @@ const NAV_MIN_WIDTH = 216;
 const NAV_MAX_WIDTH = 420;
 
 export function AtlasNavigator({
+  folders,
+  unfiled,
   sessions,
   query,
   onQueryChange,
+  focusedFolderId,
   focusedSessionId,
   selectedPageId,
+  expandedFolderIds,
   expandedSessionIds,
+  onToggleFolder,
   onToggleSession,
+  onSelectFolder,
   onSelectSession,
   onSelectPage,
   onCollapseAll,
@@ -67,6 +85,15 @@ export function AtlasNavigator({
 
   // 사이드패널에서 병합하면 새로고침 없이 여기 목록이 따라 바뀐다.
   const { absorbingId, survivingId } = useSessionSync();
+  const { create, rename, remove, assign, unassign } = useFolderMutations();
+
+  /** 드롭 대상 강조 — 'unfiled' 는 폴더에서 빼는 자리. */
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [assignTarget, setAssignTarget] = useState<string | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,9 +117,20 @@ export function AtlasNavigator({
     if (query && !searchOpen) onSearchOpenChange(true);
   }, [query, searchOpen, onSearchOpenChange]);
 
-  const filtered = useMemo(() => {
+  const folderNameById = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder.name])),
+    [folders],
+  );
+
+  /**
+   * 검색은 폴더 계층을 무시하고 평면 결과를 낸다.
+   *
+   * 2뎁스에서는 세션이 어느 폴더에 있는지 모르면 찾을 수 없다 — 잘못 넣어 둔 세션도
+   * 검색으로는 반드시 나와야 한다.
+   */
+  const searchResults = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return sessions.map((session) => ({ session, pageIds: null as Set<string> | null }));
+    if (!normalized) return null;
 
     return sessions.flatMap((session) => {
       const sessionHit =
@@ -107,6 +145,79 @@ export function AtlasNavigator({
       return [{ session, pageIds: sessionHit ? null : new Set(pages.map((page) => page.id)) }];
     });
   }, [query, sessions]);
+
+  const runFolderAction = useCallback(
+    async (action: () => Promise<unknown>, failure: string) => {
+      setFolderError(null);
+      try {
+        await action();
+        return true;
+      } catch {
+        // 원인 문자열에는 내부 경로가 섞여 있어 그대로 보여주지 않는다.
+        setFolderError(failure);
+        return false;
+      }
+    },
+    [],
+  );
+
+  const submitNewFolder = async () => {
+    const name = draftName.trim();
+    if (!name) {
+      setCreating(false);
+      return;
+    }
+    const ok = await runFolderAction(() => create.mutateAsync(name), '폴더를 만들지 못했어요');
+    if (ok) {
+      setCreating(false);
+      setDraftName('');
+    }
+  };
+
+  const submitRename = async (folderId: string) => {
+    const name = draftName.trim();
+    if (!name) {
+      setRenamingId(null);
+      return;
+    }
+    const ok = await runFolderAction(
+      () => rename.mutateAsync({ folderId, name }),
+      '이름을 바꾸지 못했어요',
+    );
+    if (ok) setRenamingId(null);
+  };
+
+  const deleteFolderWithConfirm = async (folder: FolderNode) => {
+    const message =
+      folder.sessions.length > 0
+        ? `"${folder.name}" 폴더를 지울까요?\n안에 있던 세션 ${folder.sessions.length}개는 지워지지 않고 정리 안 됨으로 돌아갑니다.`
+        : `"${folder.name}" 폴더를 지울까요?`;
+    if (!window.confirm(message)) return;
+    await runFolderAction(() => remove.mutateAsync(folder.id), '폴더를 지우지 못했어요');
+  };
+
+  const handleDropOnFolder = async (folderId: string, event: React.DragEvent) => {
+    event.preventDefault();
+    setDropTarget(null);
+    const sessionId = event.dataTransfer.getData(DRAG_TYPE);
+    if (!sessionId) return;
+    await runFolderAction(
+      () => assign.mutateAsync({ folderId, sessionIds: [sessionId] }),
+      '세션을 옮기지 못했어요',
+    );
+  };
+
+  const handleDropOnUnfiled = async (event: React.DragEvent) => {
+    event.preventDefault();
+    setDropTarget(null);
+    const sessionId = event.dataTransfer.getData(DRAG_TYPE);
+    const session = sessions.find((item) => item.id === sessionId);
+    if (!session?.folderId) return;
+    await runFolderAction(
+      () => unassign.mutateAsync({ folderId: session.folderId as string, sessionId }),
+      '세션을 빼지 못했어요',
+    );
+  };
 
   const handleResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -127,6 +238,118 @@ export function AtlasNavigator({
     window.addEventListener('pointerup', onUp);
   };
 
+  /** 세션 한 줄과 그 아래 페이지들. 폴더 안이든 미정리든 같은 모양으로 그린다. */
+  const renderSession = (session: SessionNode, visiblePageIds: Set<string> | null) => {
+    const isOpen = visiblePageIds !== null || expandedSessionIds.has(session.id);
+    const visiblePages = visiblePageIds
+      ? session.pages.filter((page) => visiblePageIds.has(page.id))
+      : session.pages;
+
+    return (
+      <div className="atlas-branch" key={session.id}>
+        <div
+          className={cx(
+            'atlas-row',
+            'atlas-row--session',
+            focusedSessionId === session.id && 'atlas-row--focused',
+            absorbingId === session.id && 'atlas-row--absorbing',
+            survivingId === session.id && 'atlas-row--surviving',
+          )}
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData(DRAG_TYPE, session.id);
+            event.dataTransfer.effectAllowed = 'move';
+          }}
+          onClick={() => handleSelectSession(session.id)}
+          onKeyDown={(event) => event.key === 'Enter' && handleSelectSession(session.id)}
+          role="button"
+          tabIndex={0}
+          title={`${session.title} — ${session.date}`}
+        >
+          <button
+            type="button"
+            className="atlas-row__caret"
+            aria-label={isOpen ? '접기' : '펼치기'}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleSession(session.id);
+            }}
+          >
+            <i className={isOpen ? 'ph ph-caret-down' : 'ph ph-caret-right'} />
+          </button>
+          <span className="atlas-row__label">
+            <Highlight text={session.title} query={query} />
+          </span>
+          <span className="atlas-row__meta">{session.pages.length}p</span>
+          {/* 대표 아이콘은 오른쪽 끝 — 제목이 길어져도 자리가 흔들리지 않는다 */}
+          <span className="atlas-row__trailing">
+            {session.folderId && (
+              <button
+                type="button"
+                className="atlas-row__unfile"
+                aria-label="폴더에서 빼기"
+                title="폴더에서 빼기"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void runFolderAction(
+                    () =>
+                      unassign.mutateAsync({
+                        folderId: session.folderId as string,
+                        sessionId: session.id,
+                      }),
+                    '세션을 빼지 못했어요',
+                  );
+                }}
+              >
+                <i className="ph ph-arrow-line-up-right" />
+              </button>
+            )}
+            {session.status === 'live' && !seenSessions.has(session.id) ? (
+              <span className="atlas-row__live" title="새로 저장된 세션" />
+            ) : (
+              <SessionFavicons pages={session.pages} hue={session.hue} />
+            )}
+          </span>
+        </div>
+
+        {isOpen && (
+          <div
+            className="atlas-branch__children"
+            style={{ '--branch-hue': session.hue } as React.CSSProperties}
+          >
+            {visiblePages.map((page) => (
+              <div
+                key={page.id}
+                className={cx(
+                  'atlas-row',
+                  'atlas-row--page',
+                  selectedPageId === page.id && 'atlas-row--active',
+                )}
+                onClick={() => onSelectPage(session.id, page.id)}
+                onKeyDown={(event) => event.key === 'Enter' && onSelectPage(session.id, page.id)}
+                role="button"
+                tabIndex={0}
+                title={`${page.title} — ${page.domain}`}
+              >
+                <span className="atlas-row__dot" />
+                <span className="atlas-row__label">
+                  <Highlight text={page.title} query={query} />
+                </span>
+                {page.visits > 1 && (
+                  <span className="atlas-row__meta atlas-row__meta--revisit">×{page.visits}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const assignFolder = assignTarget
+    ? folders.find((folder) => folder.id === assignTarget)
+    : undefined;
+
   return (
     <aside className="atlas-nav" style={{ width }}>
       <div className="atlas-nav__head">
@@ -134,103 +357,216 @@ export function AtlasNavigator({
           <i className="ph ph-house" />
         </button>
         <div className="atlas-nav__head-actions">
+          <button
+            type="button"
+            title="새 폴더"
+            aria-label="새 폴더"
+            onClick={() => {
+              setDraftName('');
+              setCreating(true);
+            }}
+          >
+            <i className="ph ph-folder-plus" />
+          </button>
           <button type="button" title="모두 접기" aria-label="모두 접기" onClick={onCollapseAll}>
             <i className="ph ph-arrows-in-line-vertical" />
           </button>
         </div>
       </div>
 
+      {folderError && (
+        <div className="atlas-nav__error" role="alert">
+          {folderError}
+        </div>
+      )}
+
       <div className="atlas-nav__tree">
-        {filtered.length === 0 && (
-          <div className="atlas-nav__empty">
-            <i className="ph ph-magnifying-glass" />
-            <span>{query ? `“${query}” 와 일치하는 항목이 없습니다` : '저장된 세션이 없습니다'}</span>
-          </div>
-        )}
-
-        {filtered.map(({ session, pageIds }) => {
-          const isOpen = pageIds !== null || expandedSessionIds.has(session.id);
-          const visiblePages = pageIds
-            ? session.pages.filter((page) => pageIds.has(page.id))
-            : session.pages;
-
-          return (
-            <div className="atlas-branch" key={session.id}>
-              <div
-                className={cx(
-                  'atlas-row',
-                  'atlas-row--orbit',
-                  focusedSessionId === session.id && 'atlas-row--focused',
-                  absorbingId === session.id && 'atlas-row--absorbing',
-                  survivingId === session.id && 'atlas-row--surviving',
-                )}
-                onClick={() => handleSelectSession(session.id)}
-                onKeyDown={(event) => event.key === 'Enter' && handleSelectSession(session.id)}
-                role="button"
-                tabIndex={0}
-                title={`${session.title} — ${session.date}`}
-              >
-                <button
-                  type="button"
-                  className="atlas-row__caret"
-                  aria-label={isOpen ? '접기' : '펼치기'}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggleSession(session.id);
-                  }}
-                >
-                  <i className={isOpen ? 'ph ph-caret-down' : 'ph ph-caret-right'} />
-                </button>
-                <span className="atlas-row__label">
-                  <Highlight text={session.title} query={query} />
-                </span>
-                {/* 대표 아이콘은 오른쪽 끝 — 제목이 길어져도 자리가 흔들리지 않는다 */}
-                <span className="atlas-row__trailing">
-                  {session.status === 'live' && !seenSessions.has(session.id) ? (
-                    <span className="atlas-row__live" title="새로 저장된 세션" />
-                  ) : (
-                    <SessionFavicons pages={session.pages} hue={session.hue} />
-                  )}
-                </span>
+        {searchResults !== null ? (
+          <>
+            {searchResults.length === 0 && (
+              <div className="atlas-nav__empty">
+                <i className="ph ph-magnifying-glass" />
+                <span>“{query}” 와 일치하는 항목이 없습니다</span>
               </div>
+            )}
+            {searchResults.map(({ session, pageIds }) => (
+              <div key={session.id}>
+                {session.folderId && (
+                  <div className="atlas-nav__crumb">
+                    <i className="ph ph-folder-simple" />
+                    {folderNameById.get(session.folderId) ?? '알 수 없는 폴더'}
+                  </div>
+                )}
+                {renderSession(session, pageIds)}
+              </div>
+            ))}
+          </>
+        ) : (
+          <>
+            {creating && (
+              <div className="atlas-row atlas-row--folder atlas-row--drafting">
+                <i className="ph ph-folder-simple atlas-row__icon" />
+                <input
+                  autoFocus
+                  className="atlas-row__input"
+                  value={draftName}
+                  placeholder="폴더 이름"
+                  maxLength={60}
+                  onChange={(event) => setDraftName(event.target.value)}
+                  onBlur={() => void submitNewFolder()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void submitNewFolder();
+                    if (event.key === 'Escape') setCreating(false);
+                  }}
+                />
+              </div>
+            )}
 
-              {isOpen && (
-                <div
-                  className="atlas-branch__children"
-                  style={{ '--branch-hue': session.hue } as React.CSSProperties}
-                >
-                  {visiblePages.map((page) => (
-                    <div
-                      key={page.id}
-                      className={cx(
-                        'atlas-row',
-                        'atlas-row--page',
-                        selectedPageId === page.id && 'atlas-row--active',
-                      )}
-                      onClick={() => onSelectPage(session.id, page.id)}
-                      onKeyDown={(event) =>
-                        event.key === 'Enter' && onSelectPage(session.id, page.id)
-                      }
-                      role="button"
-                      tabIndex={0}
-                      title={`${page.title} — ${page.domain}`}
+            {folders.map((folder) => {
+              const isOpen = expandedFolderIds.has(folder.id);
+              return (
+                <div className="atlas-folder" key={folder.id}>
+                  <div
+                    className={cx(
+                      'atlas-row',
+                      'atlas-row--folder',
+                      focusedFolderId === folder.id && 'atlas-row--focused',
+                      dropTarget === folder.id && 'atlas-row--drop',
+                    )}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                      setDropTarget(folder.id);
+                    }}
+                    onDragLeave={() => setDropTarget((prev) => (prev === folder.id ? null : prev))}
+                    onDrop={(event) => void handleDropOnFolder(folder.id, event)}
+                    onClick={() => onSelectFolder(folder.id)}
+                    onKeyDown={(event) => event.key === 'Enter' && onSelectFolder(folder.id)}
+                    role="button"
+                    tabIndex={0}
+                    title={`${folder.name} — 세션 ${folder.sessions.length}개`}
+                  >
+                    <button
+                      type="button"
+                      className="atlas-row__caret"
+                      aria-label={isOpen ? '접기' : '펼치기'}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onToggleFolder(folder.id);
+                      }}
                     >
-                      <span className="atlas-row__dot" />
-                      <span className="atlas-row__label">
-                        <Highlight text={page.title} query={query} />
-                      </span>
-                      {page.visits > 1 && (
-                        <span className="atlas-row__meta atlas-row__meta--revisit">
-                          ×{page.visits}
-                        </span>
+                      <i className={isOpen ? 'ph ph-caret-down' : 'ph ph-caret-right'} />
+                    </button>
+                    {/* 폴더 색은 캔버스 궤도 색과 같다 — 아이콘으로 두 화면을 잇는다 */}
+                    <i
+                      className="ph ph-folder-simple atlas-row__icon"
+                      style={{ color: folder.hue }}
+                      aria-hidden
+                    />
+
+                    {renamingId === folder.id ? (
+                      <input
+                        autoFocus
+                        className="atlas-row__input"
+                        value={draftName}
+                        maxLength={60}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => setDraftName(event.target.value)}
+                        onBlur={() => void submitRename(folder.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void submitRename(folder.id);
+                          if (event.key === 'Escape') setRenamingId(null);
+                        }}
+                      />
+                    ) : (
+                      <span className="atlas-row__label">{folder.name}</span>
+                    )}
+
+                    <span className="atlas-row__trailing">
+                      <span className="atlas-row__meta">{folder.sessions.length}</span>
+                      <button
+                        type="button"
+                        className="atlas-row__action"
+                        aria-label={`${folder.name}에 세션 추가`}
+                        title="세션 추가"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setFolderError(null);
+                          setAssignTarget(folder.id);
+                        }}
+                      >
+                        <i className="ph ph-plus" />
+                      </button>
+                      <button
+                        type="button"
+                        className="atlas-row__action"
+                        aria-label={`${folder.name} 이름 바꾸기`}
+                        title="이름 바꾸기"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDraftName(folder.name);
+                          setRenamingId(folder.id);
+                        }}
+                      >
+                        <i className="ph ph-pencil-simple" />
+                      </button>
+                      <button
+                        type="button"
+                        className="atlas-row__action"
+                        aria-label={`${folder.name} 삭제`}
+                        title="폴더 삭제"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void deleteFolderWithConfirm(folder);
+                        }}
+                      >
+                        <i className="ph ph-trash" />
+                      </button>
+                    </span>
+                  </div>
+
+                  {isOpen && (
+                    <div className="atlas-folder__children">
+                      {folder.sessions.length === 0 ? (
+                        <div className="atlas-folder__empty">
+                          세션을 여기로 끌어다 놓거나 + 로 추가하세요
+                        </div>
+                      ) : (
+                        folder.sessions.map((session) => renderSession(session, null))
                       )}
                     </div>
-                  ))}
+                  )}
                 </div>
+              );
+            })}
+
+            <div
+              className={cx(
+                'atlas-nav__section',
+                dropTarget === 'unfiled' && 'atlas-nav__section--drop',
               )}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                setDropTarget('unfiled');
+              }}
+              onDragLeave={() => setDropTarget((prev) => (prev === 'unfiled' ? null : prev))}
+              onDrop={(event) => void handleDropOnUnfiled(event)}
+            >
+              정리 안 됨
+              <span className="atlas-nav__section-count">{unfiled.length}</span>
             </div>
-          );
-        })}
+
+            {unfiled.length === 0 && folders.length === 0 && (
+              <div className="atlas-nav__empty">
+                <i className="ph ph-folder-simple-dashed" />
+                <span>저장된 세션이 없습니다</span>
+              </div>
+            )}
+
+            {unfiled.map((session) => renderSession(session, null))}
+          </>
+        )}
       </div>
 
       <div className={cx('atlas-nav__search', searchOpen && 'atlas-nav__search--open')}>
@@ -280,6 +616,25 @@ export function AtlasNavigator({
           role="separator"
           aria-orientation="vertical"
           aria-label="네비게이터 너비 조절"
+        />
+      )}
+
+      {assignFolder && (
+        <FolderAssignDialog
+          folder={assignFolder}
+          sessions={sessions}
+          folderNameById={folderNameById}
+          pending={assign.isPending}
+          error={folderError}
+          onSubmit={(sessionIds) => {
+            void runFolderAction(
+              () => assign.mutateAsync({ folderId: assignFolder.id, sessionIds }),
+              '세션을 추가하지 못했어요',
+            ).then((ok) => {
+              if (ok) setAssignTarget(null);
+            });
+          }}
+          onClose={() => setAssignTarget(null)}
         />
       )}
     </aside>

@@ -17,6 +17,9 @@ venv/
 .env
 .env.*
 !.env.example
+# 확장 ID 고정용 서명 키페어. 공개키(manifest.key)는 wxt.config.ts 에 커밋하지만
+# 개인키가 유출되면 제3자가 같은 ID 로 확장을 서명할 수 있다.
+.keys/
 
 # Editor / OS
 .DS_Store

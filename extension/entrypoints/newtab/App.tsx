@@ -19,7 +19,9 @@ export default function App() {
   const [composerMode, setComposerMode] = useState<'search' | 'ai'>('search');
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const atlasQuery = useAtlasData();
-  const sessions = atlasQuery.data ?? [];
+  const sessions = atlasQuery.data?.sessions ?? [];
+  const folders = atlasQuery.data?.folders ?? [];
+  const unfiled = atlasQuery.data?.unfiled ?? [];
   const recommendationQuery = useRecommendations();
   const {
     turns,
@@ -90,7 +92,14 @@ export default function App() {
       className={`home-page${nav.open ? ' home-page--nav-open' : ''}`}
       style={{ '--nav-w': `${nav.width}px` } as React.CSSProperties}
     >
-      <NavigatorDrawer sessions={sessions} open={nav.open} onClose={toggleNav} escapeEnabled />
+      <NavigatorDrawer
+        sessions={sessions}
+        folders={folders}
+        unfiled={unfiled}
+        open={nav.open}
+        onClose={toggleNav}
+        escapeEnabled
+      />
       <Header navOpen={nav.open} onToggleNav={toggleNav} />
 
       <div className="app-container">
