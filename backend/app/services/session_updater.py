@@ -180,7 +180,9 @@ async def _create_session(
         last_activity_at=sorted_events[-1]["visited_at"],
         total_active_duration_ms=total_duration,
         event_count=len(sorted_events),
-        user_id="local",
+        # 세션 소유자 = 이 세션을 이루는 이벤트의 소유자.
+        # 배치는 한 사용자 이벤트만 다루므로(sync_pipeline._claim_pending_events) 첫 이벤트로 충분하다.
+        user_id=sorted_events[0]["user_id"],
     )
     db.add(session)
     await db.flush()

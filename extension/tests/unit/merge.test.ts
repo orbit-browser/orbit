@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchMergeSuggestions,
   fetchServerSettings,
@@ -7,9 +7,16 @@ import {
   updateServerSettings,
 } from '../../lib/api';
 import { isMergePairAvailable, markMergePairConsumed } from '../../lib/merge';
+import { signInTestUser, signOutTestUser } from '../helpers';
 
-afterEach(() => {
+beforeEach(async () => {
+  // API 호출은 로그인 상태를 요구한다.
+  await signInTestUser();
+});
+
+afterEach(async () => {
   vi.unstubAllGlobals();
+  await signOutTestUser();
 });
 
 describe('merge batch guard', () => {

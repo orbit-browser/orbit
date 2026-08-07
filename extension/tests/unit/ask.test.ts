@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import {
@@ -7,9 +7,16 @@ import {
 } from '../../entrypoints/shared/hooks/useAskConversation';
 import { streamAsk } from '../../lib/api';
 import { parseSseBuffer, readSseStream } from '../../lib/sse';
+import { signInTestUser, signOutTestUser } from '../helpers';
 
-afterEach(() => {
+beforeEach(async () => {
+  // /ask 는 사용자의 세션을 읽으므로 인증이 필요하다.
+  await signInTestUser();
+});
+
+afterEach(async () => {
   vi.unstubAllGlobals();
+  await signOutTestUser();
 });
 
 describe('Ask AI request', () => {

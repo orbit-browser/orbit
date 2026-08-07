@@ -17,8 +17,9 @@ from ..services.ask_service import (
     AskContext,
     prepare_ask_context,
 )
+from .deps import current_user_id
 from .search import _search_sessions_by_vector
-from .sessions import _to_detail
+from .sessions import _owned_session, _to_detail
 
 router = APIRouter(prefix="/ask", tags=["ask"])
 logger = logging.getLogger(__name__)
@@ -32,14 +33,17 @@ def encode_sse(event: str, data: dict) -> str:
 async def _resolve_sources(
     body: AskStreamRequest,
     db: AsyncSession,
+    user_id: str,
 ) -> list[SessionDetail]:
+    """답변 근거로 쓸 세션을 고른다. **반드시 요청자 소유 세션만** 대상으로 한다."""
     if body.session_id:
-        session = await db.get(SessionModel, body.session_id)
-        if not session or session.status == "merged":
+        # 소유권 확인을 거친다 — 남의 세션 id 로 그 내용을 요약해 받아갈 수 있으면 안 된다.
+        session = await _owned_session(db, body.session_id, user_id)
+        if session.status == "merged":
             raise HTTPException(status_code=404, detail="Session not found")
         return [_to_detail(session)]
 
-    return await _search_sessions_by_vector(body.query, 3, body.rerank, db)
+    return await _search_sessions_by_vector(body.query, 3, body.rerank, db, user_id)
 
 
 async def _answer_events(
@@ -93,9 +97,10 @@ async def stream_answer(
     body: AskStreamRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
 ) -> StreamingResponse:
-    sources = await _resolve_sources(body, db)
-    context = await prepare_ask_context(db, body.query, sources)
+    sources = await _resolve_sources(body, db, user_id)
+    context = await prepare_ask_context(db, body.query, sources, user_id)
     return StreamingResponse(
         _answer_events(request, context),
         media_type="text/event-stream",

@@ -65,7 +65,7 @@ def test_fetch_top_sessions_maps_fields():
     )
     db = _QueuedDB([_ScalarsResult([session])])
 
-    items = asyncio.run(analytics._fetch_top_sessions(db, _NOW))
+    items = asyncio.run(analytics._fetch_top_sessions(db, _NOW, "u1"))
 
     assert items == [
         analytics.TopSessionItem(
@@ -76,7 +76,7 @@ def test_fetch_top_sessions_maps_fields():
 
 def test_fetch_top_sessions_empty_when_no_rows():
     db = _QueuedDB([_ScalarsResult([])])
-    items = asyncio.run(analytics._fetch_top_sessions(db, _NOW))
+    items = asyncio.run(analytics._fetch_top_sessions(db, _NOW, "u1"))
     assert items == []
 
 
@@ -86,7 +86,7 @@ def test_fetch_top_sessions_empty_when_no_rows():
 def test_fetch_top_domains_maps_fields():
     db = _QueuedDB([_AllResult([("github.com", 42, 120000), ("google.com", 31, 60000)])])
 
-    items = asyncio.run(analytics._fetch_top_domains(db, _NOW))
+    items = asyncio.run(analytics._fetch_top_domains(db, _NOW, "u1"))
 
     assert items == [
         analytics.TopDomainItem(domain="github.com", visit_count=42, total_active_duration_ms=120000),
@@ -105,7 +105,7 @@ def test_fetch_repeat_visits_looks_up_latest_title_per_url():
         ]
     )
 
-    items = asyncio.run(analytics._fetch_repeat_visits(db, _NOW))
+    items = asyncio.run(analytics._fetch_repeat_visits(db, _NOW, "u1"))
 
     assert items == [
         analytics.RepeatVisitItem(
@@ -123,7 +123,7 @@ def test_fetch_repeat_visits_handles_multiple_urls_in_order():
         ]
     )
 
-    items = asyncio.run(analytics._fetch_repeat_visits(db, _NOW))
+    items = asyncio.run(analytics._fetch_repeat_visits(db, _NOW, "u1"))
 
     assert [i.normalized_url for i in items] == ["https://a.com/", "https://b.com/"]
     assert [i.title for i in items] == ["A", "B"]
@@ -131,7 +131,7 @@ def test_fetch_repeat_visits_handles_multiple_urls_in_order():
 
 def test_fetch_repeat_visits_empty_when_no_repeats():
     db = _QueuedDB([_AllResult([])])
-    items = asyncio.run(analytics._fetch_repeat_visits(db, _NOW))
+    items = asyncio.run(analytics._fetch_repeat_visits(db, _NOW, "u1"))
     assert items == []
 
 
@@ -141,14 +141,14 @@ def test_fetch_repeat_visits_empty_when_no_repeats():
 def test_fetch_repeat_search_queries_maps_fields():
     db = _QueuedDB([_AllResult([("rtx 5070 가격", 4)])])
 
-    items = asyncio.run(analytics._fetch_repeat_search_queries(db, _NOW))
+    items = asyncio.run(analytics._fetch_repeat_search_queries(db, _NOW, "u1"))
 
     assert items == [analytics.RepeatSearchQueryItem(search_query="rtx 5070 가격", count=4)]
 
 
 def test_fetch_repeat_search_queries_empty_when_no_repeats():
     db = _QueuedDB([_AllResult([])])
-    items = asyncio.run(analytics._fetch_repeat_search_queries(db, _NOW))
+    items = asyncio.run(analytics._fetch_repeat_search_queries(db, _NOW, "u1"))
     assert items == []
 
 
@@ -169,7 +169,7 @@ def test_fetch_daily_trend_maps_date_objects_to_isoformat():
         ]
     )
 
-    items = asyncio.run(analytics._fetch_daily_trend(db, _NOW))
+    items = asyncio.run(analytics._fetch_daily_trend(db, _NOW, "u1"))
 
     assert items == [
         analytics.DailyTrendItem(date="2026-07-28", event_count=55, total_active_duration_ms=7200000),
@@ -179,13 +179,13 @@ def test_fetch_daily_trend_maps_date_objects_to_isoformat():
 
 def test_fetch_daily_trend_handles_non_date_objects_via_str_fallback():
     db = _QueuedDB([_AllResult([("2026-07-28", 10, 1000)])])
-    items = asyncio.run(analytics._fetch_daily_trend(db, _NOW))
+    items = asyncio.run(analytics._fetch_daily_trend(db, _NOW, "u1"))
     assert items[0].date == "2026-07-28"
 
 
 def test_fetch_daily_trend_empty_when_no_events():
     db = _QueuedDB([_AllResult([])])
-    items = asyncio.run(analytics._fetch_daily_trend(db, _NOW))
+    items = asyncio.run(analytics._fetch_daily_trend(db, _NOW, "u1"))
     assert items == []
 
 
@@ -193,21 +193,21 @@ def test_fetch_daily_trend_empty_when_no_events():
 
 
 def test_get_analytics_overview_wires_all_sections_together(monkeypatch):
-    async def fake_top_sessions(_db, _start):
+    async def fake_top_sessions(_db, _start, _user_id):
         return [
             analytics.TopSessionItem(session_id="s1", title="t", total_active_duration_ms=1, event_count=1)
         ]
 
-    async def fake_top_domains(_db, _start):
+    async def fake_top_domains(_db, _start, _user_id):
         return [analytics.TopDomainItem(domain="a.com", visit_count=1, total_active_duration_ms=1)]
 
-    async def fake_repeat_visits(_db, _start):
+    async def fake_repeat_visits(_db, _start, _user_id):
         return [analytics.RepeatVisitItem(normalized_url="https://a.com/", title="A", visit_count=2)]
 
-    async def fake_repeat_search_queries(_db, _start):
+    async def fake_repeat_search_queries(_db, _start, _user_id):
         return [analytics.RepeatSearchQueryItem(search_query="q", count=2)]
 
-    async def fake_daily_trend(_db, _start):
+    async def fake_daily_trend(_db, _start, _user_id):
         return [analytics.DailyTrendItem(date="2026-07-28", event_count=1, total_active_duration_ms=1)]
 
     monkeypatch.setattr(analytics, "_fetch_top_sessions", fake_top_sessions)
@@ -216,7 +216,7 @@ def test_get_analytics_overview_wires_all_sections_together(monkeypatch):
     monkeypatch.setattr(analytics, "_fetch_repeat_search_queries", fake_repeat_search_queries)
     monkeypatch.setattr(analytics, "_fetch_daily_trend", fake_daily_trend)
 
-    response = asyncio.run(analytics.get_analytics_overview(days=7, db=object()))
+    response = asyncio.run(analytics.get_analytics_overview(days=7, db=object(), user_id="u1"))
 
     assert response.period_days == 7
     assert len(response.top_sessions_by_duration) == 1

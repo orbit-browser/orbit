@@ -9,7 +9,7 @@ export function TabListItem({ tab }: { tab: TabItem }) {
 
   return (
     <div className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-orbit-bg">
-      <Favicon src={tab.favIconUrl} />
+      <Favicon pageUrl={tab.url} src={tab.favIconUrl} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm">{tab.title}</p>
         <p className="truncate text-xs text-orbit-muted">{tab.url}</p>

@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { PageFavicon } from './PageFavicon';
 import type { SessionNode } from './data';
 import { formatMinutes } from './data';
 
@@ -14,7 +15,6 @@ interface AtlasTrayProps {
 }
 
 /** 도메인에서 카드 아이콘용 이니셜을 뽑는다. */
-const initialOf = (domain: string) => domain.replace(/^WWW\./, '').charAt(0).toUpperCase();
 
 export function AtlasTray({
   session,
@@ -85,7 +85,7 @@ export function AtlasTray({
                 style={{ '--card-hue': session.hue } as React.CSSProperties}
               >
                 <div className="atlas-card__top">
-                  <div className="atlas-card__icon">{initialOf(page.domain)}</div>
+                  <PageFavicon url={page.url} domain={page.domain} className="atlas-card__icon" />
                   <div className="atlas-card__heading">
                     <div className="atlas-card__name">{page.title}</div>
                     <div className="atlas-card__domain">{page.domain}</div>
@@ -120,11 +120,6 @@ export function AtlasTray({
               </article>
             );
           })}
-
-          <button type="button" className="atlas-card--add">
-            <i className="ph ph-plus"></i>
-            <span>페이지 추가</span>
-          </button>
         </div>
       </div>
     </div>

@@ -242,14 +242,14 @@ async def unmerge_sessions(
     return survivor, absorbed
 
 
-async def auto_merge_duplicates(db: AsyncSession) -> list[tuple[str, str]]:
+async def auto_merge_duplicates(db: AsyncSession, user_id: str) -> list[tuple[str, str]]:
     """opt-in 자동 병합 — '명백한 중복'만 병합하고 (survivor_id, absorbed_id) 목록을 반환한다.
 
     settings.auto_merge_enabled가 True일 때만 호출한다(호출측 가드). 제안(find_merge_suggestions)에서
     is_auto_merge_candidate를 통과한 쌍만 병합하며, 한 실행에서 이미 소비된 세션이 다시 등장하면 건너뛴다.
     재요약/재임베딩·흡수 세션 Qdrant 포인트 삭제는 호출측이 반환 목록으로 처리한다.
     """
-    suggestions = await find_merge_suggestions(db)
+    suggestions = await find_merge_suggestions(db, user_id)
     consumed: set[str] = set()
     merged: list[tuple[str, str]] = []
     for s in suggestions:
