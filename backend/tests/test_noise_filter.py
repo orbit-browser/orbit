@@ -3,7 +3,7 @@
 from app.services.noise_filter import is_short_stray, split_noise
 
 
-def _event(url, *, duration_ms=10_000, domain=None, search_query=None, eid="e1"):
+def _event(url, *, duration_ms=10_000, domain=None, search_query=None, title=None, eid="e1"):
     from urllib.parse import urlsplit
 
     return {
@@ -12,6 +12,7 @@ def _event(url, *, duration_ms=10_000, domain=None, search_query=None, eid="e1")
         "domain": domain if domain is not None else (urlsplit(url).hostname or ""),
         "active_duration_ms": duration_ms,
         "search_query": search_query,
+        "title": title,
     }
 
 
@@ -184,8 +185,41 @@ def test_mail_message_read_survives():
 
 
 def test_gmail_root_ambiguous_survives():
-    # gmail은 정규화 후 경로 구분 불가(/mail/u/1/) → 목록 규칙에 안 걸려 보존
+    # gmail은 경로 구분 불가(/mail/u/1/). title이 없으면 애매 → 보존(기존 C안 유지)
     assert not _single(_event("https://mail.google.com/mail/u/1/", duration_ms=4_000))
+
+
+def test_gmail_inbox_title_is_noise():
+    # 경로로는 못 잡지만 title이 받은편지함이면 discard(도그푸딩 검수 2026-08-06)
+    assert _single(
+        _event(
+            "https://mail.google.com/mail/u/1/",
+            duration_ms=4_000,
+            title="받은편지함 (4,308) - donggun465@gmail.com - Gmail",
+        )
+    )
+
+
+def test_naver_mail_root_inbox_title_is_noise():
+    # naver 루트(/)도 title이 받은메일함이면 discard
+    assert _single(
+        _event(
+            "https://mail.naver.com/",
+            duration_ms=1_000,
+            title="받은메일함(7028) : 네이버 메일",
+        )
+    )
+
+
+def test_gmail_message_read_survives_by_subject_title():
+    # 개별 메일 읽기는 title이 메일 '제목'이라 받은편지함으로 시작 안 함 → 보존
+    assert not _single(
+        _event(
+            "https://mail.google.com/mail/u/1/",
+            duration_ms=95_000,
+            title="[GitHub] A new sign-in - donggun465@gmail.com - Gmail",
+        )
+    )
 
 
 def test_mail_list_bypasses_domain_repeat_rescue():

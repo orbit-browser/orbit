@@ -1,8 +1,8 @@
 """Auto Session 세션화 파이프라인 평가 스크립트 (docs/evaluation-plan.md §3).
 
-처리 흐름: 골든셋 로드 → event_filter로 정규화 → dedupe_events/group_by_time_gap(실
-파이프라인과 동일한 순수 함수 재사용) → 그룹별 intent_analyzer.analyze() 호출(실 LLM 또는
-기록 재생) → 지표 계산(eval/metrics.py) → 리포트 출력.
+처리 흐름: 골든셋 로드 → event_filter로 정규화 → dedupe_events/group_by_time_gap → split_noise
+→ embed_many+subcluster로 그룹 내 주제 선분리(실 파이프라인과 동일한 순수 함수 재사용) →
+클러스터별 intent_analyzer.analyze() 호출(실 LLM/임베딩 또는 기록 재생) → 지표 계산 → 리포트.
 
 실행 (backend 디렉터리에서):
     python -m eval.run_eval
@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import urlsplit
 
+from app.ai import embedding
 from app.config import settings
 from app.services import intent_analyzer
 from app.services.event_filter import (
@@ -32,6 +33,8 @@ from app.services.event_filter import (
 from app.services.grouper import dedupe_events, group_by_time_gap
 from app.services.intent_analyzer import Assignment
 from app.services.noise_filter import split_noise
+from app.services.subclusterer import subcluster
+from app.services.sync_pipeline import _event_embedding_text
 
 from . import metrics
 
@@ -48,10 +51,15 @@ class LlmUnavailableError(RuntimeError):
 
 
 def _ensure_llm_credentials() -> None:
-    if not settings.axk1_api_key and not settings.upstage_api_key:
+    # 서브클러스터링 임베딩은 Upstage가, 의도분석 LLM은 A.X 또는 EXAONE(FriendliAI)가 필요하다.
+    if not settings.upstage_api_key:
         raise LlmUnavailableError(
-            "AXK1_API_KEY/UPSTAGE_API_KEY가 backend/.env에 설정되어 있지 않습니다. "
-            "실 LLM 모드로 run_eval을 실행하려면 최소 한 개의 키가 필요합니다. "
+            "UPSTAGE_API_KEY가 backend/.env에 없습니다. 서브클러스터링 임베딩에 필요합니다. "
+            "키 없이 지표 계산만 확인하려면 --replay <기록 파일>을 사용하세요."
+        )
+    if not settings.axk1_api_key and not settings.friendli_api_key:
+        raise LlmUnavailableError(
+            "AXK1_API_KEY/FRIENDLI_API_KEY가 backend/.env에 없습니다. 의도분석 LLM에 최소 한 개가 필요합니다. "
             "키 없이 지표 계산만 확인하려면 --replay <기록 파일>을 사용하세요."
         )
 
@@ -99,6 +107,30 @@ def build_pipeline_events(raw_events: list[dict]) -> list[dict]:
     return events
 
 
+async def _embed_group(
+    texts: list[str],
+    embed_key: str,
+    *,
+    record_sink: dict[str, dict] | None,
+    replay_map: dict[str, dict] | None,
+) -> list[list[float]]:
+    """서브클러스터링용 이벤트 임베딩을 얻는다(실 임베딩/기록 재생 공용 경로).
+
+    실 파이프라인(_process_group)과 동일하게 embed_many를 쓴다 — 평가가 실제 서브클러스터링
+    경로를 그대로 대표하게 하기 위함. 재현성·비용 통제를 위해 record/replay를 지원한다.
+    """
+    if replay_map is not None:
+        recorded = replay_map.get(embed_key)
+        if recorded is None:
+            raise KeyError(f"재생 파일에 '{embed_key}' 임베딩 기록이 없습니다")
+        return recorded["embeddings"]
+
+    embeddings = await embedding.embed_many(texts)
+    if record_sink is not None:
+        record_sink[embed_key] = {"embeddings": embeddings}
+    return embeddings
+
+
 async def _analyze_group(
     group: list[dict],
     candidates: list[dict],
@@ -107,7 +139,7 @@ async def _analyze_group(
     record_sink: dict[str, dict] | None,
     replay_map: dict[str, dict] | None,
 ) -> list[Assignment]:
-    """그룹 하나를 intent_analyzer.analyze로 분석한다(실 LLM/기록 재생 공용 경로).
+    """클러스터 하나를 intent_analyzer.analyze로 분석한다(실 LLM/기록 재생 공용 경로).
 
     재생 모드든 기록 모드든 chat_completion_intent만 패치하고 analyze()의 파싱/방어
     로직은 그대로 실행한다 — 평가가 실제 코드 경로를 그대로 대표하게 하기 위함(§3, §4).
@@ -140,8 +172,10 @@ async def _analyze_group(
 async def evaluate_scenario(
     scenario: dict,
     *,
-    record_sink: dict[str, dict] | None,
-    replay_map: dict[str, dict] | None,
+    llm_record: dict[str, dict] | None,
+    llm_replay: dict[str, dict] | None,
+    embed_record: dict[str, dict] | None,
+    embed_replay: dict[str, dict] | None,
 ) -> tuple[list[metrics.EventOutcome], metrics.ScenarioDecision, list[dict]]:
     """골든셋 파일 하나를 처리해 (이벤트별 결과, new/existing 판단, 실패 케이스)를 반환한다."""
     name = scenario["name"]
@@ -172,29 +206,50 @@ async def evaluate_scenario(
         if not group:
             continue
 
-        call_key = f"{name}::{group_index}"
-        assignments = await _analyze_group(
-            group, existing_sessions, call_key, record_sink=record_sink, replay_map=replay_map
+        # 서브클러스터링 — 실 파이프라인과 동일하게 LLM 전에 주제를 선분리한다. eval은 Qdrant를
+        # 쓰지 않으므로 후보는 existing_sessions를 그대로 전달하고, append 게이팅은 단위 테스트로
+        # 검증한다(여기서는 서브클러스터링 + 프롬프트 품질을 본다).
+        embeddings = await _embed_group(
+            [_event_embedding_text(e) for e in group],
+            f"{name}::{group_index}",
+            record_sink=embed_record,
+            replay_map=embed_replay,
         )
+        clusters_idx = subcluster(embeddings, settings.subcluster_threshold)
 
-        for assignment in assignments:
-            actions_seen.append(assignment.action)
-            event_ids = [group[i]["id"] for i in assignment.event_indices if 0 <= i < len(group)]
+        for cluster_index, idx_group in enumerate(clusters_idx):
+            cluster_events = [group[i] for i in idx_group]
+            call_key = f"{name}::{group_index}::{cluster_index}"
+            assignments = await _analyze_group(
+                cluster_events,
+                existing_sessions,
+                call_key,
+                record_sink=llm_record,
+                replay_map=llm_replay,
+            )
 
-            if assignment.action == "discard":
-                key: str | None = metrics.NOISE
-            elif assignment.action == "hold":
-                key = None
-            elif assignment.action == "append":
-                key = f"{name}::{assignment.target}" if assignment.target else None
-            elif assignment.action == "create":
-                key = f"{name}::new::{create_counter}"
-                create_counter += 1
-            else:
-                key = None
+            for assignment in assignments:
+                actions_seen.append(assignment.action)
+                event_ids = [
+                    cluster_events[i]["id"]
+                    for i in assignment.event_indices
+                    if 0 <= i < len(cluster_events)
+                ]
 
-            for event_id in event_ids:
-                predicted_key_by_event[event_id] = key
+                if assignment.action == "discard":
+                    key: str | None = metrics.NOISE
+                elif assignment.action == "hold":
+                    key = None
+                elif assignment.action == "append":
+                    key = f"{name}::{assignment.target}" if assignment.target else None
+                elif assignment.action == "create":
+                    key = f"{name}::new::{create_counter}"
+                    create_counter += 1
+                else:
+                    key = None
+
+                for event_id in event_ids:
+                    predicted_key_by_event[event_id] = key
 
     outcomes: list[metrics.EventOutcome] = []
     for event_id, expected_label in expected["assignments"].items():
@@ -233,19 +288,26 @@ async def evaluate_scenario(
 def _scenario_paths(file_arg: str | None) -> list[Path]:
     if file_arg:
         return [Path(file_arg)]
-    return sorted(_GOLDEN_DIR.glob("*.json"))
+    # '_' 접두 파일(_recorded*.json 등 기록 산출물)은 시나리오가 아니므로 제외한다.
+    return sorted(p for p in _GOLDEN_DIR.glob("*.json") if not p.name.startswith("_"))
 
 
 async def run(args: argparse.Namespace) -> dict:
-    replay_map: dict[str, dict] | None = None
-    record_sink: dict[str, dict] | None = None
+    llm_replay: dict[str, dict] | None = None
+    embed_replay: dict[str, dict] | None = None
+    llm_record: dict[str, dict] | None = None
+    embed_record: dict[str, dict] | None = None
 
     if args.replay:
-        replay_map = json.loads(Path(args.replay).read_text(encoding="utf-8"))
+        recorded = json.loads(Path(args.replay).read_text(encoding="utf-8"))
+        # 기록 파일은 {"llm": {...}, "embed": {...}}. 구버전 평면(LLM-only) 파일도 허용.
+        llm_replay = recorded.get("llm", recorded)
+        embed_replay = recorded.get("embed", {})
     else:
         _ensure_llm_credentials()
         if args.record:
-            record_sink = {}
+            llm_record = {}
+            embed_record = {}
 
     all_outcomes: list[metrics.EventOutcome] = []
     all_decisions: list[metrics.ScenarioDecision] = []
@@ -255,7 +317,11 @@ async def run(args: argparse.Namespace) -> dict:
     for path in _scenario_paths(args.file):
         scenario = load_scenario(path)
         outcomes, decision, failures = await evaluate_scenario(
-            scenario, record_sink=record_sink, replay_map=replay_map
+            scenario,
+            llm_record=llm_record,
+            llm_replay=llm_replay,
+            embed_record=embed_record,
+            embed_replay=embed_replay,
         )
         all_outcomes.extend(outcomes)
         all_decisions.append(decision)
@@ -272,9 +338,10 @@ async def run(args: argparse.Namespace) -> dict:
             }
         )
 
-    if record_sink is not None:
+    if llm_record is not None:
         Path(args.record).write_text(
-            json.dumps(record_sink, ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps({"llm": llm_record, "embed": embed_record}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
 
     return {

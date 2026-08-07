@@ -43,6 +43,11 @@ _MAIL_LIST_PATH_RE = re.compile(
     r"/(inbox|folders?|sent|drafts?|spam|junk|trash|archive|starred|important|all|label)(/|$)",
     re.IGNORECASE,
 )
+# 경로로 목록/읽기를 구분할 수 없는 웹메일(gmail은 fragment 제거 후 /mail/u/N/ 하나, naver 루트 /)은
+# title로 받은편지함 여부를 판정한다. 개별 메일 읽기는 title이 메일 '제목'이라 이 패턴으로 시작하지
+# 않아 보존된다(도그푸딩 검수 2026-08-06: gmail·naver 받은편지함 스침이 세션에 새어들던 문제).
+# 확장 시 보낸편지함 등을 추가할 수 있으나, 오탐(메일 제목이 우연히 일치)을 줄이려 받은함으로 한정.
+_MAIL_LIST_TITLE_RE = re.compile(r"^(받은편지함|받은메일함)", re.IGNORECASE)
 
 # 규칙 2 — 습관적 확인 도메인: 피드/쇼츠/포털 홈. (host 정규식, path 정규식) 쌍으로
 # 정의해 서비스 내 검색·글 상세 같은 의미 있는 방문(딥 경로)은 잡지 않는다.
@@ -78,13 +83,20 @@ def _is_root_path(path: str) -> bool:
     return path in ("", "/")
 
 
-def _is_mail_list_view(host: str, path: str) -> bool:
-    """웹메일의 받은편지함·폴더 목록 보기 여부. 개별 메일 읽기는 제외(보존)한다."""
+def _is_mail_list_view(host: str, path: str, title: str | None) -> bool:
+    """웹메일의 받은편지함·폴더 목록 보기 여부. 개별 메일 읽기는 제외(보존)한다.
+
+    판정: 웹메일 호스트 && 개별 메일 읽기 경로 아님 && (목록 경로 || 받은편지함 title).
+    title 신호는 경로로 구분 불가한 gmail(/mail/u/N/)·naver 루트(/)를 잡는다. title이 없는
+    (또는 메일 제목인) 애매한 경우는 여전히 보존한다.
+    """
     if not _MAIL_HOST_RE.search(host):
         return False
     if _MAIL_MESSAGE_PATH_RE.search(path):
         return False
-    return bool(_MAIL_LIST_PATH_RE.search(path))
+    if _MAIL_LIST_PATH_RE.search(path):
+        return True
+    return bool(_MAIL_LIST_TITLE_RE.match((title or "").strip()))
 
 
 def is_noise(event: dict, domain_counts: dict[str, int]) -> bool:
@@ -103,7 +115,7 @@ def is_noise(event: dict, domain_counts: dict[str, int]) -> bool:
 
     # 메일 목록/폴더 보기 — 체류·도메인 반복과 무관하게 discard(사용자 결정: 목록 새로고침은
     # 기억 안 함). 개별 메일 읽기는 _is_mail_list_view가 걸러 보존한다.
-    if _is_mail_list_view(host, path):
+    if _is_mail_list_view(host, path, event.get("title")):
         return True
 
     dwell = _dwell_ms(event)
