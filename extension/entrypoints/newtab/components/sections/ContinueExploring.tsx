@@ -5,7 +5,7 @@ import type { ExplorationEntry } from './RecentExploration';
 import type { RestoreTarget } from '../../lib/restore';
 
 interface ContinueExploringProps {
-  active: ExplorationEntry;
+  active: ExplorationEntry | null;
   recommended: ExplorationEntry[];
   /** 해당 세션의 대시보드(아틀라스)로 이동 */
   onOpenDashboard: (entry: ExplorationEntry) => void;
@@ -35,6 +35,10 @@ export function ContinueExploring({
   const go = (dir: 1 | -1) =>
     setIndex((i) => (i + dir + recommended.length) % recommended.length);
 
+  useEffect(() => {
+    if (index >= recommended.length) setIndex(0);
+  }, [index, recommended.length]);
+
   return (
     <div className="right-column">
       <section>
@@ -46,15 +50,16 @@ export function ContinueExploring({
           이어서 탐색하기
         </h3>
 
-        <ExploreCard
-          orbit={active.orbit}
-          session={active.session}
-          badge="진행 중"
-          meta="18분 전"
-          variant="active"
-          onOpenDashboard={() => onOpenDashboard(active)}
-          onRestore={(target) => onRestore(active, target)}
-        />
+        {active && (
+          <ExploreCard
+            session={active.session}
+            badge={active.session.status === 'live' ? '진행 중' : '최근 세션'}
+            meta={active.session.date}
+            variant="active"
+            onOpenDashboard={() => onOpenDashboard(active)}
+            onRestore={(target) => onRestore(active, target)}
+          />
+        )}
       </section>
 
       <section
@@ -63,25 +68,24 @@ export function ContinueExploring({
         onFocusCapture={() => setPaused(true)}
         onBlurCapture={() => setPaused(false)}
       >
-        <h3 className="section-title">
+        {current && <h3 className="section-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.8 }}>
             <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
           </svg>
-          추천 세션
-        </h3>
+          다시 볼 세션
+        </h3>}
 
         {/* key 로 카드를 교체해 전환 애니메이션이 매번 다시 실행되게 한다 */}
-        <div className="rec-slot" key={current.session.id}>
+        {current && <div className="rec-slot" key={current.session.id}>
           <ExploreCard
-            orbit={current.orbit}
             session={current.session}
-            badge={current.orbit.category}
+            badge={current.session.category}
             meta={current.session.date}
-            reason={`${current.orbit.title} Orbit에서 멈춘 지점이라 이어보기 좋아요`}
+            reason="최근 탐색 기록에서 다시 이어볼 수 있어요"
             onOpenDashboard={() => onOpenDashboard(current)}
             onRestore={(target) => onRestore(current, target)}
           />
-        </div>
+        </div>}
 
         {recommended.length > 1 && (
           <div className="carousel-controls">

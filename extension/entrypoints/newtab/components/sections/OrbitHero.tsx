@@ -8,7 +8,7 @@ import { Shortcuts } from './Shortcuts';
 interface OrbitHeroProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  onAskAI: (prompt: string) => void;
+  onAskAI: (prompt: string) => Promise<string | null>;
 }
 
 export function OrbitHero({
@@ -18,6 +18,7 @@ export function OrbitHero({
 }: OrbitHeroProps) {
   const [mode, setMode] = useState<'search' | 'ai'>('search');
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
 
   /**
    * 시안에서는 검색 모드가 아무 동작도 하지 않았다.
@@ -29,7 +30,13 @@ export function OrbitHero({
     if (!searchQuery.trim()) return;
 
     if (mode === 'ai') {
-      onAskAI(searchQuery);
+      setError(null);
+      setAsking(true);
+      try {
+        setError(await onAskAI(searchQuery));
+      } finally {
+        setAsking(false);
+      }
       return;
     }
 
@@ -154,7 +161,12 @@ export function OrbitHero({
                 </button>
               </div>
               {mode === 'ai' && (
-                <button type="submit" className="search-shell__submit" aria-label="질문 보내기">
+                <button
+                  type="submit"
+                  className="search-shell__submit"
+                  aria-label="질문 보내기"
+                  disabled={asking}
+                >
                   <ArrowRight size={15} />
                 </button>
               )}

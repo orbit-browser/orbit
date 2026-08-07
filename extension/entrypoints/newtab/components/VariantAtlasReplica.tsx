@@ -1,156 +1,109 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '../styles/atlas.css';
-import { ATLAS_ORBITS } from './atlas/data';
 import { AtlasHeader } from './atlas/AtlasHeader';
 import { AtlasNavigator } from './atlas/AtlasNavigator';
 import { AtlasCanvas } from './atlas/AtlasCanvas';
 import { AtlasTray } from './atlas/AtlasTray';
 import { AtlasDetail } from './atlas/AtlasDetail';
+import { useAtlasData } from '../hooks/useAtlasData';
 import { readAtlasTarget } from '../lib/navigation';
-import { getNavState, patchNavState, useSharedNavState } from '../lib/nav-state';
+import { getNavState, useSharedNavState } from '../lib/nav-state';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
-
-/** 트레이가 열렸을 때 캔버스 하단이 가려지는 높이 */
 const TRAY_INSET = 250;
 
-/**
- * URL 쿼리(?orbit=&session=&page=)가 있으면 그 선택을,
- * 없으면 공유 네비게이터 상태에 남아 있던 선택을 이어받는다.
- */
-function resolveInitialSelection() {
-  const target = readAtlasTarget();
-  const shared = getNavState();
-  const hasTarget = Boolean(target.orbitId || target.sessionId || target.pageId);
-
-  if (!hasTarget && shared.focusedOrbitId) {
-    return {
-      orbitId: shared.focusedOrbitId,
-      sessionId: shared.selectedSessionId,
-      pageId: shared.selectedPageId,
-    };
-  }
-
-  const orbit = target.sessionId
-    ? ATLAS_ORBITS.find((o) => o.sessions.some((s) => s.id === target.sessionId))
-    : ATLAS_ORBITS.find((o) => o.id === target.orbitId);
-  const session = orbit?.sessions.find((s) => s.id === target.sessionId) ?? null;
-  const page = session?.pages.find((p) => p.id === target.pageId) ?? null;
-  return {
-    orbitId: orbit?.id ?? ATLAS_ORBITS[0].id,
-    sessionId: session?.id ?? null,
-    pageId: page?.id ?? null,
-  };
-}
-
 export function VariantAtlasReplica() {
-  const initial = useMemo(resolveInitialSelection, []);
+  const atlasQuery = useAtlasData();
+  const sessions = atlasQuery.data ?? [];
   const { nav, patch, toggleIn, expandIn } = useSharedNavState();
+  const searchRef = useRef<HTMLInputElement>(null);
+  const initializedRef = useRef(false);
 
-  // 진입 시점의 선택을 공유 상태에 한 번 반영한다.
-  useMemo(() => {
-    patchNavState({
-      focusedOrbitId: initial.orbitId,
-      selectedSessionId: initial.sessionId,
-      selectedPageId: initial.pageId,
-      expandedOrbitIds: new Set([...getNavState().expandedOrbitIds, initial.orbitId]),
-      expandedSessionIds: initial.sessionId
-        ? new Set([...getNavState().expandedSessionIds, initial.sessionId])
-        : getNavState().expandedSessionIds,
+  const initialTarget = useMemo(readAtlasTarget, []);
+  const target = initializedRef.current ? null : initialTarget;
+  const targetSession = target?.sessionId
+    ? sessions.find((session) => session.id === target.sessionId)
+    : undefined;
+  const sharedSession = nav.focusedOrbitId
+    ? sessions.find((session) => session.id === nav.focusedOrbitId)
+    : undefined;
+  const focusedSessionId = sharedSession?.id ?? targetSession?.id ?? sessions[0]?.id ?? null;
+  const focusedSession = useMemo(
+    () => sessions.find((session) => session.id === focusedSessionId) ?? null,
+    [focusedSessionId, sessions],
+  );
+  const selectedPageId =
+    focusedSession?.pages.some((page) => page.id === (nav.selectedPageId ?? target?.pageId))
+      ? (nav.selectedPageId ?? target?.pageId ?? null)
+      : null;
+  const selectedPage =
+    focusedSession?.pages.find((page) => page.id === selectedPageId) ?? null;
+
+  useEffect(() => {
+    if (!focusedSessionId) return;
+    initializedRef.current = true;
+    const current = getNavState();
+    if (
+      current.focusedOrbitId === focusedSessionId &&
+      current.selectedPageId === selectedPageId
+    ) return;
+    patch({
+      focusedOrbitId: focusedSessionId,
+      selectedSessionId: null,
+      selectedPageId,
+      expandedSessionIds: new Set([...current.expandedSessionIds, focusedSessionId]),
     });
-    return null;
-  }, [initial]);
-
-  const focusedOrbitId = nav.focusedOrbitId ?? initial.orbitId;
-  const selectedSessionId = nav.selectedSessionId;
-  const selectedPageId = nav.selectedPageId;
-  const navOpen = nav.open;
+  }, [focusedSessionId, selectedPageId, patch]);
 
   const toggleNav = useCallback(() => patch({ open: !getNavState().open }), [patch]);
 
-  const searchRef = useRef<HTMLInputElement>(null);
-
-  const focusedOrbit = useMemo(
-    () => ATLAS_ORBITS.find((o) => o.id === focusedOrbitId) ?? null,
-    [focusedOrbitId]
-  );
-  const selectedSession = useMemo(
-    () => focusedOrbit?.sessions.find((s) => s.id === selectedSessionId) ?? null,
-    [focusedOrbit, selectedSessionId]
-  );
-  const selectedPage = useMemo(
-    () => selectedSession?.pages.find((p) => p.id === selectedPageId) ?? null,
-    [selectedSession, selectedPageId]
-  );
-
-  const orbitOfSession = useCallback(
-    (sessionId: string) => ATLAS_ORBITS.find((o) => o.sessions.some((s) => s.id === sessionId)) ?? null,
-    []
-  );
-
-  const selectOrbit = useCallback(
-    (orbitId: string) => {
-      patch({ focusedOrbitId: orbitId, selectedSessionId: null, selectedPageId: null });
-      expandIn('expandedOrbitIds', orbitId);
-    },
-    [patch, expandIn]
-  );
-
   const selectSession = useCallback(
     (sessionId: string) => {
-      const orbit = orbitOfSession(sessionId);
-      if (!orbit) return;
-      patch({ focusedOrbitId: orbit.id, selectedSessionId: sessionId, selectedPageId: null });
-      expandIn('expandedOrbitIds', orbit.id);
+      patch({ focusedOrbitId: sessionId, selectedSessionId: null, selectedPageId: null });
       expandIn('expandedSessionIds', sessionId);
     },
-    [orbitOfSession, patch, expandIn]
+    [patch, expandIn],
   );
 
   const selectPageInSession = useCallback(
     (sessionId: string, pageId: string) => {
-      const orbit = orbitOfSession(sessionId);
-      if (!orbit) return;
-      patch({ focusedOrbitId: orbit.id, selectedSessionId: sessionId, selectedPageId: pageId });
-      expandIn('expandedOrbitIds', orbit.id);
+      patch({ focusedOrbitId: sessionId, selectedSessionId: null, selectedPageId: pageId });
       expandIn('expandedSessionIds', sessionId);
     },
-    [orbitOfSession, patch, expandIn]
-  );
-
-  const resetSelection = useCallback(
-    () => patch({ selectedSessionId: null, selectedPageId: null }),
-    [patch]
+    [patch, expandIn],
   );
 
   const cycleSession = useCallback(
-    (dir: 1 | -1) => {
-      const sessions = focusedOrbit?.sessions ?? [];
+    (direction: 1 | -1) => {
       if (sessions.length === 0) return;
-      const idx = sessions.findIndex((s) => s.id === selectedSessionId);
-      const next = idx === -1 ? (dir === 1 ? 0 : sessions.length - 1) : (idx + dir + sessions.length) % sessions.length;
+      const index = sessions.findIndex((session) => session.id === focusedSessionId);
+      const next =
+        index === -1
+          ? direction === 1 ? 0 : sessions.length - 1
+          : (index + direction + sessions.length) % sessions.length;
       selectSession(sessions[next].id);
     },
-    [focusedOrbit, selectedSessionId, selectSession]
+    [focusedSessionId, selectSession, sessions],
   );
 
   const cyclePage = useCallback(
-    (dir: 1 | -1) => {
-      if (!selectedSession || selectedSession.pages.length === 0) return;
-      const pages = selectedSession.pages;
-      const idx = pages.findIndex((p) => p.id === selectedPageId);
-      const next = idx === -1 ? (dir === 1 ? 0 : pages.length - 1) : (idx + dir + pages.length) % pages.length;
-      patch({ selectedPageId: pages[next].id });
+    (direction: 1 | -1) => {
+      if (!focusedSession || focusedSession.pages.length === 0) return;
+      const index = focusedSession.pages.findIndex((page) => page.id === selectedPageId);
+      const next =
+        index === -1
+          ? direction === 1 ? 0 : focusedSession.pages.length - 1
+          : (index + direction + focusedSession.pages.length) % focusedSession.pages.length;
+      patch({ selectedPageId: focusedSession.pages[next].id });
     },
-    [selectedSession, selectedPageId, patch]
+    [focusedSession, selectedPageId, patch],
   );
 
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
         patch({ searchOpen: true });
-        // 펼침 트랜지션이 시작된 뒤 포커스를 준다
         requestAnimationFrame(() => {
           searchRef.current?.focus();
           searchRef.current?.select();
@@ -158,61 +111,46 @@ export function VariantAtlasReplica() {
         return;
       }
 
-      const tag = (e.target as HTMLElement)?.tagName;
+      const tag = (event.target as HTMLElement)?.tagName;
       const isTyping = tag === 'INPUT' || tag === 'TEXTAREA';
-
-      if (e.key === 'Escape') {
-        if (isTyping) {
-          (e.target as HTMLElement).blur();
-          return;
-        }
-        if (selectedPageId) patch({ selectedPageId: null });
-        else if (selectedSessionId) patch({ selectedSessionId: null });
+      if (event.key === 'Escape') {
+        if (isTyping) (event.target as HTMLElement).blur();
+        else if (selectedPageId) patch({ selectedPageId: null });
         return;
       }
-
       if (isTyping) return;
 
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        cycleSession(e.key === 'ArrowDown' ? 1 : -1);
-      } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        cyclePage(e.key === 'ArrowRight' ? 1 : -1);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        cycleSession(event.key === 'ArrowDown' ? 1 : -1);
+      } else if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+        event.preventDefault();
+        cyclePage(event.key === 'ArrowRight' ? 1 : -1);
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cycleSession, cyclePage, selectedPageId, selectedSessionId, patch]);
-
-  const collapseAll = useCallback(
-    () => patch({ expandedOrbitIds: new Set(), expandedSessionIds: new Set() }),
-    [patch]
-  );
+  }, [cycleSession, cyclePage, selectedPageId, patch]);
 
   return (
     <div
-      className={cx('atlas-page', !navOpen && 'atlas-page--nav-closed')}
-      style={{ '--atlas-nav-w': `${navOpen ? nav.width : 0}px` } as React.CSSProperties}
+      className={cx('atlas-page', !nav.open && 'atlas-page--nav-closed')}
+      style={{ '--atlas-nav-w': `${nav.open ? nav.width : 0}px` } as React.CSSProperties}
     >
-      <AtlasHeader navOpen={navOpen} onToggleNav={toggleNav} />
+      <AtlasHeader navOpen={nav.open} onToggleNav={toggleNav} />
 
       <AtlasNavigator
-        orbits={ATLAS_ORBITS}
+        sessions={sessions}
         query={nav.query}
         onQueryChange={(query) => patch({ query })}
-        focusedOrbitId={focusedOrbitId}
-        selectedSessionId={selectedSessionId}
+        focusedSessionId={focusedSessionId}
         selectedPageId={selectedPageId}
-        expandedOrbitIds={nav.expandedOrbitIds}
         expandedSessionIds={nav.expandedSessionIds}
-        onToggleOrbit={(id) => toggleIn('expandedOrbitIds', id)}
         onToggleSession={(id) => toggleIn('expandedSessionIds', id)}
-        onSelectOrbit={selectOrbit}
         onSelectSession={selectSession}
         onSelectPage={selectPageInSession}
-        onCollapseAll={collapseAll}
+        onCollapseAll={() => patch({ expandedSessionIds: new Set() })}
         width={nav.width}
         onWidthChange={(width) => patch({ width })}
         searchOpen={nav.searchOpen}
@@ -221,32 +159,37 @@ export function VariantAtlasReplica() {
       />
 
       <main className="atlas-canvas">
-        <AtlasCanvas
-          orbit={focusedOrbit}
-          selectedSessionId={selectedSessionId}
-          selectedPageId={selectedPageId}
-          onSelectSession={selectSession}
-          onSelectPage={(pageId) => patch({ selectedPageId: pageId })}
-          onClearSelection={resetSelection}
-          bottomInset={selectedSession ? TRAY_INSET : 40}
-        />
+        {atlasQuery.isPending ? (
+          <div className="atlas-data-state" role="status">탐색 기록을 불러오는 중...</div>
+        ) : atlasQuery.isError ? (
+          <div className="atlas-data-state" role="alert">
+            <span>백엔드에서 탐색 기록을 불러오지 못했어요.</span>
+            <button type="button" onClick={() => void atlasQuery.refetch()}>다시 시도</button>
+          </div>
+        ) : (
+          <AtlasCanvas
+            session={focusedSession}
+            selectedPageId={selectedPageId}
+            onSelectPage={(pageId) => patch({ selectedPageId: pageId })}
+            onClearSelection={() => patch({ selectedPageId: null })}
+            bottomInset={focusedSession ? TRAY_INSET : 40}
+          />
+        )}
 
-        {selectedSession && (
+        {focusedSession && (
           <AtlasTray
-            orbit={focusedOrbit}
-            session={selectedSession}
+            session={focusedSession}
             selectedPageId={selectedPageId}
             onSelectPage={(pageId) => patch({ selectedPageId: pageId })}
             onPrevSession={() => cycleSession(-1)}
             onNextSession={() => cycleSession(1)}
-            onClose={resetSelection}
+            onClose={() => patch({ selectedPageId: null })}
           />
         )}
       </main>
 
       <AtlasDetail
-        orbit={focusedOrbit}
-        session={selectedSession}
+        session={focusedSession}
         page={selectedPage}
         onSelectPage={(pageId) => patch({ selectedPageId: pageId })}
       />

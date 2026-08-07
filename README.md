@@ -15,15 +15,16 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
 - **Orbit 홈(새 탭)** — 크롬 새 탭을 대체하는 시작 화면. 브라우저 주소창과 같게 검색어는
   사용자의 기본 검색엔진으로, 주소는 그대로 이동한다. 검색창 아래에는 자주 방문한 사이트
   기반 **바로가기**(추가·삭제·접기 가능)가 붙는다
-- **Orbit 아틀라스(`#/orbit-atlas`)** — 주제(Orbit)를 궤도로 그리는 두 번째 화면.
-  좌측 네비게이터, 캔버스, 페이지 트레이, 상세 패널. 홈과 네비게이터 상태를 공유한다.
-  두 화면 모두 현재는 목업 데이터로 동작한다
+- **Orbit 아틀라스(`#/orbit-atlas`)** — 실제 세션을 중심 노드로, 방문 페이지를 시간순
+  궤도로 그리는 두 번째 화면. 좌측 세션·페이지 네비게이터, 캔버스, 페이지 트레이,
+  상세 패널이 백엔드 `/sessions`와 세션 이벤트 API를 사용한다
 - **Exploration Timeline** — 사이드패널 기본 화면. 날짜별 이벤트 스트림 + 세션 배지 +
   수집/동기화 상태 카드, 세션 상세에서 탐색 경로를 시간순으로 복기
 - **Search by Intent** — 세션(벡터 검색)과 관련 방문 기록을 함께 반환하는 통합 검색
   (`scope=memory`)
-- **Exploration Analytics** — 주제별 탐색 시간, 자주 보는 도메인, 반복 방문/검색어,
-  일별 탐색량 추이를 사이드패널 요약 카드와 웹 대시보드에서 확인
+- **Exploration Analytics** — 주제별 탐색 시간과 자주 보는 도메인을 사이드패널 요약 카드에서 확인
+- **세션 병합** — 같은 주제로 나뉜 세션을 사이드패널에서 확인해 개별 또는 일괄 병합하고,
+  성공 직후 되돌릴 수 있다. 명백한 중복만 처리하는 자동병합은 설정에서 opt-in한다
 - **기존 스냅샷 저장/복원 유지** — "지금 열린 탭 저장"(`POST /sessions/cluster`), 세션
   검색·복원, AI 요약(A.X-K1 ↔ EXAONE 상호 폴백), 임베딩 + Qdrant 벡터 검색, 민감
   도메인 자동 제외는 전환 이전과 동일하게 동작
@@ -66,13 +67,12 @@ orbit/
 │  ├─ app/services  # event_filter, grouper, intent_analyzer, session_updater,
 │  │                # sync_pipeline, summarizer, embedding_sync
 │  └─ eval/         # 세션 분류 평가 하네스 (골든셋 + run_eval.py)
-├─ frontend/       # 웹 대시보드 (React + Vite) — 세션 목록/상세 + 탐색 분석 섹션
 └─ docker-compose.yml  # postgres + qdrant
 ```
 
 ## 실행
 
-전체를 한 번에 띄우려면 (Docker + backend + extension + frontend):
+전체를 한 번에 띄우려면 (Docker + backend + extension):
 
 ```bash
 ./dev.sh                # Docker까지 포함해 전체 기동
@@ -99,11 +99,6 @@ uvicorn app.main:app --reload
 cd extension
 pnpm install
 pnpm dev        # WXT dev 서버 → Chrome 에 확장 자동 로드
-
-# 웹 대시보드
-cd frontend
-pnpm install
-pnpm dev
 ```
 
 확장 아이콘을 클릭하면 사이드패널이 열립니다. 프로덕션 번들은 `pnpm build`
@@ -126,9 +121,6 @@ python -m pytest -p no:asyncio
 # Extension — 단위 테스트(vitest) + 타입 검사 + 빌드
 cd extension && pnpm test && pnpm compile && pnpm build
 
-# Frontend — 빌드(타입 검사 포함)
-cd frontend && pnpm build
-
 # 세션 분류 평가 하네스 (실 LLM 호출, backend/.env 키 필요)
 cd backend
 python -m eval.run_eval
@@ -140,7 +132,6 @@ python -m eval.run_eval
 |---|---|
 | Extension UI | WXT, React 19, TypeScript, Tailwind v4, Zustand, TanStack Query, lucide-react |
 | Extension 로컬 큐 | IndexedDB + `idb` |
-| 웹 대시보드 | React 19, Vite, TypeScript, Tailwind v4, TanStack Query, Zustand |
 | Backend | FastAPI, SQLAlchemy (async) + PostgreSQL, Pydantic v2 |
 | 벡터 검색 | Qdrant |
 | AI | SKT A.X-K1(요약·의도분석·리랭킹 primary), LG K-EXAONE(FriendliAI serverless, 클러스터링 primary) — 상호 폴백, Upstage embedding-query(검색)/embedding-passage(저장) |

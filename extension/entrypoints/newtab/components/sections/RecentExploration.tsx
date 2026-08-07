@@ -1,8 +1,7 @@
-import type { OrbitNode, SessionNode } from '../atlas/data';
+import type { SessionNode } from '../atlas/data';
 import { formatMinutes } from '../atlas/data';
 
 export interface ExplorationEntry {
-  orbit: OrbitNode;
   session: SessionNode;
 }
 
@@ -24,7 +23,7 @@ export function RecentExploration({ items, onSelect }: RecentExplorationProps) {
 
       <div className="timeline">
         {items.map((entry, index) => {
-          const { orbit, session } = entry;
+          const { session } = entry;
           return (
             <button
               key={session.id}
@@ -43,8 +42,6 @@ export function RecentExploration({ items, onSelect }: RecentExplorationProps) {
 
                 <span className="timeline-info">
                   <span>{formatMinutes(session.minutes)}</span>
-                  <span className="dot-sep" />
-                  <span style={{ color: orbit.hue }}>{orbit.title}</span>
                   <span className="dot-sep" />
                   <span>페이지 {session.pages.length}개</span>
                 </span>

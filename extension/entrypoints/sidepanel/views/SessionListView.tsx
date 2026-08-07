@@ -4,6 +4,7 @@ import { useUIStore } from '../store/ui';
 import { CurrentSessionCard } from '../components/CurrentSessionCard';
 import { SessionCard } from '../components/SessionCard';
 import { StatePlaceholder } from '../components/StatePlaceholder';
+import { MergeSuggestionsSection } from '../components/MergeSuggestionsSection';
 
 function ClusteringCard() {
   return (
@@ -30,6 +31,8 @@ export function SessionListView() {
         <p className="text-xs font-semibold text-orbit-muted">현재 세션</p>
         <CurrentSessionCard />
       </section>
+
+      <MergeSuggestionsSection />
 
       <section className="space-y-2">
         <p className="text-xs font-semibold text-orbit-muted">저장된 세션</p>

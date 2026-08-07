@@ -1,11 +1,9 @@
-import { useState } from 'react';
-import type { OrbitNode, PageNode, SessionNode } from './data';
-import { formatMinutes, mostRevisitedPage, orbitMinutes, orbitPageCount, topDomains } from './data';
+import type { PageNode, SessionNode } from './data';
+import { formatMinutes, mostRevisitedPage, topDomains } from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
 interface AtlasDetailProps {
-  orbit: OrbitNode | null;
   session: SessionNode | null;
   page: PageNode | null;
   onSelectPage: (pageId: string) => void;
@@ -16,27 +14,20 @@ interface Stat {
   value: string;
 }
 
-export function AtlasDetail({ orbit, session, page, onSelectPage }: AtlasDetailProps) {
-  const [askInput, setAskInput] = useState('');
-  const [sent, setSent] = useState<string | null>(null);
-
-  const level: 'page' | 'session' | 'orbit' | 'empty' = page
+export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
+  const level: 'page' | 'session' | 'empty' = page
     ? 'page'
     : session
     ? 'session'
-    : orbit
-    ? 'orbit'
     : 'empty';
 
-  const title = page?.title ?? session?.title ?? orbit?.title ?? 'Orbit Atlas';
+  const title = page?.title ?? session?.title ?? 'Orbit Atlas';
   const subtitle =
     level === 'page'
       ? `${page!.domain} · ${page!.minutes}분 체류`
       : level === 'session'
       ? `${session!.date} · ${formatMinutes(session!.minutes)}`
-      : level === 'orbit'
-      ? orbit!.category
-      : 'Orbit을 선택해 주세요';
+      : '세션을 선택해 주세요';
 
   const stats: Stat[] =
     level === 'page'
@@ -49,11 +40,6 @@ export function AtlasDetail({ orbit, session, page, onSelectPage }: AtlasDetailP
           { label: '페이지', value: `${session!.pages.length}개` },
           { label: '활성 시간', value: formatMinutes(session!.minutes) },
         ]
-      : level === 'orbit'
-      ? [
-          { label: '세션', value: `${orbit!.sessions.length}개` },
-          { label: '누적 시간', value: formatMinutes(orbitMinutes(orbit!)) },
-        ]
       : [];
 
   const insight = (() => {
@@ -65,20 +51,11 @@ export function AtlasDetail({ orbit, session, page, onSelectPage }: AtlasDetailP
     if (level === 'session' && session) {
       const top = mostRevisitedPage(session);
       const domains = topDomains(session, 2).map((d) => d.domain).join(', ');
-      return `${domains} 중심으로 ${formatMinutes(session.minutes)}을 썼고, “${top.title}” 을 ${top.visits}회 다시 열었습니다.`;
+      if (!top) return '이 세션에는 아직 페이지 탐색 기록이 없습니다.';
+      return `${domains || '여러 페이지'} 중심으로 ${formatMinutes(session.minutes)}을 썼고, “${top.title}” 을 총 ${top.visits}회 방문했습니다.`;
     }
-    if (level === 'orbit' && orbit) {
-      return `${orbit.sessions.length}개 세션에 페이지 ${orbitPageCount(orbit)}개가 쌓여 있습니다. 가장 최근 세션은 “${orbit.sessions[0].title}” 입니다.`;
-    }
-    return '왼쪽에서 Orbit을 고르면 탐색 기록 요약이 여기에 표시됩니다.';
+    return '왼쪽에서 세션을 고르면 탐색 기록 요약이 여기에 표시됩니다.';
   })();
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!askInput.trim()) return;
-    setSent(askInput.trim());
-    setAskInput('');
-  };
 
   return (
     <aside className="atlas-detail">
@@ -95,18 +72,12 @@ export function AtlasDetail({ orbit, session, page, onSelectPage }: AtlasDetailP
           </div>
         </div>
 
-        {orbit && (
+        {session && (
           <nav className="atlas-detail__crumbs">
-            <span className="atlas-detail__crumb" style={{ color: orbit.hue }}>
-              <i className={cx('ph', orbit.icon)}></i>
-              {orbit.title}
+            <span className="atlas-detail__crumb" style={{ color: session.hue }}>
+              <i className={cx('ph', session.icon)}></i>
+              {session.title}
             </span>
-            {session && (
-              <>
-                <i className="ph ph-caret-right"></i>
-                <span className="atlas-detail__crumb">{session.title}</span>
-              </>
-            )}
             {page && (
               <>
                 <i className="ph ph-caret-right"></i>
@@ -121,10 +92,10 @@ export function AtlasDetail({ orbit, session, page, onSelectPage }: AtlasDetailP
             <div
               className="atlas-detail__topic-icon"
               style={
-                orbit
+                session
                   ? {
-                      background: `color-mix(in srgb, ${orbit.hue} 12%, transparent)`,
-                      color: orbit.hue,
+                      background: `color-mix(in srgb, ${session.hue} 12%, transparent)`,
+                      color: session.hue,
                     }
                   : undefined
               }
@@ -132,7 +103,7 @@ export function AtlasDetail({ orbit, session, page, onSelectPage }: AtlasDetailP
               <i
                 className={cx(
                   'ph',
-                  level === 'page' ? 'ph-file-text' : level === 'session' ? 'ph-circles-three' : orbit?.icon ?? 'ph-planet'
+                  level === 'page' ? 'ph-file-text' : session?.icon ?? 'ph-circles-three'
                 )}
               ></i>
             </div>
@@ -159,14 +130,10 @@ export function AtlasDetail({ orbit, session, page, onSelectPage }: AtlasDetailP
         <section>
           <div className="atlas-detail__section-title atlas-detail__section-title--accent">
             <i className="ph ph-sparkle"></i>
-            Orbit AI 인사이트
+            탐색 인사이트
           </div>
           <div className="atlas-detail__insight">
             <p>{insight}</p>
-            {sent && <p className="atlas-detail__insight-echo">방금 질문: “{sent}”</p>}
-            <button type="button" className="atlas-detail__insight-btn">
-              이 주제 더 깊이 살펴보기
-            </button>
           </div>
         </section>
 
@@ -212,36 +179,22 @@ export function AtlasDetail({ orbit, session, page, onSelectPage }: AtlasDetailP
           </section>
         )}
 
-        {level === 'orbit' && orbit && (
-          <section>
-            <div className="atlas-detail__section-title">세션 목록</div>
-            <div className="atlas-detail__actions">
-              {orbit.sessions.map((s) => (
-                <div className="atlas-detail__action" key={s.id}>
-                  <span className="atlas-detail__action-left">
-                    <i className="ph ph-circles-three"></i>
-                    {s.title}
-                  </span>
-                  <span className="atlas-detail__action-meta">{s.pages.length}p</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {session && !page && (
+        {session && !page && mostRevisitedPage(session) && (
           <section>
             <div className="atlas-detail__section-title">가장 많이 본 페이지</div>
             <button
               type="button"
               className="atlas-detail__action"
-              onClick={() => onSelectPage(mostRevisitedPage(session).id)}
+              onClick={() => {
+                const mostVisited = mostRevisitedPage(session);
+                if (mostVisited) onSelectPage(mostVisited.id);
+              }}
             >
               <span className="atlas-detail__action-left">
                 <i className="ph ph-arrow-counter-clockwise"></i>
-                {mostRevisitedPage(session).title}
+                {mostRevisitedPage(session)?.title}
               </span>
-              <span className="atlas-detail__action-meta">×{mostRevisitedPage(session).visits}</span>
+              <span className="atlas-detail__action-meta">×{mostRevisitedPage(session)?.visits}</span>
             </button>
           </section>
         )}
@@ -267,19 +220,6 @@ export function AtlasDetail({ orbit, session, page, onSelectPage }: AtlasDetailP
         </section>
       </div>
 
-      <div className="atlas-detail__input-wrap">
-        <form className="atlas-detail__input-box" onSubmit={handleSubmit}>
-          <input
-            type="text"
-            value={askInput}
-            onChange={(e) => setAskInput(e.target.value)}
-            placeholder={session ? `“${session.title}” 에 대해 질문...` : 'Orbit AI에게 질문...'}
-          />
-          <button type="submit" aria-label="보내기">
-            <i className="ph ph-paper-plane-right"></i>
-          </button>
-        </form>
-      </div>
     </aside>
   );
 }

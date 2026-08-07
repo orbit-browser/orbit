@@ -5,13 +5,12 @@
 ## 프로젝트 개요와 공식 명령
 
 Orbit은 브라우저 탐색 이벤트를 opt-in 상시 수집해 세션으로 자동 재구성하는
-Personal Exploration Memory 서비스다. 저장소는 세 파트로 구성된다.
+Personal Exploration Memory 서비스다. 저장소는 두 파트로 구성된다.
 
 * `extension/` — Chrome MV3 사이드패널. WXT + React 19 + TypeScript + Tailwind v4.
   이벤트 수집기·로컬 큐·동기화 엔진은 `lib/events`, `lib/sync`.
 * `backend/` — FastAPI + SQLAlchemy(async) + PostgreSQL + Qdrant. 이벤트 인제스트,
   배치 세션화, 세션 API, AI 파이프라인(`app/services`).
-* `frontend/` — 웹 대시보드. React 19 + Vite + TypeScript + Tailwind v4.
 
 로컬 기동은 `./dev.sh`(Docker 포함 일괄) 또는 `./dev_conda.sh`를 사용한다.
 인프라(postgres, qdrant)는 `docker-compose.yml`로 관리한다.
@@ -25,8 +24,6 @@ cd backend && python -m pytest -p no:asyncio
 # Extension — 단위 테스트(vitest) + 타입 검사 + 빌드
 cd extension && pnpm test && pnpm compile && pnpm build
 
-# Frontend — 빌드에 타입 검사(tsc --noEmit) 포함
-cd frontend && pnpm build
 ```
 
 `backend/eval/`의 평가 하네스(`python -m eval.run_eval`)는 실제 LLM API를 호출해
