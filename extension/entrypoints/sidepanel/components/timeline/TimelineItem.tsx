@@ -64,7 +64,7 @@ export function TimelineItem({ event, badge, onDelete, compact = false }: Timeli
       <span className="w-9 shrink-0 text-[10px] font-medium tabular-nums text-orbit-muted">
         {formatTime(event.visitedAt)}
       </span>
-      <Favicon src={`https://www.google.com/s2/favicons?domain=${event.domain}`} />
+      <Favicon pageUrl={event.url} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-orbit-text">{event.title || event.url}</p>
         <p className="truncate text-xs text-orbit-muted">

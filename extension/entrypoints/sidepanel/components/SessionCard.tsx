@@ -180,7 +180,7 @@ export function SessionCard({
               className="inline-block h-5 w-5 rounded-full ring-2 ring-orbit-surface bg-white overflow-hidden shrink-0"
               title={t.title}
             >
-              <Favicon src={t.favIconUrl} />
+              <Favicon pageUrl={t.url} src={t.favIconUrl} />
             </div>
           ))}
           {session.tabs.length > 5 && (

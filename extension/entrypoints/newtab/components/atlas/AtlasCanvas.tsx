@@ -194,15 +194,13 @@ export function AtlasCanvas({
       {session && session.pages.length > 0 && !selectedPageId && !hintClosed && !hintMuted && (
         <div className="atlas-stage__hint">
           <span>페이지는 방문 순서대로 안쪽 궤도부터 배치됩니다</span>
+          {/*
+            "다시 보지 않기"는 X 앞에 둔다 — 뒤에 두면 오른쪽으로 펼쳐지는데,
+            이 알약은 가운데 정렬이라 늘어날 때 전체가 다시 중앙으로 밀리며
+            문구가 마우스 쪽으로 튀어나온 것처럼 보인다. 앞에 두면 X는 제자리에 있고
+            문구만 안쪽(왼쪽)으로 펼쳐진다.
+          */}
           <span className="atlas-stage__hint-actions">
-            <button
-              type="button"
-              className="atlas-stage__hint-close"
-              onClick={() => setHintClosed(true)}
-              aria-label="안내 닫기"
-            >
-              <i className="ph ph-x" />
-            </button>
             <button
               type="button"
               className="atlas-stage__hint-never"
@@ -216,6 +214,14 @@ export function AtlasCanvas({
               }}
             >
               다시 보지 않기
+            </button>
+            <button
+              type="button"
+              className="atlas-stage__hint-close"
+              onClick={() => setHintClosed(true)}
+              aria-label="안내 닫기"
+            >
+              <i className="ph ph-x" />
             </button>
           </span>
         </div>

@@ -1,7 +1,8 @@
+import { PageFavicon } from './PageFavicon';
+import { SessionFavicons } from './SessionFavicons';
 import type { PageNode, SessionNode } from './data';
 import { formatMinutes, mostRevisitedPage, topDomains } from './data';
 
-const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
 interface AtlasDetailProps {
   session: SessionNode | null;
@@ -75,7 +76,7 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
         {session && (
           <nav className="atlas-detail__crumbs">
             <span className="atlas-detail__crumb" style={{ color: session.hue }}>
-              <i className={cx('ph', session.icon)}></i>
+              <SessionFavicons pages={session.pages} hue={session.hue} max={2} />
               {session.title}
             </span>
             {page && (
@@ -100,12 +101,13 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
                   : undefined
               }
             >
-              <i
-                className={cx(
-                  'ph',
-                  level === 'page' ? 'ph-file-text' : session?.icon ?? 'ph-circles-three'
-                )}
-              ></i>
+              {level === 'page' && page ? (
+                <PageFavicon url={page.url} domain={page.domain} className="atlas-detail__topic-mark" />
+              ) : session ? (
+                <SessionFavicons pages={session.pages} hue={session.hue} max={3} />
+              ) : (
+                <i className="ph ph-circles-three"></i>
+              )}
             </div>
             <div className="atlas-detail__topic-text">
               <div className="atlas-detail__topic-title">{title}</div>
