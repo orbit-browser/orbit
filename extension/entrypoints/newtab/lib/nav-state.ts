@@ -12,9 +12,13 @@ export interface NavState {
   width: number;
   query: string;
   searchOpen: boolean;
+  /** 펼쳐 놓은 폴더. */
   expandedOrbitIds: Set<string>;
   expandedSessionIds: Set<string>;
+  /** 캔버스 중심에 놓인 세션. 폴더를 보고 있으면 null. */
   focusedOrbitId: string | null;
+  /** 캔버스 중심에 놓인 폴더. 값이 있으면 폴더 씬이 우선한다. */
+  focusedFolderId: string | null;
   selectedSessionId: string | null;
   selectedPageId: string | null;
 }
@@ -31,6 +35,7 @@ let state: NavState = {
   expandedOrbitIds: new Set(),
   expandedSessionIds: new Set(),
   focusedOrbitId: null,
+  focusedFolderId: null,
   selectedSessionId: null,
   selectedPageId: null,
 };

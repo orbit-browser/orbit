@@ -63,6 +63,8 @@ class SessionDetail(BaseModel):
     # Auto Session append 시 갱신되는 마지막 활동 시각 — 목록 정렬·표시 기준.
     # origin='snapshot' 세션에는 없어 null(클라이언트는 created_at fallback).
     last_activity_at: str | None = None
+    # 사용자 폴더 소속. null=미정리(docs/api-design-v2.md §13).
+    folder_id: str | None = None
 
 
 class SessionEventItem(BaseModel):

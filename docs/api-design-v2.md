@@ -430,3 +430,39 @@ EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델�
 | `404` | 리소스 없음 | 세션 조회/삭제 | `GET/DELETE /events/{id}`, `GET /sessions/{id}/events`(세션 자체가 없을 때) |
 
 배치 파이프라인(`POST /sync` 이후의 비동기 처리)의 실패는 HTTP 응답 코드가 아니라 `sync_batches.status='failed'` + `error_message`로 기록되고, `GET /sync/status`를 통해 클라이언트가 조회한다 — 계획서의 "실패 시 pending 복귀, 다음 배치가 재시도" 정책과 일치시키기 위해 동기 오류 응답 대신 상태 조회 방식을 쓴다.
+
+## 13. 사용자 폴더 (`/folders`)
+
+사용자가 직접 만드는 세션 그룹. **자동 분류가 아니다** — 서버가 이름을 지어내거나
+소속을 추론하지 않는다. 세션은 폴더 하나에만 속한다(단일 소속).
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| `GET` | `/folders` | 폴더 목록. `position`, `created_at` 순. `session_count`는 병합으로 흡수된 세션(`status='merged'`)을 제외한 수 |
+| `POST` | `/folders` | 생성. 이름만 받고 색(`hue`)과 `position`은 서버가 정한다(팔레트 순환, 항상 맨 뒤) |
+| `PATCH` | `/folders/{folder_id}` | 부분 갱신 — `name` / `hue` / `position` 중 보낸 것만 반영 |
+| `DELETE` | `/folders/{folder_id}` | 폴더만 삭제. **소속 세션은 지우지 않고** `folder_id`를 NULL로 되돌린다 |
+| `POST` | `/folders/{folder_id}/sessions` | 세션 일괄 배정(최대 200건). 다른 폴더에 있던 세션도 이동한다 |
+| `DELETE` | `/folders/{folder_id}/sessions/{session_id}` | 폴더에서 빼 미정리로 되돌린다 |
+
+### 13.1 일괄 배정의 부분 성공
+
+`POST /folders/{id}/sessions`는 존재하지 않거나 남의 세션 id가 섞여 있어도 요청 전체를
+실패시키지 않는다. 실제로 옮긴 것과 건너뛴 것을 나눠 돌려준다.
+
+```json
+{ "folder_id": "...", "assigned": ["s1", "s2"], "skipped": ["ghost"] }
+```
+
+한 건 때문에 나머지가 통째로 취소되면 사용자가 원인을 알 수 없기 때문이다.
+
+### 13.2 소유권과 오류
+
+- 남의 폴더·세션에는 `403`이 아니라 `404`를 반환한다 — `403`은 그 id가 존재한다는
+  사실 자체를 알려준다(`api/sessions.py`의 `_owned_session`과 같은 정책).
+- `DELETE /folders/{id}/sessions/{session_id}`는 세션이 그 폴더에 없으면 `404`.
+
+### 13.3 `SessionDetail` 확장
+
+`folder_id: str | null` 필드를 추가한다(§11 superset 정책). 폴더 기능을 모르는
+클라이언트는 이 필드를 무시하면 그대로 동작한다.

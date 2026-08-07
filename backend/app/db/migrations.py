@@ -23,6 +23,7 @@ _TABLE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("keywords", "JSONB NOT NULL DEFAULT '[]'"),
         ("confidence", "REAL"),
         ("merged_into", "VARCHAR(36)"),  # 병합 생존 세션 id (merge P0)
+        ("folder_id", "VARCHAR(36)"),  # 사용자 폴더 소속. NULL=미정리
     ],
     "session_events": [
         ("merged_from_session_id", "VARCHAR(36)"),  # 병합으로 옮겨온 원 세션 id (merge P2, undo용)

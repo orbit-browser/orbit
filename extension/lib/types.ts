@@ -81,6 +81,36 @@ export interface Session {
   summary: SessionSummary;
   /** AI 요약 진행 상태 — pending/failed일 때 UI가 스피너·재시도 버튼을 노출 */
   summaryStatus: 'pending' | 'done' | 'failed';
+  /** 사용자가 넣은 폴더. 없으면 미정리(단일 소속). */
+  folderId?: string;
+}
+
+// ── 사용자 폴더 (docs/api-design-v2.md §13) ────────────────────────────
+
+/**
+ * 사용자가 직접 만드는 세션 그룹. 자동 분류가 아니라 수동 정리 수단이며,
+ * 세션은 폴더 하나에만 속한다.
+ */
+export interface Folder {
+  id: string;
+  name: string;
+  /** 캔버스 중심 노드와 궤도에 쓰는 색 */
+  hue: string;
+  /** 표시 순서 */
+  position: number;
+  /** 병합으로 흡수된 세션을 뺀 소속 세션 수 */
+  sessionCount: number;
+  /** ISO 8601 */
+  createdAt: string;
+  /** ISO 8601 */
+  updatedAt: string;
+}
+
+/** 폴더 일괄 배정 결과 — 건너뛴 세션을 그대로 돌려준다. */
+export interface FolderAssignResult {
+  folderId: string;
+  assigned: string[];
+  skipped: string[];
 }
 
 // ── 세션 병합 제안 (docs/merge-design.md §6) ───────────────────────────

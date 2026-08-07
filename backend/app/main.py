@@ -18,6 +18,7 @@ from .api.ask import router as ask_router
 from .api.auth import router as auth_router
 from .api.deps import get_current_user
 from .api.events import router as events_router
+from .api.folders import router as folders_router
 from .api.recommendations import router as recommendations_router
 from .api.search import router as search_router
 from .api.sessions import recover_pending_sessions
@@ -67,6 +68,7 @@ app.include_router(auth_router)
 _authenticated = [Depends(get_current_user)]
 
 app.include_router(sessions_router, dependencies=_authenticated)
+app.include_router(folders_router, dependencies=_authenticated)
 app.include_router(settings_router, dependencies=_authenticated)
 app.include_router(search_router, dependencies=_authenticated)
 app.include_router(events_router, dependencies=_authenticated)

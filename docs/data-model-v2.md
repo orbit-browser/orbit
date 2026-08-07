@@ -193,3 +193,46 @@ Stage 1(이번 MVP)은 `source='browser'` 고정, `event_type ∈ {visit, spa_na
 
 - 위 패턴에 해당하지 않는 URL은 `search_query = NULL`.
 - 이 규칙은 계획서 B-2("구글/네이버/유튜브/빙 URL의 검색어 추출")를 실제 파라미터 이름 수준으로 구체화한 것이며, `event_filter.py` 구현 시점(M1)에 코드로 확정한다. 위 4개 엔진 외 확장은 이번 문서 범위 밖(확인 필요 — 추가 검색엔진 지원 여부는 구현 단계에서 결정).
+
+## 9. `folders` — 사용자 폴더 (신규 테이블)
+
+사용자가 직접 만드는 세션 그룹. 자동 클러스터링이 아니라 수동 정리 수단이다.
+
+```sql
+CREATE TABLE folders (
+  id         VARCHAR(36) PRIMARY KEY,
+  user_id    VARCHAR(64) NOT NULL,
+  name       VARCHAR(60) NOT NULL,
+  hue        VARCHAR(20) NOT NULL,   -- 캔버스 중심 노드·궤도 색. 생성 시 팔레트 순환 배정
+  position   INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX ix_folders_user_position ON folders (user_id, position);
+
+ALTER TABLE sessions ADD COLUMN folder_id VARCHAR(36);  -- NULL = 미정리
+CREATE INDEX ix_sessions_folder_id ON sessions (folder_id);
+```
+
+신규 테이블이라 `create_all`이 생성하고, `sessions.folder_id`만 §3의 멱등 ALTER
+러너(`app/db/migrations.py`)가 추가한다.
+
+### 9.1 단일 소속
+
+세션은 폴더 하나에만 속한다(`sessions.folder_id`). 배정은 곧 이동이며, 다른 폴더에
+있던 세션도 그대로 옮겨온다. 다중 소속(태그형)은 범위 밖이다 — 드래그가 "이동"인지
+"복사"인지 모호해지고 폴더에서 빼는 UI가 따로 필요해진다.
+
+### 9.2 FK를 걸지 않는 이유
+
+`sessions.folder_id`에는 외래키 제약을 걸지 않는다. 이 컬럼은 기존 테이블에 ALTER로
+추가되고, 폴더 삭제는 애플리케이션이 같은 트랜잭션에서 `folder_id`를 NULL로 되돌려
+처리한다. 조회 측(백엔드·확장 모두)은 **존재하지 않는 폴더 id를 미정리로 간주해**
+방어한다 — 다른 기기에서 폴더가 지워졌는데 세션 목록이 먼저 도착하면 그 세션이
+어디에도 보이지 않게 되기 때문이다.
+
+### 9.3 병합과의 관계
+
+병합으로 흡수된 세션(`status='merged'`)은 목록에서 빠지므로 폴더 소속을 따로
+정리하지 않는다. 생존 세션의 폴더는 그대로 유지되고, `session_count` 집계에서만
+흡수된 세션을 제외한다.
