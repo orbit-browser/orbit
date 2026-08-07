@@ -145,6 +145,21 @@ class SessionEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class AppSetting(Base):
+    """앱 전역 설정(단일 사용자 개인앱) — key-value. 런타임에 사용자가 토글하는 선호값을 저장한다.
+
+    env(config)는 기본값, 이 테이블 값이 있으면 우선. 신규 테이블이라 create_all이 생성한다.
+    """
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[object] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
 class SessionVersion(Base):
     """세션 요약 이력 (docs/data-model-v2.md §6)."""
 

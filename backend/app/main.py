@@ -15,6 +15,7 @@ from .api.events import router as events_router
 from .api.search import router as search_router
 from .api.sessions import recover_pending_sessions
 from .api.sessions import router as sessions_router
+from .api.settings import router as settings_router
 from .api.sync import router as sync_router
 from .config import settings
 from .db.session import init_db
@@ -50,6 +51,7 @@ app.add_middleware(
 )
 
 app.include_router(sessions_router)
+app.include_router(settings_router)
 app.include_router(search_router)
 app.include_router(events_router)
 app.include_router(sync_router)
