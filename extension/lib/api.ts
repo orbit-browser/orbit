@@ -1,7 +1,10 @@
 import { getTabPageContent } from './chrome-bridge';
 import type { WireEvent } from './events/types';
 import { isSensitiveUrl } from './sensitive-domains';
+import { readSseStream } from './sse';
 import type {
+  AskStreamEvent,
+  AskStreamRequest,
   MemoryEvent,
   MemorySearchResult,
   MergeSuggestion,
@@ -446,6 +449,46 @@ export async function searchMemory(query: string, rerank = false): Promise<Memor
         s.tabs.some((t) => t.title.toLowerCase().includes(lower)),
     );
     return { sessions: filtered, events: [], degraded: true };
+  }
+}
+
+export async function* streamAsk(
+  body: AskStreamRequest,
+  signal?: AbortSignal,
+): AsyncGenerator<AskStreamEvent> {
+  const response = await fetch(`${BASE}/ask/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({
+      query: body.query,
+      session_id: body.sessionId ?? null,
+      rerank: body.rerank ?? true,
+    }),
+    signal,
+  });
+  if (!response.ok) {
+    const responseBody = await response.text().catch(() => '');
+    throw new Error(`[Orbit API] POST /ask/stream ${response.status}: ${responseBody}`);
+  }
+  if (!response.body) throw new Error('[Orbit API] Ask stream body is missing');
+
+  for await (const frame of readSseStream(response.body)) {
+    const data = JSON.parse(frame.data) as Record<string, unknown>;
+    if (frame.event === 'sources') {
+      const sessions = Array.isArray(data.sessions) ? data.sessions as BackendSession[] : [];
+      yield { type: 'sources', sessions: sessions.map(mapSession) };
+    } else if (frame.event === 'delta') {
+      yield { type: 'delta', text: typeof data.text === 'string' ? data.text : '' };
+    } else if (frame.event === 'done') {
+      yield { type: 'done', model: typeof data.model === 'string' ? data.model : null };
+    } else if (frame.event === 'error') {
+      yield {
+        type: 'error',
+        code: typeof data.code === 'string' ? data.code : 'generation_failed',
+        partial: data.partial === true,
+        retryable: data.retryable !== false,
+      };
+    }
   }
 }
 

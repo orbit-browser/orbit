@@ -8,17 +8,21 @@ import { Shortcuts } from './Shortcuts';
 interface OrbitHeroProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  onAskAI: (prompt: string) => Promise<string | null>;
+  onAskAI: (prompt: string) => void;
+  isAsking: boolean;
+  mode: 'search' | 'ai';
+  onModeChange: (mode: 'search' | 'ai') => void;
 }
 
 export function OrbitHero({
   searchQuery,
   onSearchChange,
   onAskAI,
+  isAsking,
+  mode,
+  onModeChange,
 }: OrbitHeroProps) {
-  const [mode, setMode] = useState<'search' | 'ai'>('search');
   const [error, setError] = useState<string | null>(null);
-  const [asking, setAsking] = useState(false);
 
   /**
    * 시안에서는 검색 모드가 아무 동작도 하지 않았다.
@@ -31,12 +35,7 @@ export function OrbitHero({
 
     if (mode === 'ai') {
       setError(null);
-      setAsking(true);
-      try {
-        setError(await onAskAI(searchQuery));
-      } finally {
-        setAsking(false);
-      }
+      onAskAI(searchQuery);
       return;
     }
 
@@ -135,7 +134,7 @@ export function OrbitHero({
               onKeyDown={(e) => {
                 if (e.key === 'Tab' && !e.shiftKey) {
                   e.preventDefault();
-                  setMode((m) => (m === 'search' ? 'ai' : 'search'));
+                  onModeChange(mode === 'search' ? 'ai' : 'search');
                 }
               }}
             />
@@ -148,14 +147,14 @@ export function OrbitHero({
                 <button
                   type="button"
                   className={`search-shell__mode${mode === 'search' ? ' search-shell__mode--active' : ''}`}
-                  onClick={() => setMode('search')}
+                  onClick={() => onModeChange('search')}
                 >
                   검색
                 </button>
                 <button
                   type="button"
                   className={`search-shell__mode${mode === 'ai' ? ' search-shell__mode--active' : ''}`}
-                  onClick={() => setMode('ai')}
+                  onClick={() => onModeChange('ai')}
                 >
                   AI에게 질문
                 </button>
@@ -165,7 +164,7 @@ export function OrbitHero({
                   type="submit"
                   className="search-shell__submit"
                   aria-label="질문 보내기"
-                  disabled={asking}
+                  disabled={isAsking}
                 >
                   <ArrowRight size={15} />
                 </button>
