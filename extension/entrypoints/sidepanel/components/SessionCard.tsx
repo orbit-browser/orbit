@@ -40,7 +40,7 @@ export function SessionCard({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') openSession(session.id);
       }}
-      className="group flex flex-col gap-3 rounded-xl border border-orbit-border bg-orbit-surface p-4 transition-all duration-200 hover:border-orbit-primary/30 hover:shadow-xs cursor-pointer select-none"
+      className="group flex flex-col gap-3 rounded-orbit-card border border-orbit-border bg-orbit-surface p-4 transition-all duration-200 hover:border-orbit-primary/30 hover:shadow-orbit-card cursor-pointer select-none"
     >
       {/* Top Row: Title and Menu */}
       <div className="flex items-start justify-between gap-2">
@@ -63,7 +63,7 @@ export function SessionCard({
                 retrySummary(session.id);
               }}
               disabled={isRetrying}
-              className="flex items-center gap-1 rounded-md bg-orbit-bg px-2 py-1 text-[11px] font-bold text-red-500 transition hover:bg-red-50 disabled:opacity-50 cursor-pointer shrink-0 mr-1"
+              className="flex items-center gap-1 rounded-full bg-orbit-bg px-2.5 py-1 text-[11px] font-bold text-orbit-danger transition hover:bg-orbit-danger-soft disabled:opacity-50 cursor-pointer shrink-0 mr-1"
             >
               <RotateCw size={10} className={isRetrying ? 'animate-spin' : ''} />
               다시 시도
@@ -158,7 +158,7 @@ export function SessionCard({
 
       {/* Middle Row: Overview Summary */}
       {isFailed ? (
-        <p className="line-clamp-2 text-xs text-red-500 leading-relaxed">
+        <p className="line-clamp-2 text-xs text-orbit-danger leading-relaxed">
           AI 요약 생성에 실패했어요. 다시 시도해 주세요.
         </p>
       ) : (

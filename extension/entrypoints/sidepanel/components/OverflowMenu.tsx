@@ -33,14 +33,14 @@ export function OverflowMenu({ actions }: { actions: MenuAction[] }) {
         <MoreVertical size={16} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-20 min-w-28 rounded-lg border border-orbit-border bg-orbit-surface py-1 shadow-lg">
+        <div className="absolute right-0 top-full mt-1 z-20 min-w-28 rounded-lg border border-orbit-border bg-orbit-surface py-1 shadow-orbit-overlay">
           {actions.map((a) => (
             <button
               key={a.label}
               type="button"
               className={
                 'block w-full px-3 py-1.5 text-left text-xs hover:bg-orbit-bg ' +
-                (a.danger ? 'text-red-600' : 'text-orbit-text')
+                (a.danger ? 'text-orbit-danger' : 'text-orbit-text')
               }
               onClick={(e) => {
                 e.stopPropagation();

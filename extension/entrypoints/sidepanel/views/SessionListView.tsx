@@ -7,7 +7,7 @@ import { StatePlaceholder } from '../components/StatePlaceholder';
 
 function ClusteringCard() {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-orbit-primary/30 bg-orbit-surface p-3">
+    <div className="flex items-center gap-3 rounded-orbit-card border border-orbit-primary/30 bg-orbit-surface p-3">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orbit-bg">
         <Loader2 size={18} className="animate-spin text-orbit-primary" />
       </div>

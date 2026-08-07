@@ -48,7 +48,7 @@ export function SummaryPanel({ summary }: { summary: SessionSummary }) {
   }
 
   return (
-    <div className="space-y-4 rounded-xl border border-orbit-border bg-orbit-surface p-4">
+    <div className="space-y-4 rounded-orbit-card border border-orbit-border bg-orbit-surface p-4">
       <p className="text-sm leading-relaxed">{summary.overview}</p>
 
       {summary.purpose && (
