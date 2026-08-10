@@ -4,6 +4,7 @@ import { checkHealth } from '../../../lib/api';
 import { useUIStore } from '../store/ui';
 import { useSettingsStore } from '../store/settings';
 import { useServerSettings, useUpdateServerSettings } from '../hooks/useServerSettings';
+import { Sheet } from '../components/control/Sheet';
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -148,7 +149,7 @@ function NumberRow({
   );
 }
 
-export function SettingsView() {
+export function SettingsSheet() {
   const showToast = useUIStore((s) => s.showToast);
   const {
     data: serverSettings,
@@ -186,10 +187,9 @@ export function SettingsView() {
   const { session, signOut } = useAuth();
 
   return (
-    <div className="space-y-4 p-4 overflow-y-auto h-full">
-      <p className="text-xs font-semibold text-orbit-muted">설정</p>
-
-      <div className="divide-y divide-orbit-border rounded-orbit-card border border-orbit-border bg-orbit-surface">
+    <Sheet title="설정">
+      <div className="space-y-4 p-4">
+      <div className="divide-y divide-orbit-border/60 rounded-[18px] bg-orbit-tile">
         <InfoRow label="백엔드 연결" value={connectionLabel} />
 
         <SettingRow
@@ -208,7 +208,7 @@ export function SettingsView() {
 
       <section className="space-y-2">
         <p className="text-xs font-semibold text-orbit-muted">세션 관리</p>
-        <div className="divide-y divide-orbit-border rounded-orbit-card border border-orbit-border bg-orbit-surface">
+        <div className="divide-y divide-orbit-border/60 rounded-[18px] bg-orbit-tile">
           <SettingRow
             label="자동 병합"
             description={
@@ -238,7 +238,7 @@ export function SettingsView() {
 
       <section className="space-y-2">
         <p className="text-xs font-semibold text-orbit-muted">수집·동기화</p>
-        <div className="divide-y divide-orbit-border rounded-orbit-card border border-orbit-border bg-orbit-surface">
+        <div className="divide-y divide-orbit-border/60 rounded-[18px] bg-orbit-tile">
           <SettingRow
             label="탐색 기록 수집"
             description={
@@ -311,7 +311,7 @@ export function SettingsView() {
 
       <section className="space-y-2">
         <p className="text-xs font-semibold text-orbit-muted">계정</p>
-        <div className="divide-y divide-orbit-border rounded-orbit-card border border-orbit-border bg-orbit-surface">
+        <div className="divide-y divide-orbit-border/60 rounded-[18px] bg-orbit-tile">
           <InfoRow label="로그인 계정" value={session?.user.email ?? '—'} />
           <div className="p-3">
             <button
@@ -329,6 +329,7 @@ export function SettingsView() {
         Orbit은 사용자의 브라우저 데이터를 다룹니다. 개인정보·민감정보 수집을 최소화하도록
         설계되었습니다.
       </p>
-    </div>
+      </div>
+    </Sheet>
   );
 }

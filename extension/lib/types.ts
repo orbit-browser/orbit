@@ -25,8 +25,6 @@ export interface OpenTabItem extends TabItem {
   windowId: number;
   index: number;
   active: boolean;
-  /** Chrome 내부 페이지처럼 북마크 API에 넘기지 않는 URL은 false. */
-  bookmarkable: boolean;
 }
 
 export interface TabActionResolveResult {

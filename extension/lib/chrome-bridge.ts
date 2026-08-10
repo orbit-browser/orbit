@@ -1,5 +1,4 @@
 import type { OpenTabItem, PageContent, TabItem } from './types';
-import { isBookmarkableUrl, uniqueBookmarkTabs } from './tab-actions';
 
 // chrome.* API 래퍼. 사이드패널(확장 페이지)에서 직접 호출합니다.
 // dev 환경에서 chrome 이 없으면 빈 배열을 반환해 UI 가 안전하게 동작합니다.
@@ -40,7 +39,6 @@ export async function getAllOpenTabs(): Promise<OpenTabItem[]> {
         title: tab.title?.trim() || '(로딩 중…)',
         url,
         favIconUrl: tab.favIconUrl,
-        bookmarkable: isBookmarkableUrl(url),
       };
     })
     .sort((left, right) => left.windowId - right.windowId || left.index - right.index);
@@ -52,39 +50,6 @@ export async function activateOpenTab(tab: Pick<OpenTabItem, 'id' | 'windowId'>)
   }
   await chrome.windows.update(tab.windowId, { focused: true });
   await chrome.tabs.update(Number(tab.id), { active: true });
-}
-
-export interface BookmarkTabsResult {
-  createdCount: number;
-  skippedCount: number;
-  failedTabIds: string[];
-}
-
-export async function bookmarkOpenTabs(tabs: OpenTabItem[]): Promise<BookmarkTabsResult> {
-  if (typeof chrome === 'undefined' || !chrome.bookmarks?.search || !chrome.bookmarks?.create) {
-    throw new Error('Chrome bookmarks API is unavailable');
-  }
-
-  const candidates = uniqueBookmarkTabs(tabs);
-  let createdCount = 0;
-  let skippedCount = candidates.skippedCount;
-  const failedTabIds: string[] = [];
-
-  for (const tab of candidates.tabs) {
-    try {
-      const existing = await chrome.bookmarks.search({ url: tab.url });
-      if (existing.some((bookmark) => bookmark.url === tab.url)) {
-        skippedCount += 1;
-        continue;
-      }
-      await chrome.bookmarks.create({ title: tab.title || tab.url, url: tab.url });
-      createdCount += 1;
-    } catch {
-      failedTabIds.push(tab.id);
-    }
-  }
-
-  return { createdCount, skippedCount, failedTabIds };
 }
 
 export async function getTabPageContent(tabId: number): Promise<PageContent | null> {

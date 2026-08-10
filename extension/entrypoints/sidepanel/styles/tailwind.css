@@ -17,6 +17,15 @@
   /* rgba(170, 116, 90, 0.18) 를 샌드 배경 위에서 환산 */
   --color-orbit-border: #e8dcd4;
 
+  /*
+   * 제어 센터 타일 — macOS 는 반투명 회색 타일 위에 흰 디스크를 올려 켜짐을 보여준다.
+   * 흰 카드 위에 흰 디스크는 보이지 않으므로 타일을 배경보다 한 단계 눌러 깐다.
+   */
+  --color-orbit-tile: #f4ece6;
+  --color-orbit-tile-hover: #efe4dc;
+  /* 꺼진 디스크 — 타일보다 진하되 액센트가 아닌 회색 */
+  --color-orbit-disc-off: #ddd0c6;
+
   /* 실패 상태 — 시안에 없어 팔레트 온도에 맞춘 값을 정의했다 */
   --color-orbit-danger: #b8452b;
   --color-orbit-danger-soft: #fbeae5;
@@ -61,6 +70,101 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-orbit-primary-muted);
+}
+
+/*
+ * 제어 센터 시트 — 타일을 덮으며 아래에서 올라온다.
+ * macOS 팝오버의 감속 곡선(0.32, 0.72, 0, 1)을 써서 "튕기지 않고 미끄러지는" 느낌을 낸다.
+ */
+@keyframes sheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-sheet-in {
+  animation: sheetIn 0.24s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes tileIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-tile-in {
+  animation: tileIn 0.28s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/*
+ * 높이를 모르는 내용을 접었다 펴는 전환.
+ *
+ * `max-height` 로 하면 실제 높이보다 큰 값을 찍어야 해서 짧은 내용이 늦게 열린다.
+ * grid 의 `0fr → 1fr` 은 내용 높이를 그대로 따라가므로 길이에 상관없이 속도가 같다.
+ */
+.orbit-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 0.34s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.24s ease;
+}
+
+.orbit-collapse > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.orbit-collapse[data-collapsed='true'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 편집 모드 — macOS 홈 화면처럼 위젯이 미세하게 흔들려 "지금 옮길 수 있다"를 알린다. */
+@keyframes widgetWiggle {
+  0%,
+  100% {
+    transform: rotate(-0.5deg);
+  }
+  50% {
+    transform: rotate(0.5deg);
+  }
+}
+
+.animate-widget-wiggle {
+  animation: widgetWiggle 0.4s ease-in-out infinite;
+}
+
+/* 시스템 설정에서 동작 줄이기를 켜면 위치 이동 없이 즉시 나타난다. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-sheet-in,
+  .animate-tile-in,
+  .animate-bouncy,
+  .animate-widget-wiggle {
+    animation: none;
+  }
+
+  .orbit-collapse {
+    transition: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @keyframes bounceIn {

@@ -34,7 +34,6 @@ export default defineConfig({
     //   search   — 검색창이 사용자가 크롬에 설정한 기본 검색엔진을 그대로 쓴다.
     //   topSites — 바로가기의 초기 목록(자주 방문한 사이트). 사용자가 편집하면 더 읽지 않는다.
     //   favicon  — 바로가기 아이콘을 확장 내장 파비콘으로 그린다(외부 요청 없음).
-    //   bookmarks — 사용자가 선택한 열린 탭만 Chrome 기본 북마크에 추가한다.
     permissions: [
       'tabs',
       'storage',
@@ -45,7 +44,6 @@ export default defineConfig({
       'search',
       'topSites',
       'favicon',
-      'bookmarks',
       // identity — 구글 로그인. 크롬 프로필 계정의 access token 을 받는다.
       'identity',
     ],
@@ -56,8 +54,10 @@ export default defineConfig({
       client_id: envValue('VITE_GOOGLE_CLIENT_ID'),
       scopes: ['openid', 'email', 'profile'],
     },
+    // `<all_urls>` — 열린 탭 미리보기 썸네일(chrome.tabs.captureVisibleTab)에 필요하다.
+    // 콘텐츠 스크립트가 이미 모든 사이트에서 동작하므로 설치 경고가 새로 늘지는 않는다.
     // TODO: 배포 URL 확정 시 프로덕션 백엔드 도메인 추가
-    host_permissions: ['http://localhost/*', 'http://127.0.0.1/*'],
+    host_permissions: ['http://localhost/*', 'http://127.0.0.1/*', '<all_urls>'],
     commands: {
       _execute_action: {
         suggested_key: { default: 'Alt+Shift+O' },

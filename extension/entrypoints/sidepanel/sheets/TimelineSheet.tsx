@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { SyncStatusCard } from '../components/SyncStatusCard';
 import { StatePlaceholder } from '../components/StatePlaceholder';
+import { Sheet } from '../components/control/Sheet';
 import { TimelineDateHeader } from '../components/timeline/TimelineDateHeader';
 import { TimelineItem } from '../components/timeline/TimelineItem';
 import { useDeleteTimelineEntry, useTimeline } from '../hooks/useTimeline';
@@ -9,7 +9,7 @@ import { useUIStore } from '../store/ui';
 import { fetchAnalyticsOverview, type AnalyticsOverview } from '../../../lib/api';
 
 // "이번 주 탐색 분석" 요약 카드 — GET /analytics/overview?days=7 (docs/api-design-v2.md §9).
-// 집계 실패나 데이터 없음은 오류가 아니라 정상 범위(백엔드 병렬 구현 중)이므로 카드를 조용히 숨긴다.
+// 집계 실패나 데이터 없음은 오류가 아니라 정상 범위이므로 카드를 조용히 숨긴다.
 function formatDuration(ms: number): string {
   const totalMinutes = Math.max(Math.round(ms / 60_000), 0);
   const hours = Math.floor(totalMinutes / 60);
@@ -25,7 +25,7 @@ function AnalyticsSummaryCard({ overview }: { overview: AnalyticsOverview }) {
   if (topSessions.length === 0 && topDomains.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-3 rounded-orbit-card border border-orbit-border bg-orbit-surface p-3.5">
+    <div className="flex flex-col gap-3 rounded-[18px] bg-orbit-tile p-3.5">
       <p className="text-xs font-semibold text-orbit-text">이번 주 탐색 분석</p>
       {topSessions.length > 0 && (
         <div>
@@ -59,9 +59,8 @@ function AnalyticsSummaryCard({ overview }: { overview: AnalyticsOverview }) {
   );
 }
 
-// 사이드패널 기본 화면 — 방문 이벤트를 시간 역순으로 보여준다.
-// 계약 근거: docs/IA.md "타임라인 홈", docs/implementation-roadmap.md M4-15.
-export function TimelineView() {
+/** 탐색 타임라인 시트 — 방문 이벤트를 시간 역순으로 보여준다(docs/IA.md "타임라인 홈"). */
+export function TimelineSheet() {
   const { groups, isLoading, isError, isEmpty } = useTimeline();
   const { mutate: deleteEntry } = useDeleteTimelineEntry();
   const collectionEnabled = useSettingsStore((s) => s.collectionEnabled);
@@ -72,12 +71,8 @@ export function TimelineView() {
   });
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 p-4 pb-2">
-        <SyncStatusCard />
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+    <Sheet title="탐색 타임라인">
+      <div className="p-3">
         <StatePlaceholder
           loading={isLoading}
           error={isError}
@@ -111,13 +106,13 @@ export function TimelineView() {
             ))}
           </div>
         </StatePlaceholder>
-      </div>
 
-      {!analyticsError && analytics && (
-        <div className="shrink-0 px-4 pb-4">
-          <AnalyticsSummaryCard overview={analytics} />
-        </div>
-      )}
-    </div>
+        {!analyticsError && analytics && (
+          <div className="pt-4">
+            <AnalyticsSummaryCard overview={analytics} />
+          </div>
+        )}
+      </div>
+    </Sheet>
   );
 }

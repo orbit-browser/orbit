@@ -130,7 +130,7 @@ export function MergeSuggestionsSection() {
         {suggestions.map((suggestion) => (
           <div
             key={`${suggestion.survivorId}:${suggestion.absorbedId}`}
-            className="rounded-orbit-card border border-orbit-border bg-orbit-surface p-3"
+            className="rounded-[18px] bg-orbit-tile p-3"
           >
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
@@ -146,7 +146,7 @@ export function MergeSuggestionsSection() {
                   {suggestion.keywordOverlap.slice(0, 3).map((keyword) => (
                     <span
                       key={keyword}
-                      className="rounded bg-orbit-bg px-1.5 py-0.5 text-[10px] text-orbit-muted"
+                      className="rounded bg-orbit-surface px-1.5 py-0.5 text-[10px] text-orbit-muted"
                     >
                       {keyword}
                     </span>

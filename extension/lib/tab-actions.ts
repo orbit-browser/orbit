@@ -1,7 +1,5 @@
 import type { OpenTabItem } from './types';
 
-const BOOKMARKABLE_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
-
 export interface OpenTabNavigationIntent {
   kind: 'navigate-open-tab';
   target: string;
@@ -133,38 +131,11 @@ export function findBestOpenTab(tabs: OpenTabItem[], target: string): OpenTabMat
   };
 }
 
-export function isBookmarkableUrl(url: string): boolean {
-  try {
-    return BOOKMARKABLE_PROTOCOLS.has(new URL(url).protocol);
-  } catch {
-    return false;
-  }
-}
-
+/** 열린 탭 목록의 단순 단어 일치 필터 — 제목과 주소를 함께 본다. */
 export function filterOpenTabs(tabs: OpenTabItem[], rawQuery: string): OpenTabItem[] {
   const query = rawQuery.trim().toLocaleLowerCase();
   if (!query) return tabs;
   return tabs.filter((tab) =>
     `${tab.title}\n${tab.url}`.toLocaleLowerCase().includes(query),
   );
-}
-
-export function uniqueBookmarkTabs(tabs: OpenTabItem[]): {
-  tabs: OpenTabItem[];
-  skippedCount: number;
-} {
-  const seenUrls = new Set<string>();
-  const unique: OpenTabItem[] = [];
-  let skippedCount = 0;
-
-  for (const tab of tabs) {
-    if (!tab.bookmarkable || seenUrls.has(tab.url)) {
-      skippedCount += 1;
-      continue;
-    }
-    seenUrls.add(tab.url);
-    unique.push(tab);
-  }
-
-  return { tabs: unique, skippedCount };
 }

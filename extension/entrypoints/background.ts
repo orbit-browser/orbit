@@ -1,5 +1,6 @@
 import { handlePageContentReady, initCollector } from '../lib/events/collector';
 import { initTriggers } from '../lib/sync/triggers';
+import { captureActiveTab, forgetTabThumbnail } from '../lib/tab-thumbnails';
 import type { PageContent } from '../lib/types';
 
 // 탭 ID → 추출된 페이지 콘텐츠 캐시 (서비스 워커 생존 동안 유지)
@@ -32,6 +33,35 @@ export default defineBackground(() => {
     if (changeInfo.status === 'loading' || changeInfo.status === 'complete' || changeInfo.title !== undefined) {
       notifyTabsChanged();
     }
+  });
+
+  /*
+   * 열린 탭 미리보기 썸네일.
+   *
+   * 사용자가 보고 있는 탭만 조용히 찍는다. 렌더가 끝난 뒤를 노려 지연을 두고,
+   * 그 사이 다른 탭으로 옮겨 갔으면 찍지 않는다 — 엉뚱한 화면이 저장되는 걸 막는다.
+   */
+  let captureTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleCapture() {
+    if (captureTimer) clearTimeout(captureTimer);
+    captureTimer = setTimeout(async () => {
+      captureTimer = null;
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (tab?.id === undefined || tab.windowId === undefined) return;
+        await captureActiveTab(tab.id, tab.windowId, tab.url ?? '');
+      } catch {
+        // 활성 탭을 못 읽는 상황(창 없음 등) — 다음 기회에 찍는다.
+      }
+    }, 900);
+  }
+
+  chrome.tabs.onActivated.addListener(scheduleCapture);
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && tab.active) scheduleCapture();
+  });
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    void forgetTabThumbnail(tabId);
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

@@ -24,7 +24,7 @@ export function OverflowMenu({ actions }: { actions: MenuAction[] }) {
       <button
         type="button"
         title="더보기"
-        className="p-1 rounded-md text-orbit-muted hover:bg-orbit-bg hover:text-orbit-text"
+        className="p-1 rounded-md text-orbit-muted hover:bg-orbit-tile hover:text-orbit-text"
         onClick={(e) => {
           e.stopPropagation();
           setOpen((o) => !o);
@@ -39,7 +39,7 @@ export function OverflowMenu({ actions }: { actions: MenuAction[] }) {
               key={a.label}
               type="button"
               className={
-                'block w-full px-3 py-1.5 text-left text-xs hover:bg-orbit-bg ' +
+                'block w-full px-3 py-1.5 text-left text-xs hover:bg-orbit-tile ' +
                 (a.danger ? 'text-orbit-danger' : 'text-orbit-text')
               }
               onClick={(e) => {

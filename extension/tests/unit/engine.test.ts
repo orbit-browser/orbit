@@ -68,14 +68,16 @@ describe('drain 성공 경로', () => {
 
     requestDrain('periodic');
 
+    // 서버 세션화 트리거는 synced 표시 **뒤에** 일어난다. synced 개수만 기다리면
+    // 아직 호출되지 않은 상태에서 단정하게 되어 부하가 걸릴 때 간헐적으로 실패한다.
     await waitUntil(async () => {
       expect(await listByStatus('synced')).toHaveLength(60);
+      expect(mockServerSync).toHaveBeenCalledTimes(1);
     });
     expect(mockPost).toHaveBeenCalledTimes(2);
     expect(mockPost.mock.calls[0][1]).toHaveLength(50);
     expect(mockPost.mock.calls[1][1]).toHaveLength(10);
     // 서버 세션화 트리거는 drain당 1회만
-    expect(mockServerSync).toHaveBeenCalledTimes(1);
     expect(mockServerSync).toHaveBeenCalledWith('periodic');
   });
 

@@ -8,7 +8,7 @@ export function SessionBadge({ badge }: { badge: TimelineBadge }) {
 
   if (badge.kind === 'pending') {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-full bg-orbit-bg px-2 py-0.5 text-[10px] font-medium text-orbit-muted">
+      <span className="inline-flex shrink-0 items-center rounded-full bg-orbit-tile px-2 py-0.5 text-[10px] font-medium text-orbit-muted">
         분류 대기
       </span>
     );
@@ -16,7 +16,7 @@ export function SessionBadge({ badge }: { badge: TimelineBadge }) {
 
   if (badge.kind === 'synced') {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-full bg-orbit-bg px-2 py-0.5 text-[10px] font-medium text-orbit-muted">
+      <span className="inline-flex shrink-0 items-center rounded-full bg-orbit-tile px-2 py-0.5 text-[10px] font-medium text-orbit-muted">
         동기화됨
       </span>
     );
@@ -26,7 +26,7 @@ export function SessionBadge({ badge }: { badge: TimelineBadge }) {
     return (
       <span
         title="세션 대상에서 제외된 스침 방문이에요"
-        className="inline-flex shrink-0 items-center rounded-full bg-orbit-bg px-2 py-0.5 text-[10px] font-medium text-orbit-muted/70"
+        className="inline-flex shrink-0 items-center rounded-full bg-orbit-tile px-2 py-0.5 text-[10px] font-medium text-orbit-muted/70"
       >
         제외됨
       </span>

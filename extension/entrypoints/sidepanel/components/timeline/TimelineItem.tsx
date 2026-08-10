@@ -57,7 +57,7 @@ export function TimelineItem({ event, badge, onDelete, compact = false }: Timeli
         if (e.key === 'Enter' || e.key === ' ') openInNewTab(event.url);
       }}
       className={
-        'group flex items-center gap-2.5 rounded-lg px-2 hover:bg-orbit-bg cursor-pointer select-none ' +
+        'group flex items-center gap-2.5 rounded-lg px-2 hover:bg-orbit-tile cursor-pointer select-none ' +
         (compact ? 'py-1.5' : 'py-2')
       }
     >

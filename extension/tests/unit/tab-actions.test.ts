@@ -1,16 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  activateOpenTab,
-  bookmarkOpenTabs,
-  getAllOpenTabs,
-} from '../../lib/chrome-bridge';
+import { activateOpenTab, getAllOpenTabs } from '../../lib/chrome-bridge';
 import {
   filterOpenTabs,
   findBestOpenTab,
-  isBookmarkableUrl,
   mayBeOpenTabNavigation,
   parseOpenTabNavigationIntent,
-  uniqueBookmarkTabs,
 } from '../../lib/tab-actions';
 import type { OpenTabItem } from '../../lib/types';
 
@@ -22,7 +16,6 @@ function openTab(overrides: Partial<OpenTabItem> = {}): OpenTabItem {
     active: false,
     title: 'Orbit documentation',
     url: 'https://example.com/orbit',
-    bookmarkable: true,
     ...overrides,
   };
 }
@@ -41,23 +34,6 @@ describe('open tab filtering', () => {
     expect(filterOpenTabs(tabs, 'ORBIT').map((tab) => tab.id)).toEqual(['11']);
     expect(filterOpenTabs(tabs, 'NEWS.EXAMPLE').map((tab) => tab.id)).toEqual(['12']);
     expect(filterOpenTabs(tabs, '  ')).toEqual(tabs);
-  });
-
-  it('웹·파일 URL만 북마크 대상으로 허용한다', () => {
-    expect(isBookmarkableUrl('https://example.com')).toBe(true);
-    expect(isBookmarkableUrl('file:///C:/notes.txt')).toBe(true);
-    expect(isBookmarkableUrl('chrome://settings')).toBe(false);
-    expect(isBookmarkableUrl('not-a-url')).toBe(false);
-  });
-
-  it('같은 URL과 북마크 불가 탭을 제외한다', () => {
-    const result = uniqueBookmarkTabs([
-      openTab(),
-      openTab({ id: '12' }),
-      openTab({ id: '13', url: 'chrome://settings', bookmarkable: false }),
-    ]);
-    expect(result.tabs.map((tab) => tab.id)).toEqual(['11']);
-    expect(result.skippedCount).toBe(2);
   });
 
   it('명시적인 탭 이동 문장에서 검색 대상을 추출한다', () => {
@@ -124,7 +100,6 @@ describe('Chrome open tab actions', () => {
 
     expect(query).toHaveBeenCalledWith({ windowType: 'normal' });
     expect(result.map((tab) => tab.id)).toEqual(['11', '22']);
-    expect(result.map((tab) => tab.bookmarkable)).toEqual([true, false]);
   });
 
   it('창을 먼저 포커스한 뒤 탭을 활성화한다', async () => {
@@ -140,24 +115,5 @@ describe('Chrome open tab actions', () => {
     await activateOpenTab(openTab({ id: '42', windowId: 7 }));
 
     expect(calls).toEqual(['window', 'tab']);
-  });
-
-  it('이미 북마크된 URL과 선택 내 중복은 건너뛴다', async () => {
-    const create = vi.fn(async () => ({ id: 'created' }));
-    const search = vi.fn(async ({ url }: { url?: string }) =>
-      url === 'https://b.com' ? [{ id: 'existing', url }] : [],
-    );
-    vi.stubGlobal('chrome', { bookmarks: { create, search } });
-
-    const result = await bookmarkOpenTabs([
-      openTab({ id: 'a1', url: 'https://a.com' }),
-      openTab({ id: 'a2', url: 'https://a.com' }),
-      openTab({ id: 'b', url: 'https://b.com' }),
-      openTab({ id: 'internal', url: 'chrome://settings', bookmarkable: false }),
-    ]);
-
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(create).toHaveBeenCalledWith({ title: 'Orbit documentation', url: 'https://a.com' });
-    expect(result).toEqual({ createdCount: 1, skippedCount: 3, failedTabIds: [] });
   });
 });
