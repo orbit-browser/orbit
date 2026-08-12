@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { BookmarkPlus, CheckCheck, Loader2, LocateFixed, Search } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { BookmarkPlus, CheckCheck, ExternalLink, Loader2, Search, X } from 'lucide-react';
 import { activateOpenTab, bookmarkOpenTabs } from '../../../lib/chrome-bridge';
-import { filterOpenTabs } from '../../../lib/tab-actions';
+import { filterOpenTabs, openTabLocationLabel } from '../../../lib/tab-actions';
 import type { OpenTabItem } from '../../../lib/types';
 import { useOpenTabs } from '../hooks/useTabs';
 import { useUIStore } from '../store/ui';
@@ -11,8 +11,10 @@ export function OpenTabsPanel() {
   const { data: tabs = [], isLoading, isError } = useOpenTabs();
   const showToast = useUIStore((state) => state.showToast);
   const [query, setQuery] = useState('');
+  const [filterOpen, setFilterOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBookmarking, setIsBookmarking] = useState(false);
+  const filterInputRef = useRef<HTMLInputElement>(null);
 
   const filteredTabs = useMemo(() => filterOpenTabs(tabs, query), [tabs, query]);
   const selectedTabs = useMemo(
@@ -26,11 +28,6 @@ export function OpenTabsPanel() {
     visibleBookmarkableIds.length > 0 &&
     visibleBookmarkableIds.every((id) => selectedIds.has(id));
 
-  const windowNumbers = useMemo(() => {
-    const ids = [...new Set(tabs.map((tab) => tab.windowId))];
-    return new Map(ids.map((windowId, index) => [windowId, index + 1]));
-  }, [tabs]);
-
   useEffect(() => {
     const validIds = new Set(tabs.filter((tab) => tab.bookmarkable).map((tab) => tab.id));
     setSelectedIds((current) => {
@@ -38,6 +35,16 @@ export function OpenTabsPanel() {
       return next.size === current.size ? current : next;
     });
   }, [tabs]);
+
+  useEffect(() => {
+    if (filterOpen) filterInputRef.current?.focus({ preventScroll: true });
+  }, [filterOpen]);
+
+  function closeFilter() {
+    setQuery('');
+    setFilterOpen(false);
+    filterInputRef.current?.blur();
+  }
 
   function toggleSelection(tab: OpenTabItem) {
     if (!tab.bookmarkable) return;
@@ -96,47 +103,109 @@ export function OpenTabsPanel() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-orbit-card border border-orbit-border bg-orbit-surface shadow-orbit-card">
-      <div className="shrink-0 space-y-3 border-b border-orbit-border/60 p-3">
-        <div className="flex items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-orbit-muted"
-            />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="열린 탭 제목이나 주소 찾기"
-              aria-label="열린 탭 검색"
-              className="h-9 w-full rounded-xl border border-orbit-border bg-orbit-bg pl-9 pr-3 text-xs text-orbit-text outline-none transition focus:border-orbit-primary/60"
-            />
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div
+        className={`grid shrink-0 transition-[grid-template-rows] duration-200 ease-out ${
+          filterOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div
+            className={`px-3 pb-1 pt-2.5 transition-[opacity,transform] duration-200 ease-out ${
+              filterOpen ? 'translate-y-0 opacity-100' : '-translate-y-1 opacity-0'
+            }`}
+          >
+            <div className="relative">
+              <Search
+                size={13}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-orbit-muted"
+              />
+              <input
+                ref={filterInputRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') closeFilter();
+                }}
+                placeholder="제목·사이트로 걸러내기"
+                aria-label="열린 탭 걸러내기"
+                tabIndex={filterOpen ? 0 : -1}
+                aria-hidden={!filterOpen}
+                className="h-8 w-full rounded-lg border border-orbit-border/70 bg-orbit-surface pl-8 pr-8 text-xs text-orbit-text outline-none transition focus:border-orbit-primary/60"
+              />
+              <button
+                type="button"
+                onClick={closeFilter}
+                aria-label="검색 닫기"
+                title="닫기 (Esc)"
+                tabIndex={filterOpen ? 0 : -1}
+                aria-hidden={!filterOpen}
+                className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded p-0.5 text-orbit-muted transition hover:text-orbit-text"
+              >
+                <X size={12} />
+              </button>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => void handleBookmark()}
-            disabled={selectedTabs.length === 0 || isBookmarking}
-            className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl bg-orbit-primary px-3 text-xs font-bold text-white transition hover:brightness-95 disabled:cursor-default disabled:opacity-45"
-          >
-            {isBookmarking ? <Loader2 size={13} className="animate-spin" /> : <BookmarkPlus size={13} />}
-            북마크 {selectedTabs.length > 0 ? selectedTabs.length : ''}
-          </button>
-        </div>
-
-        <div className="flex items-center justify-between text-[11px] text-orbit-muted">
-          <span>{query.trim() ? `검색 결과 ${filteredTabs.length}개` : `전체 ${tabs.length}개 탭`}</span>
-          <button
-            type="button"
-            onClick={toggleVisibleSelection}
-            disabled={visibleBookmarkableIds.length === 0}
-            className="flex cursor-pointer items-center gap-1 font-semibold transition hover:text-orbit-text disabled:cursor-default disabled:opacity-40"
-          >
-            <CheckCheck size={12} /> {allVisibleSelected ? '검색 결과 선택 해제' : '검색 결과 전체 선택'}
-          </button>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+      <div className={`shrink-0 px-3 ${filterOpen ? 'pt-0' : 'pt-2.5'}`}>
+        <div className="flex items-center justify-between gap-2 px-2 pb-1.5 pt-1">
+          <p className="text-xs font-semibold text-orbit-muted">
+            열린 탭
+            <span className="ml-1 font-normal tabular-nums">
+              {query.trim() ? `${filteredTabs.length}/${tabs.length}` : tabs.length}
+            </span>
+          </p>
+          <div className="flex shrink-0 items-center gap-1 text-[10px] text-orbit-muted">
+            <button
+              type="button"
+              onClick={toggleVisibleSelection}
+              disabled={visibleBookmarkableIds.length === 0}
+              className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-semibold transition hover:bg-orbit-surface hover:text-orbit-text disabled:cursor-default disabled:opacity-40"
+            >
+              <CheckCheck size={11} />
+              {allVisibleSelected ? '선택 해제' : query.trim() ? '결과 선택' : '전체 선택'}
+            </button>
+            {!filterOpen && (
+              <button
+                type="button"
+                onClick={() => setFilterOpen(true)}
+                title="열린 탭 검색"
+                aria-label="열린 탭 검색"
+                className="-mr-1 cursor-pointer rounded p-1 text-orbit-muted transition hover:bg-orbit-surface hover:text-orbit-text"
+              >
+                <Search size={12} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {selectedTabs.length > 0 && (
+        <div className="shrink-0 px-3 pb-1 pt-0.5">
+          <div className="flex min-h-9 items-center justify-between gap-3 rounded-lg bg-orbit-primary-soft px-2.5 py-1">
+            <span className="text-[11px] font-semibold text-orbit-text">
+              {selectedTabs.length}개 선택됨
+            </span>
+            <button
+              type="button"
+              onClick={() => void handleBookmark()}
+              disabled={isBookmarking}
+              className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-orbit-primary transition hover:bg-orbit-surface/70 disabled:cursor-default disabled:opacity-55"
+            >
+              {isBookmarking ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <BookmarkPlus size={12} />
+              )}
+              북마크
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-1">
         {isLoading ? (
           <div className="flex h-28 items-center justify-center gap-2 text-xs text-orbit-muted">
             <Loader2 size={14} className="animate-spin" /> 열린 탭 확인 중…
@@ -148,47 +217,58 @@ export function OpenTabsPanel() {
             {tabs.length === 0 ? '열린 웹 탭이 없어요.' : '검색과 일치하는 탭이 없어요.'}
           </p>
         ) : (
-          filteredTabs.map((tab) => (
-            <div
-              key={tab.id}
-              className="group flex items-center gap-2 rounded-xl px-2 py-2 transition hover:bg-orbit-bg"
-            >
-              <input
-                type="checkbox"
-                checked={selectedIds.has(tab.id)}
-                disabled={!tab.bookmarkable}
-                onChange={() => toggleSelection(tab)}
-                aria-label={`${tab.title} 북마크 선택`}
-                title={tab.bookmarkable ? '북마크에 추가할 탭 선택' : '이 페이지는 북마크할 수 없어요'}
-                className="h-3.5 w-3.5 shrink-0 accent-orbit-primary disabled:opacity-30"
-              />
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white">
-                <Favicon src={tab.favIconUrl} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <p className="truncate text-xs font-semibold text-orbit-text">{tab.title}</p>
-                  {tab.active && (
-                    <span className="shrink-0 rounded-full bg-orbit-primary-soft px-1.5 py-0.5 text-[9px] font-bold text-orbit-primary">
-                      활성
-                    </span>
-                  )}
-                </div>
-                <p className="truncate text-[10px] text-orbit-muted">
-                  창 {windowNumbers.get(tab.windowId)} · {tab.url || '주소 없음'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleActivate(tab)}
-                title="이 탭으로 이동"
-                aria-label={`${tab.title} 탭으로 이동`}
-                className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-orbit-muted opacity-70 transition hover:bg-orbit-surface hover:text-orbit-primary group-hover:opacity-100"
+          <div className="space-y-0.5">
+            {filteredTabs.map((tab) => (
+              <div
+                key={tab.id}
+                className={
+                  'group flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition ' +
+                  (selectedIds.has(tab.id)
+                    ? 'bg-orbit-primary-soft/70'
+                    : 'hover:bg-orbit-surface')
+                }
               >
-                <LocateFixed size={14} />
-              </button>
-            </div>
-          ))
+                {tab.bookmarkable ? (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(tab.id)}
+                    onChange={() => toggleSelection(tab)}
+                    aria-label={`${tab.title} 북마크 선택`}
+                    title="북마크에 추가할 탭 선택"
+                    className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-orbit-primary"
+                  />
+                ) : (
+                  <span className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                )}
+                <Favicon pageUrl={tab.url} src={tab.favIconUrl} />
+                <button
+                  type="button"
+                  onClick={() => void handleActivate(tab)}
+                  title={`${tab.title}\n${tab.url}\n이 탭으로 이동`}
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="truncate text-[13px] font-medium text-orbit-text">
+                        {tab.title}
+                      </p>
+                      {tab.active && (
+                        <span className="flex shrink-0 items-center gap-1 text-[9px] font-semibold text-orbit-primary">
+                          <span className="h-1.5 w-1.5 rounded-full bg-orbit-primary" /> 현재
+                        </span>
+                      )}
+                    </div>
+                    <p className="truncate text-[10px] leading-4 text-orbit-muted">
+                      {openTabLocationLabel(tab.url)}
+                    </p>
+                  </div>
+                  <span className="-ml-2 w-0 shrink-0 overflow-hidden text-orbit-muted opacity-0 transition-all duration-150 group-hover:ml-0 group-hover:w-5 group-hover:opacity-100 group-focus-within:ml-0 group-focus-within:w-5 group-focus-within:opacity-100">
+                    <ExternalLink size={12} />
+                  </span>
+                </button>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

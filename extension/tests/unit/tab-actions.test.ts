@@ -9,6 +9,7 @@ import {
   findBestOpenTab,
   isBookmarkableUrl,
   mayBeOpenTabNavigation,
+  openTabLocationLabel,
   parseOpenTabNavigationIntent,
   uniqueBookmarkTabs,
 } from '../../lib/tab-actions';
@@ -48,6 +49,13 @@ describe('open tab filtering', () => {
     expect(isBookmarkableUrl('file:///C:/notes.txt')).toBe(true);
     expect(isBookmarkableUrl('chrome://settings')).toBe(false);
     expect(isBookmarkableUrl('not-a-url')).toBe(false);
+  });
+
+  it('목록에는 전체 URL 대신 읽기 쉬운 위치를 표시한다', () => {
+    expect(openTabLocationLabel('https://www.example.com/orbit?q=1')).toBe('example.com');
+    expect(openTabLocationLabel('chrome://extensions/')).toBe('chrome://extensions');
+    expect(openTabLocationLabel('file:///C:/notes.txt')).toBe('로컬 파일');
+    expect(openTabLocationLabel('')).toBe('주소 없음');
   });
 
   it('같은 URL과 북마크 불가 탭을 제외한다', () => {

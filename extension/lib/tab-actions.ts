@@ -149,6 +149,22 @@ export function filterOpenTabs(tabs: OpenTabItem[], rawQuery: string): OpenTabIt
   );
 }
 
+export function openTabLocationLabel(rawUrl: string): string {
+  if (!rawUrl) return '주소 없음';
+
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol === 'file:') return '로컬 파일';
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      return url.hostname.replace(/^www\./, '') || rawUrl;
+    }
+    if (url.hostname) return `${url.protocol}//${url.hostname}`;
+    return rawUrl;
+  } catch {
+    return rawUrl;
+  }
+}
+
 export function uniqueBookmarkTabs(tabs: OpenTabItem[]): {
   tabs: OpenTabItem[];
   skippedCount: number;
