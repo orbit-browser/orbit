@@ -9,6 +9,7 @@ import {
 } from '../../../lib/settings';
 
 interface SettingsState extends OrbitSettings {
+  setTheme: (v: OrbitSettings['theme']) => void;
   setRerankEnabled: (v: boolean) => void;
   setExcludeSensitive: (v: boolean) => void;
   setCollectionEnabled: (v: boolean) => void;
@@ -23,6 +24,10 @@ interface SettingsState extends OrbitSettings {
 // hydrate 전 기본값은 DEFAULT_SETTINGS — 초기 렌더가 잠깐 기본값을 보여준 뒤 실제 값으로 갱신된다.
 export const useSettingsStore = create<SettingsState>()((set) => ({
   ...DEFAULT_SETTINGS,
+  setTheme: (theme) => {
+    set({ theme });
+    void updateSettings({ theme });
+  },
   setRerankEnabled: (rerankEnabled) => {
     set({ rerankEnabled });
     void updateSettings({ rerankEnabled });

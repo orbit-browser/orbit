@@ -20,7 +20,10 @@ export interface SessionSummary {
 
 export interface SessionNode {
   id: string;
+  /** 화면에 쓰는 이름 — 별칭이 있으면 별칭이다(서버가 합쳐 준다). */
   title: string;
+  /** 사용자가 붙인 별칭. 편집창 초기값과 "되돌리기" 표시에만 쓴다. */
+  alias: string | null;
   /** 사용자에게 보여 줄 상대 날짜 라벨. */
   date: string;
   /** 세션 총 활성 시간(분). */
@@ -46,40 +49,75 @@ export interface FolderNode {
 
 export type SessionEventsById = ReadonlyMap<string, SessionTimelineEvent[]>;
 
-/**
- * 궤도 앞면(사용자에게 보이는 반원)에 동시에 놓이는 점의 수.
- *
- * 각도가 아니라 **슬롯**으로 센다 — 궤도에 따라 점을 놓을 수 있는 각도 구간이
- * 다르기 때문이다(세션 칩이 놓인 궤도는 최하단을 비워야 한다). 슬롯 번호에서
- * 실제 각도로 바꾸는 일은 캔버스가 맡는다.
- */
-export const ORBIT_VISIBLE_SLOTS = 7;
+// ── 궤도 위 점 배치 ───────────────────────────────────────────────────
+//
+// 궤도 앞면은 0도(왼쪽 끝)에서 180도(오른쪽 끝)까지이고, 90도가 최하단 —
+// 중심 노드 바로 아래다. **선택된 점은 언제나 최하단**이고, 회전량이 곧 지금
+// 최하단에 놓인 점의 인덱스다. 좌우 이동은 이 회전량을 바꾸는 일이다.
 
-/** 궤도 하나가 담는 총량 — 앞면 절반, 뒤편 절반. */
-export const ORBIT_CAPACITY = ORBIT_VISIBLE_SLOTS * 2;
+/** 최하단 기준 한쪽으로 온전히 드러내는 점의 수. */
+export const ORBIT_VISIBLE_SIDE = 3;
 
-export function splitPagesIntoOrbits<T>(items: T[], limit = ORBIT_CAPACITY): T[][] {
-  if (limit < 1) throw new Error('Orbit page limit must be at least 1');
-  const groups: T[][] = [];
-  for (let index = 0; index < items.length; index += limit) {
-    groups.push(items.slice(index, index + limit));
-  }
-  return groups;
+/** 한 번에 온전히 보이는 점의 수 — 최하단 1 + 좌우 각 ORBIT_VISIBLE_SIDE. */
+export const ORBIT_VISIBLE_COUNT = ORBIT_VISIBLE_SIDE * 2 + 1;
+
+/** 온전한 구간 바깥, 궤도 양 끝에 몰아 두는 축소 점의 수(한쪽). */
+export const ORBIT_EDGE_HINTS = 3;
+
+/** 점을 놓는 각도 폭. 아크 양 끝에 딱 붙지 않도록 18도씩 남긴다. */
+const ORBIT_ARC_SPAN = 144;
+
+/** 온전한 구간을 넘어선 뒤의 간격 배율. 뒤로 돌아가며 눌리는 원근처럼 보인다. */
+const EDGE_COMPRESS = 0.34;
+
+// ── 궤도(링) 배치 ────────────────────────────────────────────────────
+//
+// 폴더 씬은 궤도 한 줄이 세션 하나다. 전부 같은 간격으로 그리면 세션이 늘어날수록
+// 궤도도 칩도 몰려 읽을 수 없다. 그래서 **펼친 세션의 궤도를 고정 반경(초점)에 두고**
+// 이웃만 안팎으로 펼친다 — 탭을 넘기듯 초점이 옮겨 가고 나머지는 미끄러진다.
+
+/** 초점 기준 한쪽으로 온전히 그리는 궤도 수. */
+export const ORBIT_RING_SIDE = 1;
+
+/** 그 바깥에 "더 있다"고 알리는 흐린 궤도 수(한쪽). */
+export const ORBIT_RING_HINTS = 2;
+
+/** 흐린 궤도 구간의 간격 배율. 바깥으로 갈수록 눌려 붙는다. */
+const RING_COMPRESS = 0.2;
+
+/** 초점에서 가장 멀리 그려지는 궤도까지의 거리(간격 단위). */
+export const ORBIT_RING_REACH = ORBIT_RING_SIDE + ORBIT_RING_HINTS * RING_COMPRESS;
+
+export interface RingPlacement {
+  /**
+   * 초점에서 떨어진 거리(간격 단위, 연속값). 반경은 `rFocus + offset * spacing`.
+   * 음수면 안쪽(중심에 가깝다), 양수면 바깥이다.
+   */
+  offset: number;
+  /**
+   * 온전한 구간을 넘어선 정도(0 ~ ORBIT_RING_HINTS).
+   * 0 보다 크면 "밖에 더 있다"를 알리는 흐린 궤도다.
+   */
+  beyond: number;
 }
 
 /**
- * index 번째 점이 놓인 슬롯 번호.
+ * focus 가 초점인 궤도 무리에서 index 번째 궤도가 놓일 자리.
  *
- * rotation을 1 올리면 앞면 첫 슬롯의 점이 뒤편으로 넘어가고 뒤에 있던 점이
- * 마지막 슬롯으로 올라온다.
+ * focus 는 애니메이션 중간값이라 정수가 아닐 수 있다. 너무 멀어 그리지 않는 궤도는 null.
  */
-export function orbitSlot(index: number, rotation: number, total: number): number {
-  if (total <= 0) return 0;
-  return (((index - rotation) % total) + total) % total;
-}
+export function ringPlacement(index: number, focus: number, total: number): RingPlacement | null {
+  if (total <= 0 || index < 0 || index >= total) return null;
 
-/** 앞면 슬롯인지 — 뒤편 점은 아예 렌더링하지 않는다. */
-export const isVisibleSlot = (slot: number) => slot < ORBIT_VISIBLE_SLOTS;
+  const delta = index - focus;
+  const distance = Math.abs(delta);
+  if (distance > ORBIT_RING_SIDE + ORBIT_RING_HINTS) return null;
+
+  const beyond = Math.max(0, distance - ORBIT_RING_SIDE);
+  const magnitude = Math.min(distance, ORBIT_RING_SIDE) + beyond * RING_COMPRESS;
+
+  return { offset: Math.sign(delta) * magnitude, beyond };
+}
 
 /** 회전량을 아이템 수 안에서 순환시킨다. 한 바퀴를 넘겨도 제자리로 돌아온다. */
 export function normalizeRotation(rotation: number, total: number): number {
@@ -87,13 +125,66 @@ export function normalizeRotation(rotation: number, total: number): number {
   return ((rotation % total) + total) % total;
 }
 
-/** 지금 앞면에 보이는 점들의 원본 인덱스. 회전 상태 표시(현재/전체)에 쓴다. */
-export function visibleIndices(total: number, rotation: number): number[] {
-  const out: number[] = [];
-  for (let index = 0; index < total; index += 1) {
-    if (isVisibleSlot(orbitSlot(index, rotation, total))) out.push(index);
-  }
-  return out;
+/**
+ * 링 위에서 from 에서 to 로 가는 **최단 부호 거리**. 결과는 (-total/2, total/2].
+ *
+ * from 은 애니메이션 중간값이라 정수가 아닐 수 있다.
+ */
+export function ringDelta(from: number, to: number, total: number): number {
+  if (total <= 0) return 0;
+  const raw = (((to - from) % total) + total) % total;
+  return raw > total / 2 ? raw - total : raw;
+}
+
+/**
+ * 지금 회전량에서 index 를 최하단으로 가져오는 목표 회전량.
+ *
+ * 최단 방향으로 돈다 — 마지막 점에서 첫 점으로 넘어가도 한 칸만 돌고
+ * 거꾸로 한 바퀴를 되감지 않는다.
+ */
+export function alignOffset(current: number, index: number, total: number): number {
+  return current + ringDelta(current, index, total);
+}
+
+/** 이웃한 두 점 사이의 각도. 점이 적으면 넓게 벌려 앞면을 채운다. */
+export function orbitGap(total: number): number {
+  return ORBIT_ARC_SPAN / Math.max(3, Math.min(total, ORBIT_VISIBLE_COUNT));
+}
+
+export interface OrbitPlacement {
+  /** 궤도 위 각도(도). 0=왼쪽 끝, 90=최하단, 180=오른쪽 끝. */
+  angle: number;
+  /**
+   * 온전한 구간을 넘어선 정도(0 ~ ORBIT_EDGE_HINTS).
+   *
+   * 0 이면 온전한 점, 0 보다 크면 "궤도 밖에 더 있다"를 알리는 축소 점이다.
+   * 회전이 연속값이라 이 값도 연속이며, 크기·농도를 여기에 비례시키면
+   * 온전한 점에서 축소 점으로 끊김 없이 넘어간다.
+   */
+  beyond: number;
+}
+
+/**
+ * offset 이 최하단인 궤도에서 index 번째 점이 놓일 자리.
+ *
+ * 뒤편으로 넘어가 보이지 않는 점은 null.
+ */
+export function orbitPlacement(
+  index: number,
+  offset: number,
+  total: number,
+): OrbitPlacement | null {
+  if (total <= 0) return null;
+
+  const delta = ringDelta(offset, index, total);
+  const distance = Math.abs(delta);
+  if (distance > ORBIT_VISIBLE_SIDE + ORBIT_EDGE_HINTS) return null;
+
+  const gap = orbitGap(total);
+  const beyond = Math.max(0, distance - ORBIT_VISIBLE_SIDE);
+  const magnitude = Math.min(distance, ORBIT_VISIBLE_SIDE) * gap + beyond * gap * EDGE_COMPRESS;
+
+  return { angle: 90 + Math.sign(delta) * magnitude, beyond };
 }
 
 const minutesFromMs = (durationMs: number) =>
@@ -165,6 +256,7 @@ export function toSessionNode(
   return {
     id: session.id,
     title: session.title,
+    alias: session.alias ?? null,
     date: relativeDate(activity, now),
     minutes: minutesFromMs(totalDurationMs),
     status: sessionStatus(activity, now),
@@ -246,36 +338,83 @@ const pageToPoint = (page: PageNode): OrbitPoint => ({
   visits: page.visits,
 });
 
-/** 중심=세션, 궤도=페이지 묶음. 페이지가 궤도 정원을 넘으면 바깥 궤도로 이어진다. */
+/**
+ * 중심=세션, 궤도=그 세션의 페이지 전부.
+ *
+ * 페이지 수와 무관하게 **궤도는 하나**다. 앞면에 다 못 놓는 만큼은 뒤편에 있다가 회전으로
+ * 올라온다(orbitPlacement). 예전에는 궤도 하나의 정원이 14개라 페이지가 많으면 바깥
+ * 궤도로 이어 붙였는데, 그러면 세션 하나가 여러 개로 쪼개져 보인다.
+ */
 export function buildSessionScene(session: SessionNode): OrbitScene {
-  const groups = splitPagesIntoOrbits(session.pages);
   return {
     kind: 'session',
     id: session.id,
     title: session.title,
     meta: `페이지 ${session.pages.length} · ${formatMinutes(session.minutes)} · ${session.date}`,
     hue: session.hue,
-    tracks: groups.map((pages, index) => ({
-      id: `${session.id}-orbit-${index}`,
-      // 궤도가 하나뿐이면 라벨을 비운다 — 중심 노드 아래 제목과 똑같은 글자가 겹친다.
-      label: groups.length > 1 ? `${index + 1}번째 궤도` : '',
-      hue: session.hue,
-      points: pages.map(pageToPoint),
-      sessionId: null,
-      chip: null,
-    })),
+    // 페이지가 없으면 궤도도 없다 — 캔버스가 빈 상태 안내를 띄운다.
+    tracks:
+      session.pages.length === 0
+        ? []
+        : [
+            {
+              id: `${session.id}-orbit`,
+              // 라벨을 비운다 — 중심 노드 아래 제목과 똑같은 글자가 겹친다.
+              label: '',
+              hue: session.hue,
+              points: session.pages.map(pageToPoint),
+              sessionId: null,
+              chip: null,
+            },
+          ],
   };
+}
+
+/** 폴더 안 세션을 합친 값. 캔버스 부제와 상세 패널이 같은 수를 쓴다. */
+export interface FolderTotals {
+  sessionCount: number;
+  pageCount: number;
+  minutes: number;
+}
+
+export function folderTotals(folder: FolderNode): FolderTotals {
+  return {
+    sessionCount: folder.sessions.length,
+    pageCount: folder.sessions.reduce((sum, session) => sum + session.pages.length, 0),
+    minutes: folder.sessions.reduce((sum, session) => sum + session.minutes, 0),
+  };
+}
+
+/** 폴더 전체에서 많이 나온 도메인. 세션 하나가 아니라 폴더의 성격을 보여 준다. */
+export function folderTopDomains(folder: FolderNode, limit = 6) {
+  const counts = new Map<string, number>();
+  folder.sessions.forEach((session) => {
+    session.pages.forEach((page) => {
+      counts.set(page.domain, (counts.get(page.domain) ?? 0) + 1);
+    });
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([domain, count]) => ({ domain, count }));
+}
+
+/** 폴더에서 페이지가 가장 많은 세션. 폴더를 대표하는 탐색으로 본다. */
+export function largestSession(folder: FolderNode): SessionNode | null {
+  return folder.sessions.reduce<SessionNode | null>(
+    (top, session) => (!top || session.pages.length > top.pages.length ? session : top),
+    null,
+  );
 }
 
 /** 중심=폴더, 궤도 한 줄=세션 하나, 그 궤도의 점=해당 세션의 페이지. */
 export function buildFolderScene(folder: FolderNode): OrbitScene {
-  const pageCount = folder.sessions.reduce((sum, session) => sum + session.pages.length, 0);
-  const minutes = folder.sessions.reduce((sum, session) => sum + session.minutes, 0);
+  const { sessionCount, pageCount, minutes } = folderTotals(folder);
   return {
     kind: 'folder',
     id: folder.id,
     title: folder.name,
-    meta: `세션 ${folder.sessions.length} · 페이지 ${pageCount} · ${formatMinutes(minutes)}`,
+    meta: `세션 ${sessionCount} · 페이지 ${pageCount} · ${formatMinutes(minutes)}`,
     hue: folder.hue,
     tracks: folder.sessions.map((session) => ({
       id: session.id,
@@ -322,6 +461,79 @@ export function buildFolderNodes(
     (a, b) => a.position - b.position || a.name.localeCompare(b.name),
   );
   return { folders: ordered, unfiled };
+}
+
+// ── 네비게이터 정렬 ───────────────────────────────────────────────────
+
+export type SessionSort = 'recent' | 'title';
+
+/**
+ * 세션 목록 정렬. 원본을 바꾸지 않는다.
+ *
+ * `recent` 는 마지막 활동 시각 내림차순 — `buildAtlasSessions` 가 이미 그 순서로
+ * 만들어 두므로 여기서는 순서를 유지하기만 한다.
+ * `title` 은 화면에 보이는 이름(별칭 반영) 기준 가나다순이다. 사용자가 별칭을 붙였는데
+ * 원래 이름으로 정렬되면 목록이 뒤죽박죽으로 보인다.
+ */
+export function sortSessions(sessions: SessionNode[], sort: SessionSort): SessionNode[] {
+  if (sort === 'recent') return sessions;
+  return sessions
+    .slice()
+    .sort((a, b) => a.title.localeCompare(b.title, 'ko', { numeric: true }));
+}
+
+// ── 네비게이터 세로 이동(↑↓) ─────────────────────────────────────────
+
+/** 네비게이터에 보이는 세로 한 줄. 세션이 null 이면 폴더 줄이다. */
+export interface NavRow {
+  /** null 이면 "정리 안 됨" 자리의 세션. */
+  folderId: string | null;
+  /** null 이면 폴더 줄. */
+  sessionId: string | null;
+}
+
+/**
+ * ↑↓ 가 훑는 세로 순서.
+ *
+ * 폴더 줄을 차례로 놓고, **지금 보고 있는 폴더의 세션만** 그 아래에 끼운다. 모든 폴더를
+ * 펼쳐 이으면 폴더 하나 건너가는 데 그 안의 세션을 전부 지나야 한다. 마지막에 정리 안 된
+ * 세션이 붙어, 폴더·폴더 안 세션·미정리 세션이 한 줄로 이어진다.
+ */
+export function buildNavRows(
+  folders: FolderNode[],
+  unfiled: SessionNode[],
+  openFolderId: string | null,
+): NavRow[] {
+  const rows: NavRow[] = [];
+  folders.forEach((folder) => {
+    rows.push({ folderId: folder.id, sessionId: null });
+    if (folder.id !== openFolderId) return;
+    folder.sessions.forEach((session) =>
+      rows.push({ folderId: folder.id, sessionId: session.id }),
+    );
+  });
+  unfiled.forEach((session) => rows.push({ folderId: null, sessionId: session.id }));
+  return rows;
+}
+
+/**
+ * 지금 줄에서 한 칸 옮긴 줄. 더 갈 곳이 없으면 null.
+ *
+ * 목록 밖으로는 나가지 않는다 — 끝에서 반대편으로 감기면 어디까지 훑었는지 잃는다.
+ * 지금 줄이 목록에 없으면(방금 폴더가 지워졌다든지) 방향에 맞는 끝에서 시작한다.
+ */
+export function stepNavRow(rows: NavRow[], current: NavRow | null, direction: 1 | -1): NavRow | null {
+  if (rows.length === 0) return null;
+
+  const index = current
+    ? rows.findIndex(
+        (row) => row.folderId === current.folderId && row.sessionId === current.sessionId,
+      )
+    : -1;
+  if (index < 0) return direction === 1 ? rows[0] : rows[rows.length - 1];
+
+  const next = Math.min(rows.length - 1, Math.max(0, index + direction));
+  return next === index ? null : rows[next];
 }
 
 export const formatMinutes = (minutes: number) => {

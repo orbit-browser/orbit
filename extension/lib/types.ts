@@ -68,7 +68,13 @@ export interface SessionSummary {
 
 export interface Session {
   id: string;
+  /**
+   * 화면에 쓰는 이름. 사용자가 별칭을 붙였으면 별칭이고, 아니면 AI가 만든 원래 이름이다.
+   * 서버가 응답 경계에서 합쳐 주므로 화면마다 다시 고를 필요가 없다.
+   */
   title: string;
+  /** 사용자가 붙인 별칭. 편집창 초기값과 "되돌리기" 표시에만 쓴다. */
+  alias: string | null;
   tabs: TabItem[];
   /** ISO 8601 */
   createdAt: string;

@@ -51,6 +51,7 @@ def _session(user_id=_OWNER, status="active"):
         updated_at=_NOW,
         last_activity_at=None,
         folder_id=None,
+        alias=None,
     )
 
 

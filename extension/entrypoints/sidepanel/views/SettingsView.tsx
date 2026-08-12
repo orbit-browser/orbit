@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { checkHealth } from '../../../lib/api';
 import { useUIStore } from '../store/ui';
 import { useSettingsStore } from '../store/settings';
+import type { OrbitSettings } from '../../../lib/settings';
 import { useServerSettings, useUpdateServerSettings } from '../hooks/useServerSettings';
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -148,6 +149,46 @@ function NumberRow({
   );
 }
 
+const THEMES: { id: OrbitSettings['theme']; label: string }[] = [
+  { id: 'system', label: '시스템' },
+  { id: 'light', label: '라이트' },
+  { id: 'dark', label: '다크' },
+];
+
+function ThemeRow({
+  value,
+  onChange,
+}: {
+  value: OrbitSettings['theme'];
+  onChange: (v: OrbitSettings['theme']) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="text-sm">모양</p>
+        <p className="text-xs text-orbit-muted">시스템을 고르면 OS 설정을 따라갑니다</p>
+      </div>
+      <div className="flex shrink-0 rounded-lg border border-orbit-border/50 bg-orbit-bg p-0.5">
+        {THEMES.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => onChange(option.id)}
+            className={
+              'cursor-pointer rounded-full px-2 py-1 text-[11px] font-bold transition ' +
+              (value === option.id
+                ? 'bg-orbit-surface text-orbit-primary shadow-orbit-raised'
+                : 'text-orbit-muted hover:text-orbit-text')
+            }
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsView() {
   const showToast = useUIStore((s) => s.showToast);
   const {
@@ -157,6 +198,8 @@ export function SettingsView() {
   } = useServerSettings();
   const updateServerSettings = useUpdateServerSettings();
   const {
+    theme,
+    setTheme,
     rerankEnabled,
     excludeSensitive,
     collectionEnabled,
@@ -190,6 +233,8 @@ export function SettingsView() {
       <p className="text-xs font-semibold text-orbit-muted">설정</p>
 
       <div className="divide-y divide-orbit-border rounded-orbit-card border border-orbit-border bg-orbit-surface">
+        <ThemeRow value={theme} onChange={setTheme} />
+
         <InfoRow label="백엔드 연결" value={connectionLabel} />
 
         <SettingRow

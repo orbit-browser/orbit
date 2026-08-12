@@ -63,6 +63,11 @@ export function AtlasTray({
   const viewportRef = useRef<HTMLDivElement>(null);
   const maxMinutes = Math.max(...session.pages.map((p) => p.minutes), 1);
 
+  // 다른 세션의 카드를 이전 세션에서 보던 위치부터 보여 주지 않는다.
+  useEffect(() => {
+    if (viewportRef.current) viewportRef.current.scrollLeft = 0;
+  }, [session.id]);
+
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     const el = viewportRef.current;
     if (!el) return;
@@ -85,9 +90,6 @@ export function AtlasTray({
     <div className="atlas-tray">
       <div className="atlas-tray__head">
         <div className="atlas-tray__head-left">
-          <span className={cx('atlas-tray__badge', session.status === 'live' && 'atlas-tray__badge--live')}>
-            {session.status === 'live' ? '수집 중' : '세션'}
-          </span>
           <span className="atlas-tray__title">{session.title}</span>
           <span className="atlas-tray__meta">
             {session.date} · {formatMinutes(session.minutes)} · 페이지 {session.pages.length}개
@@ -107,7 +109,8 @@ export function AtlasTray({
       </div>
 
       <div className="atlas-tray__viewport" ref={viewportRef} onWheel={handleWheel}>
-        <div className="atlas-tray__cards">
+        {/* 세션이 바뀌면 카드 묶음만 새로 그린다 — 트레이 자체는 제자리에 남는다. */}
+        <div className="atlas-tray__cards" key={session.id}>
           {session.pages.map((page, i) => {
             const isActive = selectedPageId === page.id;
             return (

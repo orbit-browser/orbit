@@ -8,6 +8,7 @@ function session(id: string, lastActivityAt: string): Session {
   return {
     id,
     title: id,
+    alias: null,
     tabs: [],
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',

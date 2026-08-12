@@ -24,6 +24,7 @@ _TABLE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("confidence", "REAL"),
         ("merged_into", "VARCHAR(36)"),  # 병합 생존 세션 id (merge P0)
         ("folder_id", "VARCHAR(36)"),  # 사용자 폴더 소속. NULL=미정리
+        ("alias", "VARCHAR(100)"),  # 사용자가 붙인 표시 이름. NULL=title 사용
     ],
     "session_events": [
         ("merged_from_session_id", "VARCHAR(36)"),  # 병합으로 옮겨온 원 세션 id (merge P2, undo용)

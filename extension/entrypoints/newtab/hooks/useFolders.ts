@@ -5,6 +5,7 @@ import {
   deleteFolder,
   removeSessionFromFolder,
   renameFolder,
+  setSessionAlias,
 } from '../../../lib/api';
 import { ATLAS_QUERY_KEY } from './useAtlasData';
 
@@ -47,5 +48,15 @@ export function useFolderMutations() {
     onSuccess: invalidate,
   });
 
-  return { create, rename, remove, assign, unassign };
+  /**
+   * 세션 이름 변경 — 사용자에게는 이름 수정이지만 서버에는 별칭으로 저장된다.
+   * 빈 문자열이면 별칭을 지우고 AI 가 만든 원래 이름으로 돌아간다.
+   */
+  const renameSessionAlias = useMutation({
+    mutationFn: ({ sessionId, alias }: { sessionId: string; alias: string }) =>
+      setSessionAlias(sessionId, alias.trim() || null),
+    onSuccess: invalidate,
+  });
+
+  return { create, rename, remove, assign, unassign, renameSessionAlias };
 }

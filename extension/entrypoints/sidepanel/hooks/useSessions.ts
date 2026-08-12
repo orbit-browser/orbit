@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchSession,
   fetchSessions,
-  renameSession,
+  setSessionAlias,
   deleteSession,
   retrySummary,
 } from '../../../lib/api';
@@ -67,11 +67,12 @@ export function useRetrySummary() {
   });
 }
 
+/** 이름 수정 — 서버에는 별칭으로 저장된다(원래 이름은 그대로). */
 export function useRenameSession() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, title }: { id: string; title: string }) =>
-      renameSession(id, title),
+      setSessionAlias(id, title),
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       queryClient.invalidateQueries({ queryKey: ['session', id] });

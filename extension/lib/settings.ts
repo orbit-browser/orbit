@@ -2,7 +2,11 @@
 // localStorage는 SW에서 접근할 수 없어 chrome.storage.local을 진실 원천으로 둔다.
 // zustand persist 봉투({state, version}) 없이 평문 OrbitSettings JSON으로 저장한다.
 
+/** 화면 모양. system 은 OS 설정을 따라간다. */
+export type OrbitTheme = 'system' | 'light' | 'dark';
+
 export interface OrbitSettings {
+  theme: OrbitTheme;
   collectionEnabled: boolean;
   contentCapture: boolean;
   excludeSensitive: boolean;
@@ -14,6 +18,7 @@ export interface OrbitSettings {
 }
 
 export const DEFAULT_SETTINGS: OrbitSettings = {
+  theme: 'system',
   collectionEnabled: false,
   contentCapture: true,
   excludeSensitive: true,

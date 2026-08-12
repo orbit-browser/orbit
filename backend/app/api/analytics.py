@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import ExplorationEvent, Session as SessionModel
+from ..db.models import ExplorationEvent, Session as SessionModel, session_display_title
 from ..db.session import get_db
 from .deps import current_user_id
 from ..schemas.analytics import (
@@ -50,7 +50,7 @@ async def _fetch_top_sessions(db: AsyncSession, start: datetime, user_id: str) -
     return [
         TopSessionItem(
             session_id=s.id,
-            title=s.title,
+            title=session_display_title(s),
             total_active_duration_ms=s.total_active_duration_ms,
             event_count=s.event_count,
         )
