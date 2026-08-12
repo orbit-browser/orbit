@@ -1,7 +1,5 @@
-import { ChevronLeft, Loader2, RefreshCw, Settings, Trash2, X } from 'lucide-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, Settings, Trash2, X } from 'lucide-react';
 import { useAskConversation } from '../../shared/hooks/useAskConversation';
-import { triggerManualSync } from '../hooks/useSyncStatus';
 import { useUIStore } from '../store/ui';
 
 export function TopNavBar() {
@@ -9,23 +7,7 @@ export function TopNavBar() {
   const askOpen = useUIStore((s) => s.askOpen);
   const closeAsk = useUIStore((s) => s.closeAsk);
   const setView = useUIStore((s) => s.setView);
-  const showToast = useUIStore((s) => s.showToast);
   const { turns, startNewConversation } = useAskConversation();
-  const queryClient = useQueryClient();
-
-  // 새로고침과 "지금 저장"을 한 버튼으로 합친다 — 사용자가 이 아이콘에 기대하는 건
-  // "최신으로 맞춰줘"이고, 타임라인에서 그건 곧 미처리 이벤트 동기화다.
-  const { mutate: refresh, isPending: isRefreshing } = useMutation({
-    mutationFn: triggerManualSync,
-    onSuccess: () => {
-      queryClient.invalidateQueries();
-      showToast('동기화를 요청했어요');
-    },
-    onError: () => {
-      queryClient.invalidateQueries();
-      showToast('동기화를 요청하지 못했어요. 화면만 새로고침했어요.');
-    },
-  });
 
   // Ask 답변 화면이 올라와 있는 동안에는 탭 대신 그 화면의 헤더 역할을 한다.
   if (askOpen) {
@@ -100,19 +82,6 @@ export function TopNavBar() {
 
       {/* Quick Actions */}
       <div className="flex items-center gap-0.5">
-        <button
-          type="button"
-          title="새로고침 · 지금 저장"
-          onClick={() => refresh()}
-          disabled={isRefreshing}
-          className="p-1.5 rounded-md text-orbit-muted hover:bg-orbit-bg hover:text-orbit-text transition cursor-pointer disabled:opacity-50"
-        >
-          {isRefreshing ? (
-            <Loader2 size={14} className="animate-spin" />
-          ) : (
-            <RefreshCw size={14} />
-          )}
-        </button>
         <button
           type="button"
           title="설정"

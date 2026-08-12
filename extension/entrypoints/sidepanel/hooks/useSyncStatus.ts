@@ -44,7 +44,7 @@ export function useSyncStatus() {
   });
 }
 
-/** "지금 저장" 버튼 — SW의 sync/triggers.ts(SYNC_NOW 핸들러)로 수동 동기화를 요청한다. */
+/** "세션 분류" 버튼 — SW의 sync/triggers.ts(SYNC_NOW 핸들러)로 수동 동기화를 요청한다. */
 export async function triggerManualSync(): Promise<void> {
   if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
   await chrome.runtime.sendMessage({ type: 'SYNC_NOW' });

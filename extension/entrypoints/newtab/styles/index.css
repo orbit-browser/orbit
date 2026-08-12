@@ -965,7 +965,7 @@ body {
   border: none;
   border-radius: 11px;
   background: var(--text-main);
-  color: #ffffff;
+  color: var(--bg-canvas);
   cursor: pointer;
   transition: opacity 0.2s;
 }
@@ -1016,36 +1016,103 @@ body {
 /* ═══════════════ 로그인 화면 ═══════════════ */
 
 .login-screen {
-  min-height: 78vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
+  position: relative;
+  min-height: calc(100vh - 48px);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
   text-align: center;
   animation: home-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+.login-screen__glow {
+  position: absolute;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(240, 117, 80, 0.16) 0%, rgba(240, 117, 80, 0) 68%);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.login-screen__card {
+  position: relative;
+  width: min(100%, 420px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 42px 40px 34px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--glass-78);
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.login-screen__brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
 .login-screen__mark {
-  width: 56px;
+  width: 62px;
   height: auto;
 }
 
 .login-screen__title {
-  font-size: 26px;
+  margin-top: 25px;
+  font-size: 25px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  line-height: 1.35;
+  letter-spacing: -0.035em;
 }
 
 .login-screen__desc {
+  margin-top: 12px;
   font-size: 14.5px;
-  line-height: 1.75;
+  line-height: 1.7;
   color: var(--text-muted);
 }
 
 .login-screen__button {
-  margin-top: 6px;
+  width: 100%;
+  height: 46px;
+  margin-top: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid rgba(43, 37, 33, 0.12);
+  border-radius: var(--radius-pill);
+  background: #ffffff;
+  color: #2b2521;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.12);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.login-screen__button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+}
+
+.login-screen__google {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid rgba(43, 37, 33, 0.12);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .login-screen__button:disabled {
@@ -1053,11 +1120,25 @@ body {
   cursor: default;
 }
 
+.login-screen__note {
+  margin-top: 17px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
 .login-screen__error {
+  margin-top: 12px;
   max-width: 420px;
   font-size: 13px;
   line-height: 1.7;
   color: #b8452b;
+}
+
+@media (max-width: 520px) {
+  .login-screen__card {
+    padding: 36px 24px 30px;
+  }
 }
 
 /* ═══════════════ 바로가기 (크롬 새 탭의 그 자리) ═══════════════ */
@@ -1874,7 +1955,7 @@ body {
 
 .btn-primary {
   background: var(--text-main);
-  color: white;
+  color: var(--bg-canvas);
   border: none;
   padding: 10px 20px;
   border-radius: var(--radius-pill);
@@ -1945,7 +2026,8 @@ body {
   height: 32px;
   border-radius: 50%;
   border: 1px solid var(--border-subtle);
-  background: white;
+  background: var(--bg-canvas);
+  color: var(--text-main);
   display: flex;
   align-items: center;
   justify-content: center;

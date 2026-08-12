@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Search, X } from 'lucide-react';
 import { StatePlaceholder } from '../components/StatePlaceholder';
 import { CollectionOptInNotice } from '../components/timeline/CollectionOptInNotice';
 import { TimelineDateHeader } from '../components/timeline/TimelineDateHeader';
 import { TimelineItem } from '../components/timeline/TimelineItem';
 import { useDeleteTimelineEntry, useTimeline } from '../hooks/useTimeline';
-import { useSyncStatus } from '../hooks/useSyncStatus';
+import { triggerManualSync, useSyncStatus } from '../hooks/useSyncStatus';
 import { useSettingsStore } from '../store/settings';
 import { useUIStore } from '../store/ui';
 
@@ -22,6 +23,11 @@ export function TimelineView() {
   const { data: syncStatus } = useSyncStatus();
   const collectionEnabled = useSettingsStore((s) => s.collectionEnabled);
   const showToast = useUIStore((s) => s.showToast);
+  const { mutate: classifySessions, isPending: isClassifying } = useMutation({
+    mutationFn: triggerManualSync,
+    onSuccess: () => showToast('세션 분류를 요청했어요'),
+    onError: () => showToast('세션 분류 요청에 실패했어요'),
+  });
 
   // 입력창은 접혀 있을 때도 마운트돼 있어야 높이 전환이 이어진다 — autoFocus 가 못 걸리므로
   // 열림 전환에서 직접 포커스를 준다.
@@ -132,6 +138,8 @@ export function TimelineView() {
                   onOpenFilter={
                     index === 0 && !filterOpen ? () => setFilterOpen(true) : undefined
                   }
+                  onClassify={index === 0 ? () => classifySessions() : undefined}
+                  isClassifying={index === 0 && isClassifying}
                 />
                 <div className="space-y-0.5">
                   {group.entries.map((entry) => (

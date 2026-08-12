@@ -2176,7 +2176,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
   border: none;
   border-radius: var(--r-pill);
   background: var(--text-primary);
-  color: #ffffff;
+  color: var(--bg-card);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;

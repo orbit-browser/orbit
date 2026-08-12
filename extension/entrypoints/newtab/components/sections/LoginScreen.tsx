@@ -11,29 +11,42 @@ export function LoginScreen() {
 
   return (
     <div className="login-screen">
-      <img className="login-screen__mark" src="/orbit-mark.png" alt="" />
+      <div className="login-screen__glow" aria-hidden="true" />
+      <section className="login-screen__card" aria-labelledby="login-title">
+        <div className="login-screen__brand">
+          <img className="login-screen__mark" src="/orbit-mark.png" alt="" />
+          <span>Orbit</span>
+        </div>
 
-      <h1 className="login-screen__title">Orbit</h1>
-      <p className="login-screen__desc">
-        구글 계정으로 로그인하면 탐색 기록이 내 계정에 쌓이고,
-        <br />
-        어디서 멈췄는지 다시 이어갈 수 있어요.
-      </p>
-
-      <button
-        type="button"
-        className="btn-primary login-screen__button"
-        onClick={() => void signIn()}
-        disabled={loading || signingIn}
-      >
-        {signingIn ? '로그인 중…' : 'Google로 계속하기'}
-      </button>
-
-      {error && (
-        <p className="login-screen__error" role="alert">
-          {error}
+        <h1 id="login-title" className="login-screen__title">
+          탐색을 멈춘 곳에서 이어가세요
+        </h1>
+        <p className="login-screen__desc">
+          방문 기록을 세션으로 정리하고
+          <br />
+          필요할 때 다시 찾아보세요.
         </p>
-      )}
+
+        <button
+          type="button"
+          className="login-screen__button"
+          onClick={() => void signIn()}
+          disabled={loading || signingIn}
+        >
+          <span className="login-screen__google" aria-hidden="true">G</span>
+          {signingIn ? '로그인 중…' : 'Google 계정으로 계속'}
+        </button>
+
+        <p className="login-screen__note">
+          로그인 후 탐색 기록 수집 여부를 직접 선택할 수 있어요.
+        </p>
+
+        {error && (
+          <p className="login-screen__error" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
     </div>
   );
 }
