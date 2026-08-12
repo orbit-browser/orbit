@@ -2,6 +2,738 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-08-12 — 다크 모드를 네비게이터·대시보드·사이드패널까지
+
+### 대시보드와 네비게이터가 안 바뀌던 이유 — 명시도가 아니라 스코프
+
+`styles/atlas.css` 의 팔레트는 `:root` 가 아니라 **`.atlas-page, .nav-drawer` 클래스에**
+선언돼 있었다. CSS 변수는 **가장 가까운 조상**이 이기므로, `html[data-theme='dark']` 에
+아무리 다크 값을 걸어도 `.atlas-page` 안쪽에서는 그 클래스에 붙은 라이트 값이 그대로
+이긴다. 명시도 싸움이 아니라 어느 조상에서 값을 집어 오느냐의 문제다.
+
+다크 블록의 선택자를 같은 요소까지 짚도록 고쳤다.
+
+```css
+html[data-theme='dark'],
+html[data-theme='dark'] .atlas-page,
+html[data-theme='dark'] .nav-drawer { … }
+```
+
+같은 결함이 다른 곳에도 있는지 스크립트로 훑었다 — 팔레트성 토큰을 `:root`/`data-theme`
+바깥에서 선언하는 블록은 이 하나뿐이었다.
+
+### 사이드패널
+
+Tailwind v4 `@theme` 은 `:root` 에 변수를 만든다. `html[data-theme='dark']` 에서 같은
+이름을 다시 선언해 덮으면 유틸 클래스(`bg-orbit-surface` 등)는 그대로 둔 채 색만 바뀐다.
+
+- `styles/tailwind.css` — `--color-orbit-*`, `--shadow-orbit-*` 다크 한 벌 + `color-scheme`.
+- `App.tsx` — 새 탭과 같은 방식으로 `html[data-theme]` 을 세운다. `system` 이면
+  `prefers-color-scheme` 을 구독해 패널을 다시 열지 않아도 따라간다.
+- `store/settings.ts` — `setTheme` 추가(상태는 `OrbitSettings` 를 펼치므로 자동 포함).
+- `views/SettingsView.tsx` — `모양`(시스템·라이트·다크) 행 추가. 새 탭과 같은 값을 쓰므로
+  어느 쪽에서 바꾸든 양쪽이 함께 바뀐다.
+
+### 남아 있던 하드코딩
+
+`atlas.css` 의 위험색(`#a63232`, `#b8452b`)과 모달 딤·그림자를 토큰(`--danger`,
+`--overlay-dim`, `--overlay-shadow`)으로 바꿨다. 새 탭 홈의 유리면(`rgba(255,255,255,.58/.62/.78)`)과
+카드 그라디언트도 `--glass-*`, `--bg-canvas-warm` 으로 뽑았다.
+
+### 검증
+
+라이트 팔레트의 모든 토큰이 다크에도 선언돼 있는지 세 파일에 대해 확인했다 — 누락 없음.
+
+```
+cd extension && pnpm test     # 14 files, 158 passed
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 887.63 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — 설정 여백 조정과 다크 모드
+
+### 여백
+
+내용 영역을 `max-width: 660px` 로 묶어 둬서, 1180px 패널에서 오른쪽이 통째로 비었다.
+폭 제한을 920px 로 풀고 여백은 padding(44px) 으로만 준다. 줄 높이·구간 간격도 한 단계
+줄였다(행 15→13px, 구간 34→26px, 머리 30→24px).
+
+### 다크 모드
+
+- `lib/settings.ts` — `theme: 'system' | 'light' | 'dark'` 추가(기본 `system`).
+  `chrome.storage.local` 이라 사이드패널과 같은 저장소를 쓴다.
+- `hooks/useTheme.ts` (신규) — `html[data-theme]` 을 세운다. `system` 이면
+  `prefers-color-scheme` 을 구독해 OS 설정이 바뀌면 새로고침 없이 따라간다.
+- `main.tsx` — 로그인 여부와 무관하게 첫 화면부터 적용한다.
+- `styles/index.css`, `styles/atlas.css` — `html[data-theme='dark']` 에 팔레트 한 벌.
+  순검정이 아니라 따뜻한 흙빛(#17130f / #211b16)으로 내려 코랄 강조색이 그대로 얹히게 했다.
+  강조색은 어두운 바탕에서 대비를 얻으려고 한 단계 밝게(#ff8a63) 잡았다.
+- 설정 `일반 > 환경설정 > 모양` 에 시스템·라이트·다크 세 아이콘 세그먼트.
+
+**토큰화가 먼저였다.** 두 CSS 에 hover 용 `rgba(178,112,84,0.0x)` 와 흰 판(`#ffffff`),
+아이보리 그라디언트가 하드코딩돼 있어 팔레트만 바꿔서는 다크에서 그대로 밝게 남는다.
+`--wash-1..3`, `--glass-58/62/78`, `--bg-canvas-warm`, `--node-rim`, `--fade-page-0/94`,
+`--overlay-dim`, `--overlay-shadow`, `--accent-soft-flat`, `--danger` 로 뽑아낸 뒤
+다크에서 갈아 끼운다.
+
+### 범위 밖
+
+사이드패널은 Tailwind 토큰(`orbit-*`)을 쓰는 별도 디자인 시스템이라 이번 다크 모드에
+포함하지 않았다. 새 탭(홈·대시보드)만 적용된다.
+
+### 검증
+
+```
+cd extension && pnpm test     # 14 files, 158 passed
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 885.66 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+다크 팔레트의 실제 대비는 화면에서 확인이 필요하다.
+
+## 2026-08-12 — 설정을 데스크톱 작업 공간으로 재설계
+
+### 배경
+
+직전 설정은 좁고 긴 모달 하나에 모든 설정을 세로로 늘어놓은 형태였다. 무엇이 어디 있는지
+알려면 목록을 끝까지 훑어야 했고, 데스크톱 확장의 설정이라기보다 모바일 설정 화면에 가까웠다.
+
+정보 구조 자체를 바꿨다 — `전체 목록` 에서 `분류 선택 → 그 분류의 설정만` 으로.
+
+### 변경
+
+- `components/layout/settings-nav.ts` (신규) — 분류 정의와 `filterSettingsNav`.
+  각 항목에 **검색용 키워드**를 붙였다. 분류 이름만으로는 "본문 저장", "로그아웃" 같은
+  실제 설정 이름으로 찾을 수 없어 검색이 무용지물이 된다.
+- `components/layout/SettingsPages.tsx` (신규) — 페이지 8개와 공용 부품
+  (`PageHeader`, `Section`, `Row`, `Switch`, `Stepper`, `Status`).
+- `components/layout/SettingsPanel.tsx` — 좌(236px 분류) · 우(설정 내용) 2단 셸.
+  1180×760 상한, 화면 중앙, 딤 배경.
+- `styles/index.css` — 설정 스타일 전면 교체.
+- `lib/api.ts` — `apiBaseUrl` 을 내보낸다(연결 화면이 붙어 있는 주소를 보여 준다).
+- `tests/unit/settings-nav.test.ts` (신규) — 분류 중복 없음, 검색 매칭, 빈 그룹 제거 등 7건.
+
+### 페이지 배치
+
+| 분류 | 내용 |
+| --- | --- |
+| 일반 | 연결 상태 · 단축키 · 버전 |
+| 수집 및 동기화 | 탐색 기록(수집·본문 저장·민감 도메인) / 동기화(자동 동기화 + **켜졌을 때만** 주기·유휴·개수) |
+| 세션 및 검색 | 자동 병합 |
+| AI | 더 정확한 결과 보기 · AI 가 쓰이는 곳 |
+| 개인정보 보호 | 저장 원칙 + 현재 상태 요약(읽기 전용) + 변경 화면으로 보내기 |
+| 데이터 관리 | 로그인 계정 · 저장 데이터 설명 · 로그아웃 |
+| 연결 | 상태 · 서버 주소 · 다시 확인 |
+| 정보 | 소개 · 버전 · 단축키 |
+
+### 설계 메모
+
+**줄을 카드로 감싸지 않는다.** 대부분의 설정은 캔버스 위에 얇은 구분선으로만 나뉜다.
+카드(`.settings-callout`)는 묶음이나 상태를 따로 말할 때만 쓴다 — 모든 줄이 카드가 되면
+테두리가 겹쳐 위계가 사라진다.
+
+**선택 표시는 옅은 바탕 + 왼쪽 2.5px 주황 눈금.** 큰 알약으로 채우면 사이드바가 무거워진다.
+주황은 활성 상태·선택·상태 표시·토글에만 쓴다.
+
+**점진적 노출** — 자동 동기화가 꺼져 있으면 주기·유휴·개수를 아예 그리지 않는다.
+조건이 꺼져 있는데 그 조건의 세부값을 물어볼 이유가 없다.
+
+**가짜 컨트롤을 만들지 않았다.** 지금 있는 설정은 9개(로컬 8 + 서버 1)뿐이라
+분류 8개를 채우면 몇 페이지는 얇다. 빈 자리를 동작하지 않는 토글로 메우는 대신
+읽기 전용 정보(개인정보 원칙, 저장 데이터 설명, 서버 주소)로 채웠다.
+설정이 늘어나면 해당 페이지에 그대로 붙이면 된다.
+
+### 검증
+
+```
+cd extension && pnpm test     # 14 files, 158 passed (분류 7건 추가)
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 881.21 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — 새 탭 프로필 메뉴 정리와 설정 패널
+
+### 변경
+
+- `components/layout/UserMenu.tsx` — 동작이 없던 항목 **친구 초대 · 의견 보내기 ·
+  커뮤니티 참여를 제거**했다(전부 빈 `onClick`). 남는 것은 설정과 로그아웃.
+  쓰지 않게 된 아이콘 import 와 `.user-menu__external` CSS 도 함께 정리.
+- `components/layout/SettingsPanel.tsx` (신규) — 프로필 메뉴의 "설정" 에서 여는
+  **화면 가운데 모달**. 사이드패널 설정과 **같은 값**을 다룬다(백엔드 연결, 탐색 기록 수집,
+  자동 동기화와 주기, 유휴·개수 기준, 본문 저장, 민감 도메인 제외, 자동 병합,
+  정확한 결과 보기, 단축키·버전). 새 탭 어법으로 다시 그렸다.
+  - `createPortal(document.body)` — 프로필 메뉴 안에 두면 그 컨테이너의 위치·겹침 규칙에
+    갇혀 화면 가운데로 나오지 못한다.
+  - 딤을 덮고 바깥을 **누르기 시작했을 때만** 닫는다(`onMouseDown` + `target === currentTarget`).
+    패널 안에서 시작한 드래그가 밖에서 끝나도 닫히지 않는다.
+  - 그룹 안에 상자를 두지 않는다 — 모달 테두리 안에 카드 테두리가 또 겹치면 답답하다.
+    작은 제목 + 구분선으로 나눈 줄만 남겼다.
+- `hooks/useOrbitSettings.ts` (신규) — `lib/settings.ts`(chrome.storage.local)를 직접 보는
+  훅. 사이드패널의 zustand 스토어를 끌어다 쓰지 않는다 — 그쪽 엔트리포인트에 묶인 상태라
+  경계를 넘게 된다. 진실 원천이 같으니 한쪽에서 바꾸면 다른 쪽도 따라 바뀐다.
+- `styles/index.css` — `.settings-overlay`, `.settings-panel`, `.settings-switch`,
+  `.settings-segment`, `.settings-stepper` 추가.
+
+### 설계 메모
+
+설정 값을 새 탭용으로 복제하지 않았다. 로컬 설정은 `chrome.storage.local`,
+자동 병합은 서버 `/settings` 로 사이드패널과 같은 곳을 본다 — 두 화면이 서로 다른 값을
+보여 주는 일이 생기지 않는다. 새로 만든 것은 표현뿐이다.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 151 passed
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 868.55 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — 세션을 펼칠 때 계가 순간이동하던 문제
+
+### 원인 — 씬 전환이 아니라 트레이 높이였다
+
+앞선 커밋에서 "폴더 → 세션" 을 씬 전환으로 보고 교차 디졸브를 넣었는데, 사용자가 지적한
+전환은 **같은 폴더 씬 안**이었다. 폴더 안 세션을 펼치면 아래 트레이가 뜨면서
+`bottomInset` 이 40 → 250(`TRAY_INSET`)으로 한 프레임에 뛴다. `planetY` 가 여기서
+계산되므로 행성·궤도·칩·위성이 통째로 위로 순간이동했다.
+
+### 변경
+
+- `AtlasCanvas` — `bottomInset` 을 회전·초점과 같은 rAF 루프(`Motion`/`advance`)로
+  미끄러뜨린다. 계 전체가 트레이가 올라오는 속도에 맞춰 함께 올라간다. 안내 알약 위치도
+  같은 값을 쓴다. 반경 계산은 최악 높이 상수(`INSET_MAX`)를 그대로 써서 전환 중에 궤도
+  크기가 흔들리지 않는다.
+- `AtlasTray` / `atlas.css` — 등장 애니메이션을 `translateY(16px)` 에서
+  `translateY(100%)` 로 바꿔 화면 아래에서 올라오게 하고, 길이를 0.42s 로 맞춰
+  캔버스가 올라가는 시간과 겹치게 했다.
+- 세션만 바뀔 때는 트레이가 그대로 있어야 하므로 **트레이의 `key` 를 걷어내고 카드 묶음에만
+  걸었다**. 트레이가 매번 아래로 내려갔다 올라오지 않고 카드만 가볍게 뜬다.
+  가로 스크롤은 `session.id` 가 바뀔 때 0 으로 되돌린다(마운트에 기대던 것을 명시적으로).
+- `AtlasDetail` — 폴더·빈 상태의 아이콘을 없앴다. 아이콘은 그것이 무엇인지 알려 줄 때만
+  둔다 — 페이지·세션은 대표 파비콘이 정보지만 일반 기호는 자리만 차지한다.
+  직전에 넣었던 `OrbitGlyph.tsx` 는 삭제.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 151 passed
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 860.5 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — 씬 전환(폴더 ↔ 세션) 교차 디졸브와 폴더 글리프
+
+### 씬 전환이 계단처럼 튀던 문제
+
+폴더에서 세션으로 넘어가면 `scene` 객체가 통째로 갈린다 — 중심 노드, 궤도, 칩, 위성,
+색이 전부 다른 것이 같은 프레임에 나타난다. 초점 애니메이션은 **한 씬 안에서** 궤도를
+옮기는 것이라 이 전환에는 아무 영향이 없었다.
+
+`AtlasCanvas` 가 그리는 씬을 한 박자 늦춘다. 씬 id 가 바뀌면 먼저 옅어지고(`leaving`,
+`opacity 0` + `scale(0.975)`, 0.18s), 보이지 않는 사이에 내용을 갈아 끼운 뒤 다시 짙어진다.
+같은 씬의 데이터 갱신(이름 변경·재조회)은 지연 없이 그대로 반영한다.
+
+**연속 전환 방어**: 전환 중에 씬이 또 바뀌어도 타이머를 다시 걸지 않는다. 다시 걸면
+화살표를 누르고 있는 동안 교체가 계속 미뤄져 화면이 흐린 채로 남는다. 예약된 교체가
+그 시점의 마지막 씬을 집어 간다.
+
+### 폴더 글리프
+
+상세 패널 폴더 층의 아이콘을 `ph-folder-simple` 에서 **Orbit 마크의 선만 딴 글리프**로
+바꿨다(`components/atlas/OrbitGlyph.tsx` — 궤도 타원 + 행성 + 위성, `currentColor` 라
+폴더 색을 그대로 받는다). 일반 폴더 기호는 캔버스가 그리고 있는 것(행성 하나에 궤도가
+도는 계)과 어긋난다.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 151 passed
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 860.67 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+전환 길이(180ms 씩, 왕복 360ms)는 화면에서 보고 조정이 필요할 수 있다.
+
+## 2026-08-12 — 폴더만 골랐을 때 상세 패널이 폴더를 모르던 문제
+
+### 배경
+
+캔버스에는 폴더가 떠 있는데 오른쪽 상세 패널은 "Orbit Atlas · 세션을 선택해 주세요"
+빈 상태에 비활성 버튼 두 개만 남아 있었다. `AtlasDetail` 은 `session`/`page` 만 받고
+폴더라는 층을 몰랐다.
+
+### 변경
+
+`AtlasDetail` 에 `folder` 층을 넣었다. 세션을 고르지 않은 채 폴더를 보고 있으면 폴더 개요를 낸다.
+
+- 머리: 폴더 색 아이콘 + 폴더 이름 + `폴더 · 세션 N개`, 지표는 페이지 수와 활성 시간
+- 인사이트: `세션 N개에 걸쳐 <도메인> 중심으로 <시간>을 썼습니다. 가장 큰 탐색은 "…"(Np) 입니다.`
+  비어 있으면 채우는 방법을 알려 준다.
+- `세션 N개` 목록 — 궤도 색과 같은 점 + 제목 + `Np · 날짜`. 누르면 그 세션의 궤도가 펼쳐진다.
+- `주요 도메인` — 폴더 전체 기준.
+- **비활성 버튼 제거.** 이름 편집(연필)은 세션에만 두고(폴더 이름은 네비게이터에서 고친다),
+  "세션 탭 모두 열기"류 작업 섹션은 열 세션이 있을 때만 그린다.
+
+집계는 `data.ts` 의 순수 함수로 뺐다 — `folderTotals`, `folderTopDomains`, `largestSession`.
+`buildFolderScene` 도 `folderTotals` 를 쓰게 해 캔버스 부제와 패널이 같은 수를 보게 했다.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 151 passed (폴더 집계 5건 추가)
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 859.77 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — 남은 튐 제거와 간격 추가 확보
+
+### 아직 "짜안" 하던 것 — 구간 경계에서 값이 계단처럼 뛰었다
+
+교차 페이드를 넣고도 전환에 튐이 남았다. 원인은 **연속값(초점 거리)으로 위치는 옮기면서
+표현은 구간별 상수로 줬던 것**이다. 궤도가 구간 경계를 넘는 순간 값이 점프한다.
+
+| 튀던 값 | 전 | 후 |
+| --- | --- | --- |
+| 궤도선 농도 | `beyond > 0` 이면 0.36 기준, 아니면 0.92/0.44 — 경계에서 0.44→0.36 점프 | `(0.42 + 0.5 * near) * tail` 한 식으로 잇는다 |
+| 흐린 궤도 선 모양 | `.atlas-arc--beyond` 가 실선↔점선으로 갈림 | 점선 제거 — 농도만으로 구분 |
+| 칩 크기·굵기 | `.atlas-chip--aside` 클래스가 높이 26↔30, 글자 11.5↔12 를 갈아 끼움 | `--chip-focus` 로 `height: calc(26px + 4px * ...)` 연속 보간 |
+| 칩 농도 | 초점 1.0 / 이웃 0.62 이분 | `fade * (chipRoom ? 0.6 + 0.4 * near : near)` |
+
+`near = max(0, 1 - |offset|)` 는 초점까지의 거리라 프레임마다 이어진다.
+자리가 좁아 이웃 칩을 지울 때도 `near` 로 0 까지 내려 보내 잘라내지 않는다.
+
+### 간격
+
+`R_ABS_MAX` 430 → 460, `RING_COMPRESS` 0.28 → 0.20(흐린 궤도를 끝으로 더 몰아 온전한
+구간에 자리를 넘긴다). 간격 95px → 117px.
+
+### 정리 안 됨 섹션
+
+세션이 0개면 줄 자체를 감춘다 — "0" 만 적힌 줄은 아무것도 알려주지 않는다.
+다만 이 줄은 **폴더에서 세션을 빼는 유일한 드롭 대상**이라, 세션을 끌기 시작하면
+(`onDragStart`) 다시 꺼내 놓는다. 그러지 않으면 폴더를 비울 방법이 드래그로는 사라진다.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 146 passed
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 857.53 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — 궤도 간격 넓히기와 세션 전환 교차 페이드
+
+사용자 보고 4건.
+
+### 1. 간격이 좁다
+
+두 원인이 겹쳤다.
+
+- 칩을 자기 궤도 아래로 내리는 값이 **초점만 +24, 나머지는 +11** 이었다. 그래서 초점
+  바로 아래 칩과의 간격만 13px 더 좁아졌다(첨부 이미지의 위 150 / 아래 78 비대칭).
+  → 모든 칩에 같은 `CHIP_DROP = 22` 를 준다.
+- `R_ABS_MAX = 360` 이 반경을 묶고 있었다. 넓은 화면에서 남는 공간을 안 썼다.
+  → `R_ABS_MAX` 430, `R_INNER_MIN` 132. 간격이 68px → 95px 로 늘었다.
+
+### 2. 다음 세션이 "짠" 하고 나타난다
+
+칩을 `beyond === 0` 불리언으로 켜고 껐다 — 초점이 미끄러지는 도중 불투명도 1로 갑자기
+등장했다. → `beyond` 로 연속 페이드(`1 - min(1, beyond)`)하고, 궤도선 농도도 그리기를
+멈추는 지점에서 정확히 0 이 되도록 고쳤다(전에는 0.057 에서 잘렸다).
+
+### 3. 세션 안 페이지(탭)도 같은 문제
+
+세션을 옮기면 이전 궤도의 위성이 제자리에서 사라지고 새 위성이 제자리에 나타났다.
+→ 방금 닫힌 궤도를 초점 애니메이션 동안 붙잡아 두고(`leavingTrackId`), 위성 농도를
+`--sat-near`(= 초점까지의 거리)로 준다. 나가는 궤도는 멀어지며 옅어지고 들어오는 궤도는
+다가오며 짙어져 서로 교차한다. 미끄러지는 중인 궤도는 `pointer-events: none` 이라
+엉뚱한 세션이 잡히지 않는다.
+
+트레이(세션의 페이지 카드)도 같은 이유로 제자리에서 갈아 끼워졌다. `key={session.id}` 로
+다시 마운트해 기존 등장 애니메이션(`atlas-tray-in`)을 태운다. 가로 스크롤도 함께 처음으로
+돌아간다.
+
+### 4. "바깥 세션 N개 더" 버튼 제거
+
+버튼과 `.atlas-stage__axis` CSS 를 함께 지웠다. 흐린 궤도가 이미 같은 신호를 준다.
+안내 알약이 이 버튼을 피해 올라가던 보정도 제거.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 146 passed
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 857.71 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — 폴더 궤도를 초점 기반으로: 세션이 많아도 안 몰리게
+
+### 배경
+
+세션 5개짜리 폴더에서 궤도와 칩이 몰려 읽히지 않는다는 보고. 요구는 셋이었다 —
+가독성, "더 있다"는 시각 신호, 그리고 탭을 넘기듯 스르륵 이어지는 세션 이동.
+
+기존 배치는 `r0`(≈179)와 `rMax`(≤360) 사이에 궤도를 **개수로 균등 분할**했다.
+세션이 늘수록 간격이 줄어 5개면 간격 45px, 칩 세로 간격 36px — 칩 높이가 30px이라
+6px만 남았다. 여기에 칩이 겹치면 좌우로 ±126px 튕겨 내는 보정(`--chip-dx`)까지 있어
+어느 칩이 어느 궤도인지 잇기도 어려웠다.
+
+### 변경
+
+- `components/atlas/data.ts` — `ringPlacement(index, focus, total)` 추가.
+  위성 배치(`orbitPlacement`)와 같은 어법이다. 초점 기준 `ORBIT_RING_SIDE(1)` 칸까지는
+  균등 간격, 그 바깥 `ORBIT_RING_HINTS(2)` 칸은 간격을 0.28배로 눌러 흐린 궤도로 남기고,
+  더 먼 궤도는 그리지 않는다. **그리는 궤도 수가 세션 수와 무관하게 고정**된다.
+- `components/atlas/AtlasCanvas.tsx`
+  - 궤도 반경을 `rFocus + offset * ringSpacing` 으로 계산한다. `ringSpacing` 은 세션 수가
+    아니라 `ORBIT_RING_REACH` 로 나눠 정해지므로 세션이 늘어도 간격이 줄지 않는다.
+  - **초점은 연속값이고 애니메이션한다.** 회전량과 같은 rAF 루프(`advance`)를 쓴다 —
+    세션을 옮기면 궤도와 칩이 안팎으로 미끄러진다.
+  - 초점 궤도는 언제나 같은 반경. 단 온전한 구간에 다 들어가는 작은 폴더(≤3)는 초점을
+    고정하지 않고 가운데로 모은다 — 넘길 것이 없는데 한쪽에 몰리면 비어 보인다.
+  - 칩은 온전한 구간에만 달고, 자리가 좁으면 초점 칩만 남긴다. `--chip-dx` 좌우 튕김 제거.
+  - 궤도 축 창(`axisIndex`, `MAX_RENDERED_ORBITS`) 제거. 휠과 안쪽/바깥 버튼은 초점 이동
+    (= 이웃 세션 펼치기)으로 바꿨다. 휠은 관성 한 번에 여러 칸이 넘어가지 않도록 260ms 잠근다.
+  - 궤도선 농도를 인덱스가 아니라 초점 거리로 계산한다.
+- `styles/atlas.css` — `.atlas-chip--aside`(이웃 세션 칩, 한 단계 물린 크기·농도) 추가.
+
+### 함께 고친 것
+
+`AtlasDetail` 왼쪽 경로의 세션 이름이 잘리기만 하고 `…` 이 안 붙었다.
+`.atlas-detail__crumb` 이 파비콘과 나란히 놓으려고 `inline-flex` 인데,
+**`text-overflow` 는 flex 컨테이너에 적용되지 않는다.** 글자를 안쪽 블록
+(`.atlas-detail__crumb-label`)으로 감싸 거기서 자르도록 했다.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 146 passed (링 배치 8건 추가)
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 858.41 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+간격·농도 수치는 화면에서 보고 조정이 필요할 수 있다.
+
+## 2026-08-12 — 세션 하나가 궤도 여러 개로 쪼개지던 문제
+
+### 원인
+
+`buildSessionScene` 이 `splitPagesIntoOrbits(session.pages)` 로 페이지를 `ORBIT_CAPACITY = 14`
+단위로 잘라 궤도를 만들었다. 페이지 23개짜리 세션은 14 + 9 두 궤도가 됐다.
+
+이 정원은 **옛 슬롯 모델의 잔재**다. 앞면 슬롯 7개 + 뒤편 7개 = 14 가 궤도 하나가 담을 수
+있는 전부였다(`ORBIT_CAPACITY = ORBIT_VISIBLE_SLOTS * 2`). 2026-08-12 연속 각도 모델로
+바꾸면서 궤도 하나가 담는 점의 수에 상한이 사라졌는데, 분할 로직만 그대로 남아 있었다.
+
+### 변경
+
+- `components/atlas/data.ts`
+  - `ORBIT_CAPACITY`, `splitPagesIntoOrbits` 제거.
+  - `buildSessionScene` 이 페이지 수와 무관하게 **궤도 하나**를 만든다. 앞면에 못 놓는
+    만큼은 뒤편에 있다가 회전으로 올라온다. 페이지가 없으면 궤도도 없다(빈 상태 안내).
+  - `pickAdjacentOrbit` 제거 — 세션 씬 궤도가 하나뿐이라 도달할 수 없는 코드가 됐다.
+- `components/VariantAtlasReplica.tsx` — `stepVertically` 에서 궤도 이동 분기 제거.
+  ↑↓ 는 네비게이터 세로 이동만 한다.
+- `tests/unit/atlas-data.test.ts` — 분할 테스트와 궤도 세로 이동 테스트를 "궤도 하나"
+  계약 테스트로 교체(페이지 40개 → 궤도 1개, 라벨 없음, 페이지 0개 → 궤도 없음).
+
+직전 커밋에서 넣은 "궤도 여러 줄을 ↑↓ 로 훑기"는 이 변경으로 필요가 없어져 함께 걷어냈다.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 138 passed
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 857.64 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — 여러 줄로 쌓인 궤도도 ↑↓ 로 위에서 아래로
+
+### 배경
+
+궤도가 여러 줄인 화면에서 위에서부터 아래로 내려가게 해달라는 요청(첨부: 페이지 23개가
+14+9 두 궤도로 나뉜 세션 씬).
+
+직전 변경에서 ↑↓ 를 네비게이터 이동으로 넘기면서 **세션 씬의 궤도 사이 이동이 빠졌다**.
+←→ 는 선택된 페이지가 있는 궤도 하나만 몰기 때문에, 두 번째 궤도(15~23쪽)에 키보드로
+닿을 방법이 없었다.
+
+### 변경
+
+- `components/atlas/data.ts` — `pickAdjacentOrbit(scene, selectedPointId, direction)` 추가.
+  세션 씬에서 궤도가 둘 이상일 때 이웃 궤도를 돌려준다. 아직 어느 궤도에도 들어가 있지
+  않으면 방향에 맞는 끝에서 시작한다 — ↓ 면 **최상단(가장 안쪽) 궤도부터**. 양 끝을
+  넘어서면 null 을 돌려 호출자가 네비게이터 이동으로 넘기게 한다.
+  폴더 씬의 궤도는 세션이라 여기서 다루지 않는다(네비게이터 줄로 이미 이어져 있다).
+- `components/VariantAtlasReplica.tsx` — `stepVertically` 가 궤도 이동을 먼저 시도하고,
+  갈 곳이 없을 때 네비게이터 이동으로 넘어간다. 궤도로 옮길 때는 그 궤도의 첫 페이지를
+  고른다 — 선택이 회전과 축 이동을 끌고 오므로 곧바로 ←→ 로 그 궤도를 훑을 수 있다.
+
+**정렬 순서 불일치도 함께 고쳤다.** 네비게이터는 `sortSessions` 로 정렬해 그리는데
+`buildFolderScene` 은 원본 순서로 궤도를 그렸다. 가나다순에서 두 화면의 "위에서 아래로"가
+서로 다른 뜻이 됐다. 정렬을 `VariantAtlasReplica` 에서 한 번만 적용하고, 정렬된 목록을
+씬·네비게이터 줄·네비게이터 컴포넌트에 모두 넘긴다.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 147 passed (궤도 세로 이동 7건 추가)
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 858.15 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — ↑↓ 를 네비게이터 세로 순서 전체로 넓힘
+
+### 배경
+
+폴더끼리, 정리 안 된 세션끼리도 ↑↓ 로 옮기고 싶다는 요청. 직전 구현의 ↑↓ 는 폴더 씬에서
+**그 폴더 안의 세션끼리만** 움직였고(`AtlasCanvas.stepTrack`), 세션 씬에서는 궤도 축을
+밀었다 — 폴더 사이나 미정리 세션 사이로는 갈 수 없었다.
+
+### 변경
+
+- `components/atlas/data.ts` — `buildNavRows(folders, unfiled, openFolderId)` 와
+  `stepNavRow(rows, current, direction)` 순수 함수 추가.
+  폴더 줄을 차례로 놓고 **지금 보고 있는 폴더의 세션만** 그 아래에 끼운 뒤 정리 안 된
+  세션을 붙인다. 폴더·폴더 안 세션·미정리 세션이 한 줄로 이어져 끝에 닿으면 다음 층으로
+  자연스럽게 넘어간다.
+- `components/VariantAtlasReplica.tsx` — ↑↓ 를 여기서 처리한다. 도착한 줄이
+  폴더면 폴더를 열고, 미정리 세션이면 그 세션을 열고, **폴더 안 세션이면 폴더 화면을
+  유지한 채 그 세션의 궤도만 펼친다**(폴더를 훑는 동안 화면이 바뀌지 않는다).
+- `components/atlas/AtlasCanvas.tsx` — ↑↓ 처리와 `stepTrack` 제거. 캔버스는 ←→(궤도 안
+  페이지 이동)만 맡는다. 궤도 축 이동은 휠과 "바깥 궤도" 버튼에 남았다.
+- 안내 알약 문구를 `↑↓ 폴더·세션 이동, ←→ 페이지 이동` 으로 갱신.
+
+### 설계 메모
+
+**모든 폴더를 펼쳐 잇지 않는다.** 그러면 폴더 하나 건너가는 데 그 안의 세션을 전부
+지나야 한다. 보고 있는 폴더의 세션만 낀다.
+
+**양 끝에서 감기지 않는다.** 맨 아래에서 맨 위로 튀면 어디까지 훑었는지 잃는다.
+
+순서 계산을 컴포넌트에서 `data.ts` 로 뺐다 — UI 없이 검증할 수 있고, 캔버스와 페이지가
+같은 규칙을 본다.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 140 passed (세로 이동 8건 추가)
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 857.68 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — 아틀라스 트레이·안내 알약 다듬기
+
+사용자 보고 3건.
+
+1. **안내 알약이 트레이 카드를 가린다.** `.atlas-stage__hint` 가 `bottom: 22px` 로 스테이지
+   바닥에 고정돼 있어, 세션 트레이(높이 250px)가 열리면 그 위에 겹쳐 앉았다.
+   → `--hint-bottom` 을 인라인으로 받아 `bottomInset + 12px` 에 둔다. 바깥 궤도 버튼
+   (`.atlas-stage__axis--out`, 같은 자리에 뜬다)이 있으면 `+56px` 로 한 칸 더 올린다.
+2. **사이드패널을 열면 트레이 카드 제목이 두 줄로 접힌다.** `.atlas-card__name` 이
+   `-webkit-line-clamp: 2` 였다. → `white-space: nowrap` + `text-overflow: ellipsis` 한 줄.
+   캔버스 폭이 줄어도 카드 높이가 흔들리지 않는다.
+3. **트레이 헤더의 세션/수집 중 배지 제거.** `AtlasTray` 의 `.atlas-tray__badge` 와 CSS 삭제.
+
+### 검증
+
+```
+cd extension && pnpm test     # 13 files, 132 passed
+cd extension && pnpm compile  # tsc --noEmit, 오류 없음
+cd extension && pnpm build    # 857.01 kB
+```
+
+실제 브라우저 스모크는 미실시(도구가 `chrome-extension://` 에 접근하지 못한다).
+
+## 2026-08-12 — 세션 별칭(alias)과 네비게이터 정렬
+
+### 배경
+
+세션 이름을 사용자가 고칠 수 있어야 하는데, 이름 자체가 바뀌면 기존 로직이 깨질 위험이
+있다는 사용자 지적. 실제로 `PATCH /sessions/{id}` 는 `session.title` 을 덮어쓰고 있었고,
+`title` 은 임베딩 텍스트·병합 게이팅의 제목 Jaccard·추천 term 추출의 기준이며 배치
+세션화(`session_updater`)가 매번 다시 만들어 낸다 — 즉 **사용자가 바꾼 이름이 다음 배치에
+덮이고** 저장된 벡터와도 어긋난다.
+
+함께 요청: 네비게이터에서 세션 이름 편집, 최신순·가나다순 정렬.
+
+### 변경
+
+**backend**
+
+- `app/db/models.py` — `Session.alias` 컬럼. 응답 경계 전용 헬퍼 `session_display_title()`
+  과 컬럼 조회용 SQL 식 `SESSION_DISPLAY_TITLE`(= `coalesce(alias, title)`).
+- `app/db/migrations.py` — `sessions.alias` additive 등록.
+- `app/schemas/session.py` — `PatchSessionRequest` 를 `{title}` 에서 `{alias}` 로 교체,
+  `SessionDetail.alias` 추가.
+- `app/api/sessions.py` — `_to_detail` 이 표시 이름을 내보내고, `patch_session` 은 별칭만
+  쓴다. 공백만 남은 별칭은 지우기로 본다.
+- `app/api/analytics.py`, `app/api/events.py`, `app/api/search.py` — 사용자에게 보이는
+  세션 이름을 표시 이름으로 교체.
+- `app/services/merge_suggester.py` — `SessionMeta` 에 `display_title` 을 더해 **점수용
+  canonical 과 카드 라벨을 분리**. 판정만 검증하는 호출자가 채우지 않아도 되도록 기본값 `""`.
+- `app/services/recommender/service.py` — 추천 카드 라벨을 표시 이름으로.
+
+**extension**
+
+- `lib/types.ts`, `lib/api.ts` — `Session.alias`, `renameSession` → `setSessionAlias`.
+- `entrypoints/sidepanel/hooks/useSessions.ts`, `views/SessionDetailView.tsx`,
+  `newtab/components/atlas/AtlasDetail.tsx` — 기존 편집 진입점 2곳을 별칭 경로로 전환.
+- `newtab/components/atlas/data.ts` — `SessionNode.alias`, `sortSessions()`.
+- `newtab/lib/nav-state.ts` — `sessionSort` 공유 상태.
+- `newtab/hooks/useFolders.ts` — `renameSessionAlias` 뮤테이션.
+- `newtab/components/atlas/AtlasNavigator.tsx` — 세션 행 인라인 이름 편집(연필 버튼),
+  헤드에 정렬 토글. 폴더 안 세션과 미정리 목록 모두에 정렬 적용.
+- `newtab/components/VariantAtlasReplica.tsx`, `components/layout/NavigatorDrawer.tsx` —
+  정렬 상태 전달.
+
+### 설계 메모
+
+**표시 이름은 서버가 합친다.** `SessionDetail.title` 이 `coalesce(alias, title)` 이고
+원본은 응답에 싣지 않는다. 클라이언트가 화면마다 합치면 대시보드 캔버스·네비게이터·트레이·
+상세·사이드패널·검색·추천 중 한 곳만 빠져도 같은 세션이 두 이름으로 보인다.
+
+`session_display_title` 을 모델의 `@property` 가 아니라 **모듈 함수**로 둔 이유: 매퍼를
+검증하는 테스트 대역(SimpleNamespace)이 실제 컬럼 `alias` 만 흉내 내면 되고, 파생 규칙을
+대역이 따라 적지 않아도 된다. 처음에 property 로 넣었다가 대역 3곳이
+`AttributeError: no attribute 'display_title'` 로 깨져 바꿨다.
+
+의도적 예외 — Ask 프롬프트와 추천 리랭크 프롬프트는 `SessionDetail`/`SessionSignals` 를
+거치므로 별칭을 본다. 사용자가 부르는 이름이 질의와 더 가까워 유리하고, 저장된 벡터와
+대조하는 경로가 아니다.
+
+정렬은 **표시 이름 기준**이다. 별칭을 붙였는데 원래 이름으로 정렬되면 가나다순 목록이
+뒤죽박죽으로 보인다. `numeric: true` 로 "실험 10"이 "실험 2" 앞에 오는 사전순을 피한다.
+
+### 검증
+
+```
+backend  ../.conda/bin/python -m pytest -p no:asyncio   # 488 passed
+extension pnpm test                                     # 13 files, 132 passed
+extension pnpm compile                                  # tsc --noEmit, 오류 없음
+extension pnpm build                                    # 857.37 kB
+```
+
+추가한 테스트
+
+- backend `tests/test_sessions.py` — 별칭이 표시 이름이 되는지, 없으면 원래 이름으로
+  떨어지는지, `PATCH` 가 `title` 을 건드리지 않는지, 공백 별칭이 지워지는지, 길이 경계.
+- extension `tests/unit/atlas-data.test.ts` — 별칭 매핑 2건, `sortSessions` 5건.
+
+마이그레이션은 백엔드 재기동으로 실제 적용했고 `\d sessions` 로 `alias varchar(100)` 확인.
+`coalesce` 왕복(별칭 지정 → 표시 이름 변경 → 별칭 삭제 → 원래 이름 복귀)을 롤백하는
+트랜잭션 안에서 확인했다 — 실제 데이터는 건드리지 않았다.
+
+**미실시 — 실제 브라우저 스모크.** `chrome-extension://` 페이지는 브라우저 자동화 도구가
+접근하지 못한다. 확장 새로고침 후 사용자 확인이 필요하다.
+
+- 네비게이터 세션 행 연필 → 이름 수정 → 대시보드·사이드패널 양쪽에 반영
+- 이름을 비우면 AI 가 만든 원래 이름으로 복귀
+- 헤드 정렬 버튼으로 최신순 ↔ 가나다순
+
+## 2026-08-12 — 궤도 캔버스: 선택 페이지 최하단 고정과 화살표 이동
+
+### 배경
+
+사용자 보고 세 건.
+
+1. 대시보드에서 폴더 생성 버튼을 누르면 같은 폴더가 두 개 생길 때가 있다.
+2. 폴더를 연 뒤 화살표 키로 세션·페이지를 옮길 수 없다.
+3. 선택한 페이지가 궤도 어디에나 놓여(첨부 이미지에서는 왼쪽 끝) 어느 것이 선택된
+   것인지 읽히지 않는다. 선택된 페이지는 늘 행성 바로 아래여야 하고, 좌우 이동은
+   궤도가 도는 애니메이션으로 보여야 하며, 궤도 밖에 페이지가 더 있다는 신호가 필요하다.
+
+### 원인
+
+**(1) 폴더 중복 생성** — `AtlasNavigator.tsx` 의 새 폴더 입력창은 `onKeyDown(Enter)` 와
+`onBlur` 가 같은 `submitNewFolder()` 를 부른다. 그 함수는 `await create.mutateAsync(name)`
+동안 입력창을 그대로 두고 성공한 뒤에야 `setCreating(false)` 로 지운다. 그 시점에
+포커스를 가진 입력창이 DOM 에서 빠지며 `onBlur` 가 한 번 더 발화해 **같은 이름으로
+두 번째 생성 요청**이 나갔다. 재진입을 막는 장치가 없었다.
+같은 결함이 이름 변경에도 있었고, `Escape` 취소는 입력값을 남긴 채 창만 닫아
+뒤따르는 blur 가 오히려 폴더를 만들었다.
+
+**(2) 화살표 무반응** — `←→` 는 `rotateTrack` 만 불렀고 그 함수는 페이지가 7개 이하면
+즉시 반환했다. `↑↓` 는 궤도가 4개 이하면 즉시 반환했다. 흔한 크기의 폴더에서는 두
+방향 모두 아무 일도 하지 않았고, 회전은 선택을 바꾸지 않아 애초에 "이동"이 아니었다.
+
+**(3) 선택 위치** — `slotAngle()` 이 앞면 반원을 7개 고정 슬롯으로 나눠 점을 넣었다.
+선택된 점은 어느 슬롯이든 갈 수 있었고, 칩이 있는 궤도는 최하단을 칩 자리로 비우려고
+점을 좌우로 갈라 놓아 선택된 페이지가 화면 끝에 붙었다. 뒤편 점은 잘라내 흔적을
+남기지 않아 "밖에 더 있다"가 회전 컨트롤의 숫자로만 표현됐다.
+
+### 변경
+
+- `components/atlas/AtlasNavigator.tsx` — 폴더 생성·이름 변경 모두 **입력창을 먼저 닫고**
+  요청을 보내며, 실패했을 때만 되돌린다. `Escape` 는 입력값을 함께 비워 blur 가 요청을
+  보내지 않게 한다.
+- `components/atlas/data.ts` — 슬롯 모델(`orbitSlot`, `isVisibleSlot`, `visibleIndices`,
+  `ORBIT_VISIBLE_SLOTS`)을 걷어내고 **연속 각도 모델**로 교체.
+  `ringDelta`, `alignOffset`, `orbitGap`, `orbitPlacement` 추가.
+  회전량이 가리키는 점이 90도(최하단)이고, 좌우 3칸까지 균등 배치,
+  그 바깥 3칸은 간격을 0.34배로 눌러 양 끝에 몰아 둔다.
+- `components/atlas/AtlasCanvas.tsx` — 회전량을 `requestAnimationFrame` 지수 감쇠로
+  보간하고 좌표를 매 프레임 다시 계산한다. 선택이 바뀌면 `alignOffset` 으로 최단 방향
+  목표를 잡는다. `←→` = 페이지 이동, `↑↓` = 세션(궤도) 이동으로 키 재정의.
+  회전 컨트롤을 좌우 페이지 이동 버튼으로 바꾸고 페이지가 2개 이상이면 항상 노출.
+  펼친 궤도의 칩과 컨트롤을 최하단 위성 아래로 내렸다.
+- `styles/atlas.css` — `.atlas-sat--edge` 추가. 크기·농도를 `--sat-fade` 에 걸고
+  전이를 끈다(매 프레임 갱신되는 값이라 전이를 걸면 회전을 따라오지 못한다).
+- `tests/unit/atlas-data.test.ts` — 슬롯 테스트 8건을 각도 배치 테스트 10건으로 교체.
+
+### 설계 메모
+
+점을 `left/top` 전이로 옮기면 두 점을 잇는 **현**을 따라가 궤도를 벗어난다. 그래서
+좌표가 아니라 **회전량**을 보간한다. 보간값은 프레임마다 바뀌므로 상태가 아닌 ref 에
+두고 리렌더만 튕긴다 — 상태 갱신 함수 안에서 "애니메이션을 이어갈지"를 판단하면
+StrictMode 이중 호출에 걸린다.
+
+`orbitPlacement` 의 `beyond` 를 정수 단계가 아니라 연속값으로 돌려주는 이유도 같다.
+회전이 연속이라 온전한 점에서 축소 점으로 끊김 없이 이어져야 한다.
+
+### 검증
+
+```
+cd extension && pnpm test      # 13 files, 125 passed
+cd extension && pnpm compile   # tsc --noEmit, 오류 없음
+cd extension && pnpm build     # 855.81 kB
+```
+
+백엔드는 `docker compose up -d`(postgres, qdrant) 후 `uvicorn app.main:app --port 8000`
+으로 기동해 `/health` 200 확인. 궤도 변경은 프론트 전용이라 백엔드 테스트는 돌리지 않았다.
+
+**미실시 — 실제 브라우저 스모크.** `chrome-extension://` 페이지는 사용 중인 브라우저
+자동화 도구가 접근하지 못한다. 다음은 사용자 확인이 필요하다.
+
+- 폴더 생성 1회 = 폴더 1개
+- 폴더 안 세션 4개 이하, 페이지 7개 이하에서도 `↑↓` `←→` 동작
+- 선택된 페이지가 항상 최하단, 좌우 이동이 회전으로 보임
+- 페이지가 많으면 궤도 양 끝에 축소 점, 적으면 없음
+
+
 ## 2026-08-07 — 사용자 폴더와 궤도 캔버스 2뎁스
 
 ### 배경

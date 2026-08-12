@@ -1,12 +1,15 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { OrbitScene, OrbitTrack } from './data';
 import {
+  alignOffset,
   formatMinutes,
-  isVisibleSlot,
   normalizeRotation,
-  orbitSlot,
-  ORBIT_VISIBLE_SLOTS,
-  visibleIndices,
+  ORBIT_EDGE_HINTS,
+  ORBIT_RING_HINTS,
+  ORBIT_RING_REACH,
+  ORBIT_RING_SIDE,
+  orbitPlacement,
+  ringPlacement,
 } from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
@@ -19,21 +22,52 @@ const PLANET_R = 19;
 /** 레이블 칩이 차지하는 세로 여백 */
 const LABEL_GUTTER = 34;
 const CHIP_H = 30;
-const CHIP_W = 232;
 const INSET_MAX = 250;
-const R_ABS_MAX = 360;
+const R_ABS_MAX = 460;
+
+/** 가장 안쪽 궤도의 최소 반경 — 중심 노드와 그 아래 제목을 피한다. */
+const R_INNER_MIN = 132;
+
+/** 이웃 칩까지 나란히 보여 줄 최소 세로 간격. 이보다 좁으면 초점 칩만 남긴다. */
+const CHIP_ROOM = CHIP_H + 16;
 
 /**
- * 한 번에 온전히 그리는 궤도 수. 이보다 많으면 창을 밀어 이동한다.
+ * 칩을 자기 궤도 아래로 내리는 거리.
  *
- * 궤도는 바깥으로 갈수록 화면 폭까지 잡아먹어, 전부 그리면 좌우가 잘려
- * 점도 칩도 누를 수 없게 된다. 창 밖 첫 궤도는 아래에 걸친 채 흐리게 남겨
- * "더 있다"가 보이도록 한다.
+ * 초점 궤도는 최하단이 선택된 페이지(위성) 자리라 그만큼 비워야 하는데, 그 값을
+ * 초점에만 주면 **초점 바로 아래 칩과의 간격만 그만큼 좁아진다**. 모든 칩에 같은 값을
+ * 줘서 간격을 고르게 유지한다.
  */
-const MAX_RENDERED_ORBITS = 4;
+const CHIP_DROP = 22;
 
-/** 점을 놓기 시작하는 각도 — 아크 끝에 딱 붙지 않게 띄운다. */
-const SLOT_ANGLE_LO = 18;
+/**
+ * 회전 보간의 시간 상수(ms). 지수 감쇠라 이 값의 3배쯤에서 사실상 도착한다.
+ * 프레임 간격으로 감쇠를 계산하므로 60fps 가 아니어도 같은 시간에 멈춘다.
+ */
+const SPIN_TAU = 105;
+
+/** 이보다 가까우면 목표에 붙여 놓고 루프를 멈춘다. */
+const SPIN_EPSILON = 0.002;
+
+/** 씬이 통째로 바뀔 때 옅어졌다 짙어지는 한쪽 구간의 길이(ms). CSS 전이와 맞춘다. */
+const SCENE_FADE_MS = 180;
+
+/** 프레임 단위로 목표를 향해 미끄러지는 값. */
+interface Motion {
+  value: number;
+  target: number;
+}
+
+/** 한 프레임만큼 나아간다. 아직 움직이는 중이면 true. */
+function advance(motion: Motion, dt: number): boolean {
+  const diff = motion.target - motion.value;
+  if (Math.abs(diff) < SPIN_EPSILON) {
+    motion.value = motion.target;
+    return false;
+  }
+  motion.value += diff * (1 - Math.exp(-dt / SPIN_TAU));
+  return true;
+}
 
 const readHintDismissed = () => {
   try {
@@ -49,38 +83,18 @@ const pointOnArc = (rx: number, ry: number, angleDeg: number) => {
 };
 
 /**
- * 궤도선 기본 농도 — 안쪽(최근)이 진하고 바깥으로 갈수록 옅어진다.
- * 메인 페이지 시그니처 그래픽의 링 농도 그라데이션과 같은 어법.
- */
-const arcOpacity = (index: number, total: number) =>
-  total <= 1 ? 0.72 : 0.85 - (index / (total - 1)) * 0.35;
-
-/**
- * 슬롯 번호를 실제 각도로 바꾼다.
+ * 궤도선 농도 — 초점이 가장 진하고, 초점에서 멀어질수록 옅어진다.
  *
- * 칩이 없는 궤도는 앞면 반원에 균등히 놓는다. 칩이 있는 궤도는 최하단(90도)이
- * 칩 자리라, 칩 폭만큼의 각도 구간을 비우고 좌우로 갈라 놓는다.
+ * 온전한 구간 밖(흐린 궤도)은 "여기 밖에 더 있다"는 신호라 거의 사라질 때까지 떨어진다.
+ * beyond 가 연속값이라 초점이 미끄러지는 동안 농도도 끊김 없이 따라간다.
  */
-function slotAngle(slot: number, rx: number, hasChip: boolean): number {
-  const span = 180 - SLOT_ANGLE_LO * 2;
-  if (!hasChip) return SLOT_ANGLE_LO + ((slot + 0.5) / ORBIT_VISIBLE_SLOTS) * span;
-
-  const cut = Math.min(
-    76,
-    Math.max(38, (Math.acos(Math.min(0.94, (CHIP_W / 2 + 16) / rx)) * 180) / Math.PI),
-  );
-  const leftSlots = Math.ceil(ORBIT_VISIBLE_SLOTS / 2);
-  const rightSlots = ORBIT_VISIBLE_SLOTS - leftSlots;
-
-  if (slot < leftSlots) {
-    return SLOT_ANGLE_LO + ((slot + 0.5) / leftSlots) * (cut - SLOT_ANGLE_LO);
-  }
-  const k = slot - leftSlots;
-  return 180 - cut + ((k + 0.5) / rightSlots) * (cut - SLOT_ANGLE_LO);
-}
-
-/** 선택된 점이 앞면 가운데쯤 오도록 하는 회전량. */
-const rotationToReveal = (index: number) => index - Math.floor(ORBIT_VISIBLE_SLOTS / 2);
+const arcOpacity = (offset: number, beyond: number) => {
+  // 초점에 얼마나 가까운지(1칸 안쪽에서만 오른다)
+  const near = Math.max(0, 1 - Math.abs(offset));
+  // 흐린 구간의 잔광 — 그리기를 멈추는 지점에서 정확히 0 이 된다
+  const tail = Math.max(0, 1 - beyond / ORBIT_RING_HINTS);
+  return (0.42 + 0.5 * near) * tail;
+};
 
 interface AtlasCanvasProps {
   scene: OrbitScene | null;
@@ -96,7 +110,7 @@ interface AtlasCanvasProps {
 }
 
 export function AtlasCanvas({
-  scene,
+  scene: nextScene,
   activeTrackId,
   selectedPointId,
   onSelectPoint,
@@ -105,16 +119,123 @@ export function AtlasCanvas({
   bottomInset,
   emptyMessage,
 }: AtlasCanvasProps) {
+  /*
+   * 씬이 통째로 바뀔 때(폴더 → 세션)는 그리는 씬을 한 박자 늦춘다.
+   *
+   * 중심 노드·궤도·칩·위성이 전부 다른 것으로 갈리는 전환이라 같은 프레임에 갈아 끼우면
+   * 계단처럼 튄다. 먼저 옅어지게 두고(`leaving`), 보이지 않는 사이에 바꾼 뒤 다시 짙어진다.
+   * 같은 씬의 데이터 갱신(제목 변경·재조회)은 지연 없이 그대로 반영한다.
+   */
+  const [scene, setScene] = useState(nextScene);
+  const [leaving, setLeaving] = useState(false);
+  const latestSceneRef = useRef(nextScene);
+  latestSceneRef.current = nextScene;
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (nextScene?.id === scene?.id) {
+      setScene(nextScene);
+      return;
+    }
+    setLeaving(true);
+    /*
+     * 전환 중에 또 바뀌어도 타이머를 다시 걸지 않는다 — 다시 걸면 화살표를 누르고 있는
+     * 동안 교체가 계속 미뤄져 화면이 흐린 채로 남는다. 예약된 교체가 그때의 마지막 씬을
+     * 집어 간다.
+     */
+    if (fadeTimerRef.current) return;
+    fadeTimerRef.current = setTimeout(() => {
+      fadeTimerRef.current = null;
+      setScene(latestSceneRef.current);
+      setLeaving(false);
+    }, SCENE_FADE_MS);
+  }, [nextScene, scene?.id]);
+
+  useEffect(
+    () => () => {
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+    },
+    [],
+  );
+
   const stageRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 860, h: 620 });
   const [hintClosed, setHintClosed] = useState(false);
   const [hintMuted, setHintMuted] = useState(readHintDismissed);
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
 
-  /** 궤도별 회전량. 씬이 바뀌면 비운다. */
-  const [rotations, setRotations] = useState<Record<string, number>>({});
-  /** 궤도 축에서 지금 보고 있는 창의 시작 인덱스. */
-  const [axisIndex, setAxisIndex] = useState(0);
+  /**
+   * 궤도별 회전량. value 는 지금 그려야 할 값, target 은 도착점이다.
+   *
+   * 점을 left/top 전이로 옮기면 두 점을 잇는 **현**을 따라가 궤도를 벗어난다.
+   * 회전량만 보간하고 좌표는 매 프레임 다시 계산해 실제로 호를 따라 돌게 한다.
+   * 상태가 아니라 ref 에 두는 이유는 프레임마다 갱신되는 값이라서다 —
+   * 상태 갱신 함수 안에서 애니메이션을 이어갈지 판단하면 StrictMode 이중 호출에
+   * 걸린다.
+   */
+  const spinRef = useRef(new Map<string, Motion>());
+  /**
+   * 지금 초점에 놓인 궤도의 연속 위치. 정수 자리의 궤도가 고정 반경에 온다.
+   *
+   * 세션을 옮기면 이 값이 미끄러지고, 궤도와 칩이 그 차이만큼 안팎으로 흘러간다 —
+   * 탭이 넘어가는 느낌이 여기서 나온다.
+   */
+  const focusRef = useRef<Motion>({ value: 0, target: 0 });
+  /**
+   * 아래 트레이가 차지하는 높이. 계 전체의 세로 위치가 여기서 나온다.
+   *
+   * 세션을 펼치면 트레이가 뜨면서 이 값이 40 → 250 으로 한 번에 뛴다. 그대로 쓰면 행성과
+   * 궤도가 같은 프레임에 위로 순간이동한다 — 값을 미끄러뜨려 계가 함께 올라가게 한다.
+   */
+  const insetRef = useRef<Motion>({ value: bottomInset, target: bottomInset });
+  const frameRef = useRef<number | null>(null);
+  const [, drawFrame] = useReducer((tick: number) => tick + 1, 0);
+
+  const runSpin = useCallback(() => {
+    if (frameRef.current !== null) return;
+    let previous = performance.now();
+
+    const step = (now: number) => {
+      // 탭이 잠들었다 깨면 dt 가 커진다 — 한 프레임에 건너뛰지 않도록 자른다.
+      const dt = Math.min(64, Math.max(1, now - previous));
+      previous = now;
+
+      let moving = advance(focusRef.current, dt);
+      if (advance(insetRef.current, dt)) moving = true;
+      spinRef.current.forEach((spin) => {
+        if (advance(spin, dt)) moving = true;
+      });
+
+      drawFrame();
+      frameRef.current = moving ? requestAnimationFrame(step) : null;
+    };
+
+    frameRef.current = requestAnimationFrame(step);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    },
+    [],
+  );
+
+  const spinValue = (trackId: string) => spinRef.current.get(trackId)?.value ?? 0;
+
+  /** 목표 회전량을 옮긴다. 처음 보는 궤도는 애니메이션 없이 그 자리에 놓는다. */
+  const spinTo = useCallback(
+    (trackId: string, target: number) => {
+      const spin = spinRef.current.get(trackId);
+      if (!spin) {
+        spinRef.current.set(trackId, { value: target, target });
+        return;
+      }
+      if (spin.target === target) return;
+      spin.target = target;
+      runSpin();
+    },
+    [runSpin],
+  );
 
   /*
    * 안내 알약은 평소 가운데 정렬(translateX(-50%))이라 폭이 늘면 X 가 옆으로 밀린다.
@@ -170,30 +291,54 @@ export function AtlasCanvas({
 
   const sceneId = scene?.id ?? null;
   useEffect(() => {
-    setRotations({});
-    setAxisIndex(0);
+    spinRef.current.clear();
+    focusRef.current = { value: 0, target: 0 };
   }, [sceneId]);
 
   const tracks = scene?.tracks ?? [];
   const isFolder = scene?.kind === 'folder';
-  const maxAxisIndex = Math.max(0, tracks.length - MAX_RENDERED_ORBITS);
-  const safeAxisIndex = Math.min(axisIndex, maxAxisIndex);
 
-  // 창 밖 첫 궤도까지 하나 더 그린다 — 아래에 걸쳐 흐리게 남아 "더 있다"를 보여준다.
-  const windowTracks = tracks.slice(safeAxisIndex, safeAxisIndex + MAX_RENDERED_ORBITS + 1);
-  const hiddenInside = safeAxisIndex;
-  const hiddenOutside = Math.max(0, tracks.length - (safeAxisIndex + MAX_RENDERED_ORBITS));
+  /** 초점에 두어야 할 궤도 — 폴더 씬에서 펼친 세션. 없으면 첫 궤도다. */
+  const focusIndex = Math.max(
+    0,
+    tracks.findIndex((track) => track.id === activeTrackId),
+  );
 
-  const rotationOf = (track: OrbitTrack) =>
-    normalizeRotation(rotations[track.id] ?? 0, track.points.length);
+  /** 초점을 새 궤도로 미끄러뜨린다. 처음 그릴 때는 애니메이션 없이 제자리에서 시작한다. */
+  useEffect(() => {
+    if (focusRef.current.target === focusIndex) return;
+    focusRef.current.target = focusIndex;
+    runSpin();
+  }, [focusIndex, runSpin]);
 
-  const rotateTrack = (track: OrbitTrack, direction: 1 | -1) => {
-    if (track.points.length <= ORBIT_VISIBLE_SLOTS) return;
-    setRotations((prev) => ({
-      ...prev,
-      [track.id]: normalizeRotation((prev[track.id] ?? 0) + direction, track.points.length),
-    }));
-  };
+  const focusValue = focusRef.current.value;
+
+  useEffect(() => {
+    if (insetRef.current.target === bottomInset) return;
+    insetRef.current.target = bottomInset;
+    runSpin();
+  }, [bottomInset, runSpin]);
+
+  const inset = insetRef.current.value;
+
+  /**
+   * 방금 닫힌 궤도. 초점이 미끄러지는 동안만 붙잡아 둔다.
+   *
+   * 이걸 두지 않으면 세션을 옮길 때 이전 페이지들이 그 자리에서 사라지고 새 페이지가
+   * 제자리에 나타난다 — "짠" 하고 바뀌는 게 그거다. 나가는 궤도는 초점에서 멀어지며
+   * 옅어지고, 들어오는 궤도는 다가오며 짙어져 서로 교차한다.
+   */
+  const [leavingTrackId, setLeavingTrackId] = useState<string | null>(null);
+  const openedTrackRef = useRef<string | null>(activeTrackId);
+  useEffect(() => {
+    const previous = openedTrackRef.current;
+    openedTrackRef.current = activeTrackId;
+    if (!previous || previous === activeTrackId) return;
+    setLeavingTrackId(previous);
+    const timer = setTimeout(() => setLeavingTrackId(null), SPIN_TAU * 4);
+    return () => clearTimeout(timer);
+  }, [activeTrackId]);
+
 
   /**
    * 폴더 씬에서 점을 그리는 궤도는 펼쳐 놓은 세션 하나뿐이다.
@@ -201,39 +346,50 @@ export function AtlasCanvas({
    */
   const isOpenTrack = (track: OrbitTrack) => !isFolder || track.id === activeTrackId;
 
-  /** 선택된 점이 뒤편이나 창 밖에 있으면 보이는 자리로 데려온다. */
-  useEffect(() => {
-    if (!selectedPointId || tracks.length === 0) return;
-
-    const trackIndex = tracks.findIndex((track) =>
-      track.points.some((point) => point.id === selectedPointId),
-    );
-    if (trackIndex < 0) return;
-
-    const track = tracks[trackIndex];
-    const pointIndex = track.points.findIndex((point) => point.id === selectedPointId);
-
-    setAxisIndex((prev) => {
-      const clamped = Math.min(prev, maxAxisIndex);
-      if (trackIndex < clamped) return trackIndex;
-      if (trackIndex >= clamped + MAX_RENDERED_ORBITS) {
-        return Math.min(maxAxisIndex, trackIndex - MAX_RENDERED_ORBITS + 1);
-      }
-      return clamped;
-    });
-
-    setRotations((prev) => {
-      const total = track.points.length;
-      const current = normalizeRotation(prev[track.id] ?? 0, total);
-      if (isVisibleSlot(orbitSlot(pointIndex, current, total))) return prev;
-      return { ...prev, [track.id]: normalizeRotation(rotationToReveal(pointIndex), total) };
-    });
-  }, [selectedPointId, tracks, maxAxisIndex]);
+  /** 지금 최하단에 놓인 점의 인덱스. 아직 아무것도 고르지 않았을 때의 기준점이다. */
+  const bottomIndex = (track: OrbitTrack) =>
+    normalizeRotation(Math.round(spinRef.current.get(track.id)?.target ?? 0), track.points.length);
 
   /**
-   * ←→ 는 펼친 궤도를 돌리고, ↑↓ 는 궤도 축을 옮긴다.
+   * 선택된 페이지는 언제나 궤도 최하단에 온다 — 선택이 곧 회전이다.
    *
-   * 의존성을 비워 두면 닫힌 회전량·창 인덱스를 붙잡는다. 리스너 하나라 매 렌더
+   * 선택이 없는 궤도는 첫 페이지를 최하단에 두고 가만히 둔다.
+   */
+  useEffect(() => {
+    tracks.forEach((track) => {
+      const total = track.points.length;
+      if (total === 0) return;
+
+      const index = track.points.findIndex((point) => point.id === selectedPointId);
+      if (index < 0) {
+        if (!spinRef.current.has(track.id)) spinRef.current.set(track.id, { value: 0, target: 0 });
+        return;
+      }
+
+      const spin = spinRef.current.get(track.id);
+      spinTo(track.id, spin ? alignOffset(spin.target, index, total) : index);
+    });
+  }, [tracks, selectedPointId, spinTo]);
+
+  /**
+   * 좌우 이동 = 이웃 페이지 선택. 회전은 선택을 따라오므로 여기서 건드리지 않는다.
+   * 아직 고른 페이지가 없으면 최하단에 있던 페이지부터 시작한다.
+   */
+  const stepPage = (track: OrbitTrack, direction: 1 | -1) => {
+    const total = track.points.length;
+    if (total === 0) return;
+    const current = track.points.findIndex((point) => point.id === selectedPointId);
+    const next = current < 0 ? bottomIndex(track) : (current + direction + total) % total;
+    onSelectPoint(track.points[next].id, track.sessionId);
+  };
+
+  /**
+   * ←→ 는 펼친 궤도의 페이지를 옮긴다.
+   *
+   * ↑↓ 는 여기서 다루지 않는다 — 폴더·세션 사이 이동이라 네비게이터의 세로 순서를
+   * 아는 쪽(VariantAtlasReplica)이 맡는다. 궤도 축 이동은 휠과 "바깥 궤도" 버튼에 남았다.
+   *
+   * 의존성을 비워 두면 닫힌 선택·창 인덱스를 붙잡는다. 리스너 하나라 매 렌더
    * 재등록이 더 안전하고 싸다.
    */
   useEffect(() => {
@@ -242,81 +398,98 @@ export function AtlasCanvas({
     const onKeyDown = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
 
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        const track = windowTracks.find(isOpenTrack);
-        if (!track) return;
+        // 세션 씬은 궤도가 여럿일 수 있다 — 고른 페이지가 있는 궤도를 먼저 잡는다.
+        const track =
+          tracks.find(
+            (candidate) =>
+              isOpenTrack(candidate) &&
+              candidate.points.some((point) => point.id === selectedPointId),
+          ) ?? tracks.find(isOpenTrack);
+        if (!track || track.points.length === 0) return;
         event.preventDefault();
-        rotateTrack(track, event.key === 'ArrowRight' ? 1 : -1);
+        stepPage(track, event.key === 'ArrowRight' ? 1 : -1);
         return;
       }
 
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        if (maxAxisIndex === 0) return;
-        event.preventDefault();
-        const direction = event.key === 'ArrowDown' ? 1 : -1;
-        setAxisIndex((current) =>
-          Math.max(0, Math.min(maxAxisIndex, Math.min(current, maxAxisIndex) + direction)),
-        );
-      }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   });
 
+  /** 초점을 이웃 궤도(=이웃 세션)로 옮긴다. 목록 밖으로는 나가지 않는다. */
+  const stepFocus = (direction: 1 | -1) => {
+    const next = focusIndex + direction;
+    if (next < 0 || next >= tracks.length) return;
+    const target = tracks[next];
+    if (target.sessionId) onSelectTrack(target.sessionId);
+  };
+
   /**
-   * 캔버스 위 휠은 궤도 축 이동.
+   * 캔버스 위 휠은 초점 이동 — 궤도를 한 칸씩 넘긴다.
    *
    * React 의 onWheel 은 passive 로 등록돼 preventDefault 가 먹지 않는다 —
    * 페이지가 같이 스크롤되지 않도록 여기서 직접 non-passive 로 건다.
+   * 한 번의 스와이프가 여러 칸을 넘기지 않도록 관성 구간을 잠근다.
    */
+  const wheelLockRef = useRef(0);
   useEffect(() => {
     const element = stageRef.current;
-    if (!element || maxAxisIndex === 0) return;
+    if (!element || !isFolder || tracks.length <= 1) return;
 
     const onWheel = (event: WheelEvent) => {
       if (Math.abs(event.deltaY) < 4) return;
       event.preventDefault();
-      setAxisIndex((prev) =>
-        Math.max(0, Math.min(maxAxisIndex, Math.min(prev, maxAxisIndex) + (event.deltaY > 0 ? 1 : -1))),
-      );
+      const now = performance.now();
+      if (now < wheelLockRef.current) return;
+      wheelLockRef.current = now + 260;
+      stepFocus(event.deltaY > 0 ? 1 : -1);
     };
 
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
-  }, [maxAxisIndex]);
-
-  const orbitCount = Math.max(1, Math.min(windowTracks.length, MAX_RENDERED_ORBITS));
+  });
 
   // 반경은 트레이가 열린 최악의 높이 기준으로 잡아 어떤 상태에서도 넘치지 않게 한다.
   const rxCap = Math.max(150, size.w / 2 - 28);
   const availableHeight = Math.max(240, size.h - INSET_MAX);
   const ryCap = Math.max(96, availableHeight - PLANET_Y_MIN - LABEL_GUTTER - 32);
   const rMax = Math.min(rxCap, ryCap / RATIO, R_ABS_MAX);
-  const r0 = Math.min(PLANET_R + 160, rMax);
-  const step = orbitCount > 1 ? (rMax - r0) / (orbitCount - 1) : 0;
+  const rInner = Math.min(R_INNER_MIN, rMax);
 
-  const orbitLayouts = windowTracks.map((track, index) => {
-    const rx = orbitCount === 1 ? (r0 + rMax) / 2 : r0 + index * step;
-    return {
-      track,
-      rx,
-      ry: rx * RATIO,
-      index,
-      // 창 밖 첫 궤도는 실제로 화면 아래로 넘어간다 — 흐리게 두고 조작은 막는다.
-      beyondWindow: index >= MAX_RENDERED_ORBITS,
-    };
+  /*
+   * 초점 궤도는 언제나 같은 반경에 온다 — 세션을 넘겨도 "지금 보는 궤도"가 제자리에
+   * 있어야 눈이 따라가지 않는다. 궤도가 하나뿐이면 초점 자리를 그대로 쓴다.
+   */
+  const ringSpacing = (rMax - rInner) / (2 * ORBIT_RING_REACH);
+  const rFocus = (rInner + rMax) / 2;
+
+  /*
+   * 온전한 구간에 다 들어가는 작은 폴더는 초점을 고정하지 않고 가운데로 모은다 —
+   * 어차피 넘길 것이 없는데 한쪽에만 궤도가 몰리면 비어 보인다.
+   */
+  const layoutFocus =
+    tracks.length <= ORBIT_RING_SIDE * 2 + 1 ? (tracks.length - 1) / 2 : focusValue;
+
+  const orbitLayouts = tracks.flatMap((track, index) => {
+    const placement = ringPlacement(index, layoutFocus, tracks.length);
+    if (!placement) return [];
+    const rx = rFocus + placement.offset * ringSpacing;
+    return [{ track, rx, ry: rx * RATIO, index, placement }];
   });
 
   const systemHeight = rMax * RATIO + LABEL_GUTTER;
   const planetY = Math.max(
     PLANET_Y_MIN,
-    (Math.max(240, size.h - bottomInset) - systemHeight) / 2,
+    (Math.max(240, size.h - inset) - systemHeight) / 2,
   );
   const centerX = size.w / 2;
   const hue = scene?.hue ?? '#ef6f47';
-  const chipGap = step * RATIO;
+  // 이웃 칩을 나란히 놓을 자리가 있는지 — 좁으면 초점 칩만 남긴다.
+  const chipRoom = ringSpacing * RATIO >= CHIP_ROOM;
 
   const selectedLocation = orbitLayouts
     .map((layout) => ({
@@ -330,7 +503,7 @@ export function AtlasCanvas({
   return (
     <div className="atlas-stage" ref={stageRef}>
       {scene && (
-        <div className="atlas-stage__scaler">
+        <div className={cx('atlas-stage__scaler', leaving && 'atlas-stage__scaler--leaving')}>
           <svg className="atlas-stage__svg" width={size.w} height={size.h} aria-hidden>
             <g
               transform={`translate(${centerX}, ${planetY})`}
@@ -361,8 +534,8 @@ export function AtlasCanvas({
 
               {/* 클릭 히트 영역 (마스크 밖에 둬서 페이드와 무관하게 잡히도록) */}
               {isFolder &&
-                orbitLayouts.map(({ track, rx, ry, beyondWindow }) =>
-                  beyondWindow || !track.sessionId ? null : (
+                orbitLayouts.map(({ track, rx, ry, placement }) =>
+                  placement.beyond > 0 || !track.sessionId ? null : (
                     <path
                       key={`hit-${track.id}`}
                       d={`M ${-rx} 0 A ${rx} ${ry} 0 0 0 ${rx} 0`}
@@ -375,11 +548,9 @@ export function AtlasCanvas({
                 )}
 
               <g mask="url(#atlas-arc-mask)">
-                {orbitLayouts.map(({ track, rx, ry, index, beyondWindow }) => {
+                {orbitLayouts.map(({ track, rx, ry, placement }) => {
                   const isOpen = isFolder && track.id === activeTrackId;
                   const isHovered = hoveredTrackId === track.id;
-                  const isDimmed = isFolder && activeTrackId !== null && !isOpen;
-                  const base = arcOpacity(index, orbitCount);
                   return (
                     <path
                       key={track.id}
@@ -389,18 +560,11 @@ export function AtlasCanvas({
                         'atlas-arc',
                         isOpen && 'atlas-arc--active',
                         isHovered && !isOpen && 'atlas-arc--hover',
-                        beyondWindow && 'atlas-arc--beyond',
                       )}
                       style={{
-                        opacity: beyondWindow
-                          ? 0.2
-                          : isOpen
-                            ? 1
-                            : isHovered
-                              ? 0.95
-                              : isDimmed
-                                ? base * 0.45
-                                : base,
+                        opacity: isHovered
+                          ? 0.9
+                          : arcOpacity(placement.offset, placement.beyond),
                         stroke: isFolder ? track.hue : undefined,
                       }}
                     />
@@ -408,18 +572,17 @@ export function AtlasCanvas({
                 })}
               </g>
 
-              {/* 선택된 페이지로 향하는 연결선 */}
-              {selectedLocation && !selectedLocation.layout.beyondWindow && (() => {
+              {/* 선택된 페이지로 향하는 연결선 — 회전이 끝나면 수직으로 선다. */}
+              {selectedLocation && selectedLocation.layout.placement.beyond === 0 && (() => {
                 const { layout, pointIndex } = selectedLocation;
                 if (!isOpenTrack(layout.track)) return null;
-                const total = layout.track.points.length;
-                const slot = orbitSlot(pointIndex, rotationOf(layout.track), total);
-                if (!isVisibleSlot(slot)) return null;
-                const point = pointOnArc(
-                  layout.rx,
-                  layout.ry,
-                  slotAngle(slot, layout.rx, layout.track.chip !== null),
+                const placement = orbitPlacement(
+                  pointIndex,
+                  spinValue(layout.track.id),
+                  layout.track.points.length,
                 );
+                if (!placement) return null;
+                const point = pointOnArc(layout.rx, layout.ry, placement.angle);
                 return <line className="atlas-arc__link" x1={0} y1={0} x2={point.x} y2={point.y} />;
               })()}
 
@@ -439,15 +602,24 @@ export function AtlasCanvas({
           </div>
 
           {/* 세션 레이블 칩 — 각 호의 최하단 바로 아래 */}
-          {orbitLayouts.map(({ track, ry, index, beyondWindow }) => {
-            if (!track.chip || beyondWindow) return null;
+          {orbitLayouts.map(({ track, ry, placement }) => {
+            if (!track.chip) return null;
+            /*
+             * 이름표가 쌓이면 그게 곧 혼잡이라 온전한 구간 밖에서는 지운다. 다만
+             * 켜고 끄기로 다루면 초점을 옮길 때 칩이 불쑥 나타난다 — 초점에서 멀어진
+             * 만큼 서서히 지운다. beyond 가 연속값이라 미끄러지는 내내 이어진다.
+             */
+            const fade = 1 - Math.min(1, placement.beyond);
+            const near = Math.max(0, 1 - Math.abs(placement.offset));
+            /*
+             * 초점 칩은 또렷하고 이웃은 한 걸음 물러난다. 자리가 좁으면 이웃을 지운다.
+             * 두 경우 모두 near 로 이어 계산한다 — 구간을 나눠 다른 값을 주면 궤도가
+             * 그 경계를 넘는 순간 크기와 농도가 계단처럼 뛴다.
+             */
+            const opacity = fade * (chipRoom ? 0.6 + 0.4 * near : near);
+            if (opacity <= 0.02) return null;
             const isOpen = track.id === activeTrackId;
             const isHovered = hoveredTrackId === track.id;
-            // 호 간격이 좁아 칩이 겹칠 수 있으면 좌우로 번갈아 밀어낸다.
-            const dx =
-              orbitCount < 2 || chipGap >= CHIP_H + 6
-                ? 0
-                : (index % 2 === 0 ? -1 : 1) * (CHIP_W / 2 + 10);
             return (
               <button
                 key={`chip-${track.id}`}
@@ -459,8 +631,9 @@ export function AtlasCanvas({
                 )}
                 style={{
                   left: centerX,
-                  top: planetY + ry + 11,
-                  '--chip-dx': `${dx}px`,
+                  top: planetY + ry + CHIP_DROP,
+                  opacity,
+                  '--chip-focus': near,
                   '--chip-hue': track.hue,
                 } as React.CSSProperties}
                 onClick={() => onSelectTrack(track.sessionId as string)}
@@ -480,113 +653,112 @@ export function AtlasCanvas({
 
           {/* 페이지 위성 — 폴더 씬에서는 펼친 세션 하나만 */}
           {orbitLayouts.flatMap((layout) => {
-            if (layout.beyondWindow || !isOpenTrack(layout.track)) return [];
+            if (layout.placement.beyond > 0) return [];
+            const isOpen = isOpenTrack(layout.track);
+            if (!isOpen && layout.track.id !== leavingTrackId) return [];
+
+            /*
+             * 초점에 가까울수록 짙다. 들어오는 궤도는 0 에서 시작해 다가오며 나타나고,
+             * 나가는 궤도는 멀어지며 사라진다.
+             */
+            const near = isFolder ? Math.max(0, 1 - Math.abs(layout.placement.offset)) : 1;
+            if (near <= 0.01) return [];
+
             const total = layout.track.points.length;
-            const rotation = rotationOf(layout.track);
-            const hasChip = layout.track.chip !== null;
+            const offset = spinValue(layout.track.id);
 
             return layout.track.points.map((point, index) => {
-              const slot = orbitSlot(index, rotation, total);
-              if (!isVisibleSlot(slot)) return null;
-              const at = pointOnArc(layout.rx, layout.ry, slotAngle(slot, layout.rx, hasChip));
+              const placement = orbitPlacement(index, offset, total);
+              if (!placement) return null;
+              const at = pointOnArc(layout.rx, layout.ry, placement.angle);
               const isActive = selectedPointId === point.id;
+
+              /*
+               * 궤도 양 끝으로 밀려난 점은 "밖에 더 있다"는 표시일 뿐이다.
+               * 크기와 농도를 남은 거리에 비례시켜 0 으로 수렴시킨다 — 회전이
+               * 연속값이라 온전한 점에서 여기까지 끊김 없이 이어진다.
+               */
+              const isEdge = placement.beyond > 0;
+              const fade = isEdge ? 1 - placement.beyond / ORBIT_EDGE_HINTS : 1;
+
               return (
                 <button
                   key={`${layout.track.id}-${point.id}`}
                   type="button"
-                  className={cx('atlas-sat', isActive && 'atlas-sat--active')}
+                  className={cx(
+                    'atlas-sat',
+                    isActive && 'atlas-sat--active',
+                    isEdge && 'atlas-sat--edge',
+                  )}
                   style={{
                     left: centerX + at.x,
                     top: planetY + at.y,
                     background: layout.track.hue,
-                  }}
+                    '--sat-near': near,
+                    // 아직 미끄러지는 중인 궤도는 눌러도 엉뚱한 세션이 잡힌다.
+                    pointerEvents: isOpen && near > 0.9 ? undefined : 'none',
+                    ...(isEdge ? { '--sat-fade': fade } : null),
+                  } as React.CSSProperties}
                   onClick={(event) => {
                     event.stopPropagation();
                     onSelectPoint(point.id, layout.track.sessionId);
                   }}
-                  aria-label={`${index + 1}. ${point.title}`}
+                  {...(isEdge
+                    ? { 'aria-hidden': true, tabIndex: -1 }
+                    : { 'aria-label': `${index + 1}. ${point.title}` })}
                 >
                   <span className="atlas-sat__hit" />
-                  <span
-                    className={cx(
-                      'atlas-sat__tip',
-                      at.x > 0 ? 'atlas-sat__tip--left' : 'atlas-sat__tip--right',
-                    )}
-                  >
-                    <span className="atlas-sat__tip-title">{index + 1}. {point.title}</span>
-                    <span className="atlas-sat__tip-meta">
-                      <span className="atlas-sat__tip-domain">{point.domain}</span>
-                      {point.minutes > 0 && <span>· {point.minutes}분</span>}
-                      {point.visits > 1 && <span>· 총 {point.visits}회 방문</span>}
+                  {!isEdge && (
+                    <span
+                      className={cx(
+                        'atlas-sat__tip',
+                        at.x > 0 ? 'atlas-sat__tip--left' : 'atlas-sat__tip--right',
+                      )}
+                    >
+                      <span className="atlas-sat__tip-title">{index + 1}. {point.title}</span>
+                      <span className="atlas-sat__tip-meta">
+                        <span className="atlas-sat__tip-domain">{point.domain}</span>
+                        {point.minutes > 0 && <span>· {point.minutes}분</span>}
+                        {point.visits > 1 && <span>· 총 {point.visits}회 방문</span>}
+                      </span>
                     </span>
-                  </span>
+                  )}
                 </button>
               );
             });
           })}
 
-          {/* 펼친 궤도의 회전 컨트롤 — 뒤편에 남은 개수를 알린다 */}
+          {/* 펼친 궤도의 좌우 이동 — 지금 최하단에 있는 페이지가 몇 번째인지 함께 알린다 */}
           {orbitLayouts.map((layout) => {
             const { track } = layout;
-            if (layout.beyondWindow || !isOpenTrack(track)) return null;
-            if (track.points.length <= ORBIT_VISIBLE_SLOTS) return null;
-
-            const shown = visibleIndices(track.points.length, rotationOf(track));
-            const first = shown.length ? shown[0] + 1 : 0;
-            const last = shown.length ? shown[shown.length - 1] + 1 : 0;
+            if (layout.placement.beyond > 0 || !isOpenTrack(track)) return null;
+            if (track.points.length <= 1) return null;
+            const near = isFolder ? Math.max(0, 1 - Math.abs(layout.placement.offset)) : 1;
 
             return (
               <div
                 key={`rotate-${track.id}`}
                 className="atlas-rotate"
-                style={{ left: centerX, top: planetY + layout.ry + (track.chip ? 48 : 16) }}
+                style={{
+                  left: centerX,
+                  top: planetY + layout.ry + (track.chip ? CHIP_DROP + CHIP_H + 10 : 30),
+                  opacity: near,
+                  pointerEvents: near > 0.9 ? undefined : 'none',
+                }}
               >
-                <button
-                  type="button"
-                  aria-label="궤도 뒤로 돌리기"
-                  onClick={() => rotateTrack(track, -1)}
-                >
+                <button type="button" aria-label="이전 페이지" onClick={() => stepPage(track, -1)}>
                   <i className="ph ph-caret-left" />
                 </button>
-                {/* 뒤편에 몇 개가 남았는지 알려주지 않으면 끝까지 돌려봐야만 알 수 있다. */}
+                {/* 궤도 밖에 몇 개가 더 있는지 알려주지 않으면 끝까지 돌려봐야만 안다. */}
                 <span className="atlas-rotate__count">
-                  {first}–{last} / {track.points.length}
+                  {bottomIndex(track) + 1} / {track.points.length}
                 </span>
-                <button
-                  type="button"
-                  aria-label="궤도 앞으로 돌리기"
-                  onClick={() => rotateTrack(track, 1)}
-                >
+                <button type="button" aria-label="다음 페이지" onClick={() => stepPage(track, 1)}>
                   <i className="ph ph-caret-right" />
                 </button>
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* 창 밖 궤도 — 아래쪽을 흐리게 덮고 남은 개수를 알린다. */}
-      {scene && hiddenOutside > 0 && (
-        <div
-          className="atlas-stage__axis atlas-stage__axis--out"
-          style={{ bottom: bottomInset }}
-        >
-          <button
-            type="button"
-            onClick={() => setAxisIndex((prev) => Math.min(maxAxisIndex, prev + 1))}
-          >
-            <i className="ph ph-caret-down" />
-            <span>바깥 궤도 {hiddenOutside}개 더</span>
-          </button>
-        </div>
-      )}
-
-      {scene && hiddenInside > 0 && (
-        <div className="atlas-stage__axis atlas-stage__axis--in">
-          <button type="button" onClick={() => setAxisIndex((prev) => Math.max(0, prev - 1))}>
-            <i className="ph ph-caret-up" />
-            <span>안쪽 궤도 {hiddenInside}개</span>
-          </button>
         </div>
       )}
 
@@ -614,15 +786,19 @@ export function AtlasCanvas({
           className={`atlas-stage__hint${hintEntered ? '' : ' atlas-stage__hint--enter'}`}
           onAnimationEnd={() => setHintEntered(true)}
           style={
-            hintFrozenLeft !== null
-              ? { left: `${hintFrozenLeft}px`, transform: 'none' }
-              : undefined
+            {
+              // 트레이(열린 세션 카드) 위로 띄운다 — 아래에 고정하면 카드를 가린다.
+              '--hint-bottom': `${inset + 12}px`,
+              ...(hintFrozenLeft !== null
+                ? { left: `${hintFrozenLeft}px`, transform: 'none' }
+                : null),
+            } as React.CSSProperties
           }
         >
           <span>
             {isFolder
-              ? '궤도나 레이블을 클릭하면 해당 세션의 페이지가 펼쳐집니다'
-              : '페이지는 방문 순서대로 안쪽 궤도부터 배치됩니다 · ←→ 로 돌려 나머지를 봅니다'}
+              ? '궤도나 레이블을 클릭하면 세션이 펼쳐집니다 · ↑↓ 폴더·세션 이동, ←→ 페이지 이동'
+              : '페이지는 방문 순서대로 배치됩니다 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'}
           </span>
           <span
             className="atlas-stage__hint-actions"

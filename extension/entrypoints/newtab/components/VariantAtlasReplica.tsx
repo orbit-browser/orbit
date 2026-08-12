@@ -5,7 +5,14 @@ import { AtlasNavigator } from './atlas/AtlasNavigator';
 import { AtlasCanvas } from './atlas/AtlasCanvas';
 import { AtlasTray } from './atlas/AtlasTray';
 import { AtlasDetail } from './atlas/AtlasDetail';
-import { buildFolderScene, buildSessionScene } from './atlas/data';
+import {
+  buildFolderScene,
+  buildNavRows,
+  buildSessionScene,
+  sortSessions,
+  stepNavRow,
+  type NavRow,
+} from './atlas/data';
 import { useAtlasData } from '../hooks/useAtlasData';
 import { readAtlasTarget } from '../lib/navigation';
 import { getNavState, useSharedNavState } from '../lib/nav-state';
@@ -28,11 +35,30 @@ export function VariantAtlasReplica() {
     ? sessions.find((session) => session.id === target.sessionId)
     : undefined;
 
+  /*
+   * 정렬을 여기서 한 번만 적용한다.
+   *
+   * 캔버스는 궤도를 안쪽부터 바깥으로 그리고 ↑↓ 도 그 순서로 내려간다 — 네비게이터가
+   * 보여 주는 순서와 다르면 "위에서 아래로"가 두 화면에서 서로 다른 뜻이 된다.
+   */
+  const sortedFolders = useMemo(
+    () =>
+      folders.map((folder) => ({
+        ...folder,
+        sessions: sortSessions(folder.sessions, nav.sessionSort),
+      })),
+    [folders, nav.sessionSort],
+  );
+  const sortedUnfiled = useMemo(
+    () => sortSessions(unfiled, nav.sessionSort),
+    [unfiled, nav.sessionSort],
+  );
+
   // 폴더 포커스가 세션 포커스보다 우선한다 — 둘 다 켜져 있으면 중심이 둘이 된다.
   // URL 의 orbit 파라미터로도 열 수 있어 새로고침해도 같은 폴더가 뜬다.
   const focusedFolderId = nav.focusedFolderId ?? target?.orbitId ?? null;
   const focusedFolder = focusedFolderId
-    ? folders.find((folder) => folder.id === focusedFolderId)
+    ? sortedFolders.find((folder) => folder.id === focusedFolderId)
     : undefined;
 
   const sharedSession = nav.focusedOrbitId
@@ -154,6 +180,49 @@ export function VariantAtlasReplica() {
     [patch],
   );
 
+  /** 지금 보고 있는 폴더 — 세로 이동에서 이 폴더의 세션만 목록에 낀다. */
+  const openFolderId = focusedFolder?.id ?? focusedSession?.folderId ?? null;
+
+  const navRows = useMemo(
+    () => buildNavRows(sortedFolders, sortedUnfiled, openFolderId),
+    [sortedFolders, sortedUnfiled, openFolderId],
+  );
+
+  /**
+   * ↑↓ — 네비게이터에 보이는 세로 순서 그대로 한 칸 옮긴다.
+   *
+   * 폴더끼리, 폴더 안 세션끼리, 정리 안 된 세션끼리가 한 줄로 이어져 있어 끝에 닿으면
+   * 다음 층으로 자연스럽게 넘어간다.
+   */
+  const stepVertically = useCallback(
+    (direction: 1 | -1) => {
+      const current: NavRow = {
+        folderId: openFolderId,
+        sessionId: focusedFolder ? getNavState().selectedSessionId : focusedSession?.id ?? null,
+      };
+      const row = stepNavRow(navRows, current, direction);
+      if (!row) return;
+
+      if (row.sessionId === null) {
+        selectFolder(row.folderId as string);
+        return;
+      }
+      if (row.folderId === null) {
+        selectSession(row.sessionId);
+        return;
+      }
+      // 폴더 안 세션 — 폴더 화면을 유지한 채 그 세션의 궤도를 펼친다.
+      patch({
+        focusedFolderId: row.folderId,
+        focusedOrbitId: null,
+        selectedSessionId: row.sessionId,
+        selectedPageId: null,
+      });
+      expandIn('expandedOrbitIds', row.folderId);
+    },
+    [navRows, openFolderId, focusedFolder, focusedSession, selectFolder, selectSession, patch, expandIn],
+  );
+
   const cycleSession = useCallback(
     (direction: 1 | -1) => {
       if (sessions.length === 0) return;
@@ -168,8 +237,8 @@ export function VariantAtlasReplica() {
   );
 
   /*
-   * 화살표는 캔버스가 쓴다 — ←→ 는 궤도 회전, ↑↓ 는 궤도 축 이동.
-   * 여기서는 검색 열기와 선택 해제만 다룬다.
+   * ↑↓ 는 네비게이터 세로 이동, ←→ 는 캔버스가 궤도 안 페이지 이동에 쓴다.
+   * 그 밖에 검색 열기와 선택 해제를 여기서 다룬다.
    */
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -183,15 +252,24 @@ export function VariantAtlasReplica() {
         return;
       }
 
-      if (event.key !== 'Escape') return;
       const tag = (event.target as HTMLElement)?.tagName;
+
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+        event.preventDefault();
+        stepVertically(event.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+
+      if (event.key !== 'Escape') return;
       if (tag === 'INPUT' || tag === 'TEXTAREA') (event.target as HTMLElement).blur();
       else if (selectedPageId) patch({ selectedPageId: null });
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedPageId, patch]);
+  }, [selectedPageId, patch, stepVertically]);
 
   return (
     <div
@@ -201,8 +279,8 @@ export function VariantAtlasReplica() {
       <AtlasHeader navOpen={nav.open} onToggleNav={toggleNav} />
 
       <AtlasNavigator
-        folders={folders}
-        unfiled={unfiled}
+        folders={sortedFolders}
+        unfiled={sortedUnfiled}
         sessions={sessions}
         query={nav.query}
         onQueryChange={(query) => patch({ query })}
@@ -224,6 +302,8 @@ export function VariantAtlasReplica() {
         searchOpen={nav.searchOpen}
         onSearchOpenChange={(searchOpen) => patch({ searchOpen })}
         searchInputRef={searchRef}
+        sort={nav.sessionSort}
+        onSortChange={(sessionSort) => patch({ sessionSort })}
       />
 
       <main className="atlas-canvas">
@@ -259,9 +339,11 @@ export function VariantAtlasReplica() {
       </main>
 
       <AtlasDetail
+        folder={focusedFolder ?? null}
         session={activeSession}
         page={selectedPage}
         onSelectPage={(pageId) => patch({ selectedPageId: pageId })}
+        onSelectSession={openTrack}
       />
     </div>
   );

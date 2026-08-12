@@ -1,131 +1,131 @@
-# 사용자 폴더와 궤도 캔버스 2뎁스
+# 세션 별칭(alias)과 네비게이터 정렬
 
-**상태:** 구현 완료 (2026-08-07) — 실제 브라우저 스모크 미실시
-**브랜치:** `feat/session-folders`
+**상태:** 구현 중 (2026-08-12)
+**브랜치:** `feat/dashboard-design`
 
 ## 작업 목표
 
-- 사용자가 직접 폴더를 만들어 세션을 정리하고, Atlas 캔버스가 폴더를 중심 노드로 그린다.
-- 세션 배정은 폴더 옆 `+` 버튼(다중 선택 일괄)과 세션 드래그앤드롭 두 경로를 제공한다.
-- 궤도는 자식 전체를 담되 앞면에 일부만 노출하고 나머지는 뒤편에 두어 회전으로 접근한다.
-- 화면 밖으로 나간 궤도는 흐리게 표시하고 화살표·스크롤로 그쪽까지 이동한다.
-- 폴더 뷰(궤도=세션)와 미정리 뷰(궤도=페이지 그룹)가 같은 렌더링·인터랙션 로직을 쓴다.
+1. 세션 이름을 사용자가 바꿀 수 있게 하되, **내부 이름(`title`)은 그대로 두고 별칭(`alias`)에
+   저장**한다. 사용자에게는 그냥 "이름 수정"으로 보인다.
+2. 대시보드 네비게이터에 세션 이름 편집(별칭 지정) 기능을 넣는다.
+3. 네비게이터에 **최신순 / 가나다순** 정렬을 넣는다.
 
 ## 현재 상태와 조사 결과
 
-- `extension/entrypoints/newtab/components/atlas/data.ts:139-142` — "백엔드에 Orbit 엔티티가
-  없어 세션을 중심 노드로 직접 쓴다"는 주석. 주제 계층은 원래 설계에 있었으나 미구현 상태다.
-- `AtlasCanvas.tsx` 궤도는 의미가 없다. `PAGES_PER_ORBIT = 8`로 페이지를 8개씩 잘라 담는
-  순수 페이지네이션이며(`data.ts:39-48`), 궤도 반경은 정보를 전달하지 않는다.
-- 궤도 용량 한계: `ORBIT_GAP = 58`, `R_ABS_MAX = 390`, 최소 반경 150 → 실질 5줄.
-  밀도 통제 없이 궤도=세션 매핑을 넣으면 세션 6개부터 그릴 자리가 없다.
-- `backend/app/db/models.py`에 topic/folder/tag 계열 필드가 없다. 신규 테이블은
-  `create_all`이 생성하고(`app/db/session.py:14`), 기존 테이블 컬럼 추가는
-  `app/db/migrations.py`의 멱등 ALTER 러너가 담당한다.
-- 인증은 `app/api/deps.py`의 `current_user_id`로 통일돼 있다. 폴더도 사용자 스코프가 필요하다.
-- 키 배정 충돌: `VariantAtlasReplica.tsx:123-129`에서 ↑↓=세션 순회, ←→=페이지 순회로
-  4방향을 이미 소진했다. 궤도 회전과 축 이동을 넣으려면 재배정이 필요하다.
+`PATCH /sessions/{id}` 는 지금 `session.title` 을 **덮어쓴다**(`api/sessions.py:313`).
+`title` 은 사용자 편집 대상이 아닌 곳에서 이미 광범위하게 쓰인다.
 
-## 사용자 결정 사항 (확인 완료)
+| 위치 | 용도 | 이름이 바뀌면 |
+| --- | --- | --- |
+| `api/sessions.py:429` | `_embed_and_upsert(id, title, summary)` | Qdrant 벡터가 옛 제목 기준으로 남아 검색이 어긋난다 |
+| `services/merge_service.py:67` | `_title_jaccard` 병합 게이팅 | 병합 판정이 사용자 작명에 좌우된다 |
+| `services/merge_suggester.py:57` | 후보 토큰 겹침 | 위와 같음 |
+| `services/session_updater.py:395` | 배치가 제목을 다시 만든다 | **사용자가 바꾼 이름이 덮인다** |
+| `services/recommender/service.py:93` | 추천 신호 term 추출 | 추천 근거가 흔들린다 |
 
-| 항목 | 결정 |
-|---|---|
-| 폴더 뷰 계층 | **3계층** — 중심=폴더, 궤도 1줄=세션 1개, 그 궤도의 점=해당 세션의 페이지 |
-| 세션 소속 | **단일 소속** (폴더 = 서랍). 세션은 폴더 하나에만 속한다 |
-| 저장 위치 | **백엔드** — 기기 간 유지, 세션 병합·삭제와 정합성 확보 |
-| 주제 생성 방식 | **수동** — 자동 클러스터링을 쓰지 않는다 |
+즉 사용자 요청대로 이름을 별도 항목으로 분리하는 것이 맞다.
 
-## 포함 범위
+편집 진입점은 이미 둘 있고 둘 다 `renameSession`(=title 덮어쓰기)을 부른다.
 
-- `folders` 신규 테이블(사용자 스코프, 이름, 색, 정렬 위치)과 `sessions.folder_id` 컬럼
-- 폴더 CRUD API, 세션 일괄 배정 API, 폴더에서 빼기 API
-- 폴더 삭제 시 소속 세션은 보존하고 `folder_id`만 NULL로 되돌린다
-- 세션 응답에 `folderId` 노출
-- 확장 타입·API 클라이언트·조회 훅
-- 네비게이터 3뎁스 트리(폴더 > 세션 > 페이지)와 미정리 섹션
-- 폴더 생성·이름 변경·삭제 UI, `+` 다중 선택 모달, 세션 드래그앤드롭
-- 캔버스 제네릭화: 중심 노드 + 궤도 트랙 + 궤도별 회전 오프셋
-- 궤도 가시 슬롯 제한과 뒤편 보관, 잔여 개수 표시
-- 화면 밖 궤도 흐림 처리와 축 이동(화살표·휠)
-- 키보드 조작 재배정
-- backend pytest, extension vitest·타입 검사·빌드
-- `data-model-v2.md`, `api-design-v2.md`, `IA.md`, `DecisionLog.md`, `WorkLog.md` 갱신
+- `entrypoints/sidepanel/views/SessionDetailView.tsx:51`
+- `entrypoints/newtab/components/atlas/AtlasDetail.tsx:53`
 
-## 제외 범위
+네비게이터(`AtlasNavigator.tsx`)에는 폴더 이름 편집만 있고 세션 편집이 없다.
+정렬은 어디에도 없다 — `buildAtlasSessions` 가 활동 시각 내림차순으로 한 번 정렬할 뿐이다.
 
-- 자동 주제 클러스터링·LLM 폴더 추천
-- 중첩 폴더(폴더 안의 폴더)
-- 폴더 공유·내보내기
-- 세션 다중 소속(태그형)
-- 폴더 단위 AI 요약
-- 사이드패널의 폴더 UI (새 탭 Atlas 화면에 한정)
+## 설계 결정
+
+### 표시 이름은 서버가 합친다
+
+응답의 `title` 은 **`alias or title`(표시 이름)** 이다. `alias` 는 편집창 초기값과
+"되돌리기" 판단용으로 따로 내려보낸다. 클라이언트가 매 화면에서 합치면 한 곳이라도
+빠지는 순간 같은 세션이 두 이름으로 보인다 — 사용자 요구("어디든 이름 수정처럼")를
+지키려면 경계 한 곳에서 끝내야 한다.
+
+내부 로직은 ORM 의 `session.title` 을 그대로 쓰므로 canonical 이 유지된다.
+
+**의도적 예외**: Ask 프롬프트(`ask_service._session_block`)와 추천 리랭크 프롬프트는
+`SessionDetail`/`SessionSignals` 를 거치므로 별칭을 본다. 사용자가 붙인 이름은 질의와
+더 가까우므로 그대로 둔다 — 벡터·병합 점수처럼 저장된 값과 대조하는 경로가 아니다.
+
+### 별칭 지우기
+
+`alias` 에 `null` 또는 빈 문자열을 보내면 별칭을 지우고 원래 이름으로 돌아간다.
+
+### 정렬
+
+`sortSessions(sessions, mode)` 순수 함수. `recent`(활동 시각 내림차순, 기존 기본값)와
+`title`(표시 이름 가나다순, `localeCompare(_, 'ko')`). 폴더 안 세션과 미정리 목록에
+모두 적용한다. 폴더 자체 순서는 `position` 을 유지한다(사용자가 만든 순서).
+
+상태는 `nav-state` 에 둔다 — 메인·아틀라스가 네비게이터를 공유한다.
 
 ## 변경할 파일
 
 **backend**
 
-- `app/db/models.py` — `Folder` 모델 추가, `Session.folder_id` 추가
-- `app/db/migrations.py` — `sessions.folder_id` additive 컬럼 등록
-- `app/schemas/folder.py` — 신규 요청·응답 스키마
-- `app/schemas/session.py` — `SessionDetail`에 `folder_id`
-- `app/api/folders.py` — 신규 라우터
-- `app/api/sessions.py` — 세션 응답 매핑에 folder_id 반영
-- `app/main.py` — 라우터 등록
-- `tests/test_folders.py` — 신규 테스트
+| 파일 | 변경 |
+| --- | --- |
+| `app/db/models.py` | `Session.alias` 컬럼, `DISPLAY_TITLE` SQL 식 |
+| `app/db/migrations.py` | `sessions.alias` additive 등록 |
+| `app/schemas/session.py` | `PatchSessionRequest.alias`, `SessionDetail.alias` |
+| `app/api/sessions.py` | `_to_detail` 표시 이름, `patch_session` 별칭 저장 |
+| `app/api/analytics.py` | top 세션 표시 이름 |
+| `app/api/events.py` | 타임라인 `session_title` 표시 이름 |
+| `app/api/search.py` | 검색 결과 `session_title` 표시 이름 |
+| `app/services/merge_suggester.py` | 병합 제안 표시 이름 (점수는 canonical 유지) |
+| `app/services/recommender/service.py` | 추천 카드 표시 이름 |
 
 **extension**
 
-- `lib/types.ts` — `Folder`, `Session.folderId`
-- `lib/api.ts` — 폴더 API 클라이언트
-- `entrypoints/newtab/hooks/useFolders.ts` — 신규 조회·변경 훅
-- `entrypoints/newtab/components/atlas/data.ts` — `FolderNode`, 궤도 트랙 빌더
-- `entrypoints/newtab/components/atlas/AtlasNavigator.tsx` — 3뎁스 트리, DnD
-- `entrypoints/newtab/components/atlas/FolderAssignDialog.tsx` — 신규 일괄 선택 모달
-- `entrypoints/newtab/components/atlas/AtlasCanvas.tsx` — 궤도 트랙·회전·축 이동
-- `entrypoints/newtab/components/VariantAtlasReplica.tsx` — 포커스 대상 확장, 키 재배정
-- `entrypoints/newtab/lib/nav-state.ts` — 폴더 포커스 상태
-- `entrypoints/newtab/styles/atlas.css` — 폴더 행, 흐림, 회전 전환
+| 파일 | 변경 |
+| --- | --- |
+| `lib/types.ts` | `Session.alias` |
+| `lib/api.ts` | `renameSession` → `setSessionAlias`, `mapSession` 에 alias |
+| `entrypoints/sidepanel/hooks/useSessions.ts` | `useRenameSession` → 별칭 뮤테이션 |
+| `entrypoints/sidepanel/views/SessionDetailView.tsx` | 호출부 |
+| `entrypoints/newtab/components/atlas/AtlasDetail.tsx` | 호출부 |
+| `entrypoints/newtab/components/atlas/data.ts` | `SessionNode.alias`, `sortSessions` |
+| `entrypoints/newtab/lib/nav-state.ts` | `sessionSort` |
+| `entrypoints/newtab/hooks/useFolders.ts` | 세션 별칭 뮤테이션 추가 |
+| `entrypoints/newtab/components/atlas/AtlasNavigator.tsx` | 세션 편집 UI, 정렬 버튼 |
+| `entrypoints/newtab/components/VariantAtlasReplica.tsx` | 정렬 상태 전달 |
+| `entrypoints/newtab/styles/atlas.css` | 필요한 스타일 |
 
 ## 구현 순서
 
-1. 백엔드 모델·마이그레이션·스키마를 먼저 확정한다(계약 우선).
-2. 폴더 라우터와 세션 배정 엔드포인트를 구현하고 pytest를 추가한다.
-3. 확장 타입과 API 클라이언트를 백엔드 계약에 맞춘다.
-4. 네비게이터 3뎁스 트리와 폴더 CRUD·배정 UI를 구현한다.
-5. 캔버스를 중심 노드 + 궤도 트랙 구조로 일반화한다.
-6. 궤도 회전과 축 이동·흐림을 추가하고 키 배정을 재정리한다.
-7. 테스트·타입 검사·빌드를 실행한다.
-8. 문서와 WorkLog를 갱신한다.
+1. 백엔드 모델·마이그레이션·스키마 (계약 먼저)
+2. 백엔드 응답 경계 표시 이름 적용
+3. 백엔드 테스트
+4. 익스텐션 타입·API 클라이언트
+5. 기존 rename 호출부 2곳 전환
+6. `sortSessions` + 네비게이터 UI
+7. 익스텐션 테스트·타입·빌드
 
-## 테스트 및 검증 방법
+## 테스트 및 검증
 
-```bash
-cd backend && python -m pytest -p no:asyncio
-cd extension && pnpm test && pnpm compile && pnpm build
-```
+- backend `pytest`:
+  - `PATCH {alias}` 가 `title` 을 건드리지 않는다
+  - 별칭이 있으면 목록·상세의 `title` 이 별칭이다
+  - `alias: null`/빈 문자열이 별칭을 지운다
+  - 100자 초과는 422
+- extension `vitest`:
+  - `sortSessions` 최신순/가나다순, 빈 목록, 동률
+  - 별칭이 있는 세션의 `SessionNode` 매핑
+- `pnpm compile`, `pnpm build`
 
-- 폴더 생성 → 세션 배정 → 조회 → 폴더 삭제 후 세션 보존을 API 테스트로 확인한다.
-- 남의 폴더에 접근하면 404가 되는지 사용자 스코프를 테스트한다.
-- 궤도 분할·회전 오프셋 계산은 순수 함수로 분리해 단위 테스트한다.
+## 위험
 
-## 위험과 완화
-
-- **밀도 붕괴** — 폴더에 세션이 많으면 궤도가 화면을 넘는다. 궤도 축 이동과 흐림으로
-  대응하되, 동시 렌더 궤도 수에 상한을 둔다.
-- **숨긴 항목 인지 실패** — 뒤편으로 넘어간 점은 존재를 알 수 없다. 궤도마다
-  `현재/전체` 위치 표시를 붙인다.
-- **드래그앤드롭 접근성** — 포인터 전용 조작은 키보드 사용자를 배제한다.
-  `+` 버튼 경로가 동등한 대체 수단이 되도록 유지한다.
-- **휠 이벤트 충돌** — 새 탭 페이지 스크롤과 겹친다. 캔버스 위에서만 가로챈다.
-- **병합과의 정합성** — 흡수된 세션은 `merged_into`로 목록에서 빠지므로 폴더 소속을
-  따로 정리하지 않는다. 생존 세션의 폴더는 유지한다.
+- **`session_updater` 가 배치마다 제목을 다시 만든다**(`:395`). 별칭은 별도 컬럼이라
+  덮이지 않는다 — 이것이 별칭 분리의 핵심 이득이다.
+- 기존 사용자가 예전 rename 으로 이미 `title` 을 바꿔 놓았을 수 있다. 그 값은 그대로
+  두고 마이그레이션하지 않는다(되돌릴 원본이 없다).
+- `updated_at` 은 `onupdate` 로 자동 갱신된다. 목록 정렬은
+  `coalesce(last_activity_at, created_at)` 기준이라 순서는 흔들리지 않는다.
 
 ## 완료 조건
 
-- 폴더를 만들고 두 경로 모두로 세션을 넣을 수 있다.
-- 폴더를 선택하면 중심=폴더, 궤도=세션, 점=페이지로 그려진다.
-- 궤도의 점이 가시 한도를 넘으면 뒤편에 보관되고 회전으로 접근된다.
-- 화면 밖 궤도가 흐리게 보이고 축 이동으로 접근된다.
-- 미정리 세션 뷰가 같은 로직으로 동작한다.
-- 폴더를 지워도 세션이 사라지지 않는다.
-- 검증 명령이 모두 통과한다.
+- 이름을 바꿔도 DB `sessions.title` 이 그대로다.
+- 대시보드·사이드패널·검색·추천·타임라인 어디서나 바꾼 이름이 보인다.
+- 네비게이터에서 세션 이름을 편집할 수 있다.
+- 네비게이터 정렬이 최신순/가나다순으로 바뀐다.

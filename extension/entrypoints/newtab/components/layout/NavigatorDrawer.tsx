@@ -89,6 +89,8 @@ export function NavigatorDrawer({
         onWidthChange={(width) => patch({ width })}
         searchOpen={nav.searchOpen}
         onSearchOpenChange={(searchOpen) => patch({ searchOpen })}
+        sort={nav.sessionSort}
+        onSortChange={(sessionSort) => patch({ sessionSort })}
       />
     </div>
   );

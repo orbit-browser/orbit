@@ -25,6 +25,9 @@ import { AuthRequiredError, clearSession, getToken } from './auth';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
+/** 설정 화면이 "어디에 붙어 있는지" 를 보여 줄 때 쓴다. */
+export const apiBaseUrl = BASE;
+
 // ── 백엔드 응답 타입 (snake_case) ─────────────────────
 
 interface BackendSummary {
@@ -44,7 +47,9 @@ interface BackendTab {
 
 interface BackendSession {
   session_id: string;
+  /** 표시 이름 — 별칭이 있으면 별칭이다(서버가 합쳐 준다). */
   title: string;
+  alias: string | null;
   summary: BackendSummary;
   summary_status: 'pending' | 'done' | 'failed';
   tabs: BackendTab[];
@@ -160,6 +165,7 @@ function mapSession(b: BackendSession): Session {
   return {
     id: b.session_id,
     title: b.title,
+    alias: b.alias ?? null,
     tabs: b.tabs.map((t) => ({
       id: t.id,
       title: t.title,
@@ -408,11 +414,17 @@ export async function retrySummary(id: string): Promise<Session> {
   return mapSession(data);
 }
 
-export async function renameSession(id: string, title: string): Promise<void> {
+/**
+ * 세션 이름 변경 — 사용자에게는 이름 수정이지만 서버에는 **별칭**으로 저장된다.
+ *
+ * 원래 이름(title)은 임베딩·병합 점수·배치 세션화의 기준이라 건드리지 않는다.
+ * null 이나 빈 문자열을 보내면 별칭을 지우고 원래 이름으로 돌아간다.
+ */
+export async function setSessionAlias(id: string, alias: string | null): Promise<void> {
   await request(`/sessions/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ alias }),
   });
 }
 
