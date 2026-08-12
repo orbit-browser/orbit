@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 
-export type View = 'timeline' | 'sessions' | 'search' | 'settings' | 'detail';
+export type View = 'timeline' | 'sessions' | 'tabs' | 'settings' | 'detail';
+
+/** 하단 Ask 독을 띄우는 화면. 상세·설정에서는 대화를 걸 대상이 없어 숨긴다. */
+const ASK_DOCK_VIEWS: View[] = ['timeline', 'sessions', 'tabs'];
+
+export const isAskDockView = (view: View) => ASK_DOCK_VIEWS.includes(view);
 
 interface ToastAction {
   label: string;
@@ -17,8 +22,8 @@ interface UIState {
   selectedSessionId: string | null;
   toast: ToastState | null;
   pendingSessionIds: string[];
-  isClustering: boolean;
-  searchQuery: string;
+  /** Ask 답변 화면이 현재 탭 위로 올라와 있는지 */
+  askOpen: boolean;
   setView: (view: View) => void;
   openSession: (id: string) => void;
   goBackToSessions: () => void;
@@ -26,9 +31,8 @@ interface UIState {
   dismissToast: () => void;
   addPendingSession: (id: string) => void;
   removePendingSession: (id: string) => void;
-  startClustering: () => void;
-  stopClustering: () => void;
-  setSearchQuery: (q: string) => void;
+  openAsk: () => void;
+  closeAsk: () => void;
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -38,10 +42,10 @@ export const useUIStore = create<UIState>((set) => ({
   selectedSessionId: null,
   toast: null,
   pendingSessionIds: [],
-  isClustering: false,
-  searchQuery: '',
+  askOpen: false,
   setView: (view) => set({ activeView: view }),
-  openSession: (id) => set({ selectedSessionId: id, activeView: 'detail' }),
+  // 상세로 넘어가면 답변 화면은 닫는다 — 상세에는 독이 없어 되돌릴 방법이 사라진다.
+  openSession: (id) => set({ selectedSessionId: id, activeView: 'detail', askOpen: false }),
   goBackToSessions: () => set({ activeView: 'sessions' }),
   showToast: (message, action) => {
     if (toastTimer) clearTimeout(toastTimer);
@@ -60,7 +64,6 @@ export const useUIStore = create<UIState>((set) => ({
     set((s) => ({ pendingSessionIds: [...s.pendingSessionIds, id] })),
   removePendingSession: (id) =>
     set((s) => ({ pendingSessionIds: s.pendingSessionIds.filter((x) => x !== id) })),
-  startClustering: () => set({ isClustering: true }),
-  stopClustering: () => set({ isClustering: false }),
-  setSearchQuery: (q) => set({ searchQuery: q }),
+  openAsk: () => set({ askOpen: true }),
+  closeAsk: () => set({ askOpen: false }),
 }));

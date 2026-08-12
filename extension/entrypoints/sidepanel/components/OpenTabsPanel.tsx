@@ -96,8 +96,8 @@ export function OpenTabsPanel() {
   }
 
   return (
-    <div className="overflow-hidden rounded-orbit-card border border-orbit-border bg-orbit-surface shadow-orbit-card">
-      <div className="space-y-3 border-b border-orbit-border/60 p-3">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-orbit-card border border-orbit-border bg-orbit-surface shadow-orbit-card">
+      <div className="shrink-0 space-y-3 border-b border-orbit-border/60 p-3">
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1">
             <Search
@@ -136,7 +136,7 @@ export function OpenTabsPanel() {
         </div>
       </div>
 
-      <div className="max-h-80 overflow-y-auto p-1.5">
+      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {isLoading ? (
           <div className="flex h-28 items-center justify-center gap-2 text-xs text-orbit-muted">
             <Loader2 size={14} className="animate-spin" /> 열린 탭 확인 중…

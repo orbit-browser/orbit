@@ -1,34 +1,26 @@
+import { Layers } from 'lucide-react';
 import { useUIStore } from '../../store/ui';
 import type { TimelineBadge } from '../../hooks/useTimeline';
 
-// Timeline/세션 상세 타임라인 항목의 상태 배지 — 분류 대기 / 동기화됨(fallback) / 세션 배정.
-// 세션 배정 배지를 클릭하면 세션 상세로 이동한다 (docs/IA.md "타임라인 홈").
+/**
+ * 타임라인 항목의 상태 배지.
+ *
+ * **정상 상태(`동기화됨`)와 `제외됨` 은 그리지 않는다.** 사용자가 취할 행동이 없는데
+ * 제목이 쓸 가로 폭만 가져간다 — 상단 상태 카드를 걷어낼 때와 같은 원칙이다.
+ * 세션 배지도 이름을 펼치지 않고 아이콘으로 줄인다. 이름은 툴팁, 이동은 클릭.
+ */
 export function SessionBadge({ badge }: { badge: TimelineBadge }) {
   const openSession = useUIStore((s) => s.openSession);
 
+  if (badge.kind === 'synced' || badge.kind === 'excluded') return null;
+
   if (badge.kind === 'pending') {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-full bg-orbit-bg px-2 py-0.5 text-[10px] font-medium text-orbit-muted">
-        분류 대기
-      </span>
-    );
-  }
-
-  if (badge.kind === 'synced') {
-    return (
-      <span className="inline-flex shrink-0 items-center rounded-full bg-orbit-bg px-2 py-0.5 text-[10px] font-medium text-orbit-muted">
-        동기화됨
-      </span>
-    );
-  }
-
-  if (badge.kind === 'excluded') {
-    return (
       <span
-        title="세션 대상에서 제외된 스침 방문이에요"
-        className="inline-flex shrink-0 items-center rounded-full bg-orbit-bg px-2 py-0.5 text-[10px] font-medium text-orbit-muted/70"
+        title="아직 서버에 저장되지 않았어요"
+        className="inline-flex shrink-0 items-center rounded-full bg-orbit-bg px-2 py-0.5 text-[10px] font-medium text-orbit-muted"
       >
-        제외됨
+        대기
       </span>
     );
   }
@@ -36,14 +28,15 @@ export function SessionBadge({ badge }: { badge: TimelineBadge }) {
   return (
     <button
       type="button"
-      title={badge.title}
+      title={`세션: ${badge.title}`}
+      aria-label={`${badge.title} 세션 열기`}
       onClick={(e) => {
         e.stopPropagation();
         openSession(badge.sessionId);
       }}
-      className="inline-flex max-w-[120px] shrink-0 items-center rounded-full bg-orbit-primary-soft px-2 py-0.5 text-[10px] font-semibold text-orbit-primary transition hover:brightness-95 cursor-pointer"
+      className="inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full bg-orbit-primary-soft text-orbit-primary transition hover:brightness-95"
     >
-      <span className="truncate">{badge.title}</span>
+      <Layers size={11} />
     </button>
   );
 }

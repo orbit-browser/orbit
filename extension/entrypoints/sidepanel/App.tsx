@@ -1,10 +1,12 @@
 import { LoginGate } from './components/LoginGate';
 import { TopNavBar } from './components/TopNavBar';
+import { AskDock } from './components/AskDock';
 import { Toast } from './components/Toast';
-import { useUIStore } from './store/ui';
+import { isAskDockView, useUIStore } from './store/ui';
 import { TimelineView } from './views/TimelineView';
 import { SessionListView } from './views/SessionListView';
-import { SearchView } from './views/SearchView';
+import { OpenTabsView } from './views/OpenTabsView';
+import { AskView } from './views/AskView';
 import { SessionDetailView } from './views/SessionDetailView';
 import { SettingsView } from './views/SettingsView';
 
@@ -15,8 +17,8 @@ function CurrentView() {
       return <TimelineView />;
     case 'sessions':
       return <SessionListView />;
-    case 'search':
-      return <SearchView />;
+    case 'tabs':
+      return <OpenTabsView />;
     case 'detail':
       return <SessionDetailView />;
     case 'settings':
@@ -25,13 +27,18 @@ function CurrentView() {
 }
 
 export default function App() {
+  const activeView = useUIStore((s) => s.activeView);
+  const showAsk = isAskDockView(activeView);
+
   return (
     <LoginGate>
       <div className="flex h-full w-full flex-col overflow-hidden bg-orbit-bg text-orbit-text">
         <TopNavBar />
-        <main className="min-w-0 flex-1 flex flex-col min-h-0 overflow-hidden">
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <CurrentView />
+          {showAsk && <AskView />}
         </main>
+        {showAsk && <AskDock />}
         <Toast />
       </div>
     </LoginGate>

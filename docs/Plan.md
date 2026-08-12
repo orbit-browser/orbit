@@ -1,131 +1,164 @@
-# 사용자 폴더와 궤도 캔버스 2뎁스
+# 사이드패널 개편 — 세션 행 리스트와 Ask AI 상시 독
 
-**상태:** 구현 완료 (2026-08-07) — 실제 브라우저 스모크 미실시
-**브랜치:** `feat/session-folders`
+**상태:** 구현 완료 (2026-08-12) — 실제 브라우저 스모크 미실시
+**브랜치:** `feat/sidepanel-redesign`
 
 ## 작업 목표
 
-- 사용자가 직접 폴더를 만들어 세션을 정리하고, Atlas 캔버스가 폴더를 중심 노드로 그린다.
-- 세션 배정은 폴더 옆 `+` 버튼(다중 선택 일괄)과 세션 드래그앤드롭 두 경로를 제공한다.
-- 궤도는 자식 전체를 담되 앞면에 일부만 노출하고 나머지는 뒤편에 두어 회전으로 접근한다.
-- 화면 밖으로 나간 궤도는 흐리게 표시하고 화살표·스크롤로 그쪽까지 이동한다.
-- 폴더 뷰(궤도=세션)와 미정리 뷰(궤도=페이지 그룹)가 같은 렌더링·인터랙션 로직을 쓴다.
+- 세션 탭을 카드 그리드에서 새 탭 아틀라스와 같은 계열의 **행 리스트**로 바꾼다.
+- Ask AI를 상단 탭에서 빼고 **메인 탭 하단에 상주하는 입력창**으로 옮긴다. 질문을 보내면
+  답변 화면이 아래에서 올라와 덮고, 뒤로가기로 원래 탭에 복귀한다.
+- 세션 탭 안에 접혀 있던 **열린 탭 찾기·북마크**를 Ask AI가 비운 세 번째 탭으로 승격한다.
+- **현재 세션(수동 저장)** 카드를 없앤다. 세션화는 이벤트 배치가 담당하므로 수동 저장 경로가
+  제품 흐름에서 필요하지 않다.
 
 ## 현재 상태와 조사 결과
 
-- `extension/entrypoints/newtab/components/atlas/data.ts:139-142` — "백엔드에 Orbit 엔티티가
-  없어 세션을 중심 노드로 직접 쓴다"는 주석. 주제 계층은 원래 설계에 있었으나 미구현 상태다.
-- `AtlasCanvas.tsx` 궤도는 의미가 없다. `PAGES_PER_ORBIT = 8`로 페이지를 8개씩 잘라 담는
-  순수 페이지네이션이며(`data.ts:39-48`), 궤도 반경은 정보를 전달하지 않는다.
-- 궤도 용량 한계: `ORBIT_GAP = 58`, `R_ABS_MAX = 390`, 최소 반경 150 → 실질 5줄.
-  밀도 통제 없이 궤도=세션 매핑을 넣으면 세션 6개부터 그릴 자리가 없다.
-- `backend/app/db/models.py`에 topic/folder/tag 계열 필드가 없다. 신규 테이블은
-  `create_all`이 생성하고(`app/db/session.py:14`), 기존 테이블 컬럼 추가는
-  `app/db/migrations.py`의 멱등 ALTER 러너가 담당한다.
-- 인증은 `app/api/deps.py`의 `current_user_id`로 통일돼 있다. 폴더도 사용자 스코프가 필요하다.
-- 키 배정 충돌: `VariantAtlasReplica.tsx:123-129`에서 ↑↓=세션 순회, ←→=페이지 순회로
-  4방향을 이미 소진했다. 궤도 회전과 축 이동을 넣으려면 재배정이 필요하다.
+- `TopNavBar.tsx:28-32` — 세그먼트 탭 3개(`타임라인` / `세션` / `Ask AI`). `Ask AI` 탭의 실체는
+  `activeView === 'search'` → `SearchView`다.
+- 검색 경로는 Ask 하나뿐이다. `useAskConversation`이 질문을 `search_memory` /
+  `search_session` / `navigate_tab`으로 라우팅하므로(`useAskConversation.ts:139-217`),
+  Ask를 채팅창으로 옮겨도 잃는 검색 기능이 없다.
+- `useAskConversation`의 턴 저장소는 모듈 전역 zustand store다(`useAskConversation.ts:38-41`).
+  뷰가 언마운트돼도 대화가 남으므로 오버레이 개폐 구조에 그대로 맞는다.
+- `SessionCard.tsx` 한 장에 제목·요약 2줄·복원 버튼·오버플로 메뉴·파비콘·시간이 모두 들어 있고,
+  `SessionListView.tsx:69`에서 폭에 따라 1~3열 그리드로 깔린다. 행 리스트에는 자리가 없다.
+- `Session.timeLabel`은 이미 `8/7 20:45` 형식이다(`lib/api.ts:173`). 시안의
+  `20개 탭 · 8/7 22:31`을 `tabs.length` + `timeLabel`로 그대로 만들 수 있다.
+- `CurrentSessionCard`는 `useSaveSessionsClustered`와 `isClustering`의 **유일한 호출자**다.
+  이걸 없애면 `SessionListView`의 `ClusteringCard`("주제 분류 중…")를 켤 주체도 사라진다.
+- `OpenTabsPanel`의 목록 영역은 `max-h-80`으로 고정돼 있다(`OpenTabsPanel.tsx:139`).
+  독립 탭으로 올리면 화면 높이를 채우도록 바꿔야 한다.
 
 ## 사용자 결정 사항 (확인 완료)
 
-| 항목 | 결정 |
-|---|---|
-| 폴더 뷰 계층 | **3계층** — 중심=폴더, 궤도 1줄=세션 1개, 그 궤도의 점=해당 세션의 페이지 |
-| 세션 소속 | **단일 소속** (폴더 = 서랍). 세션은 폴더 하나에만 속한다 |
-| 저장 위치 | **백엔드** — 기기 간 유지, 세션 병합·삭제와 정합성 확보 |
-| 주제 생성 방식 | **수동** — 자동 클러스터링을 쓰지 않는다 |
+- 세션 행: **행 클릭 = 상세 진입, caret = 탭 목록 인라인 펼침**.
+- 복원·삭제는 caret으로 펼친 영역 맨 아래 액션 줄에 둔다.
+- AI 요약문은 펼친 영역 상단. 단 **요약 중·요약 실패는 접힌 행에서도** 보인다.
+- 병합 제안은 세션 탭 상단에 그대로 유지한다.
+- 열린 탭 찾기·북마크는 세 번째 탭으로 승격한다.
+- 키워드·세션 검색은 계속 채팅창이 처리한다.
+- 하단 입력창은 메인 탭(타임라인/세션/열린 탭)에만. 상세·설정에는 없다.
+- 현재 세션 카드와 수동 저장은 제거한다.
+- 타임라인 탭과 설정 화면은 이번 범위 밖 — 다음 섹션에서 다룬다.
 
 ## 포함 범위
 
-- `folders` 신규 테이블(사용자 스코프, 이름, 색, 정렬 위치)과 `sessions.folder_id` 컬럼
-- 폴더 CRUD API, 세션 일괄 배정 API, 폴더에서 빼기 API
-- 폴더 삭제 시 소속 세션은 보존하고 `folder_id`만 NULL로 되돌린다
-- 세션 응답에 `folderId` 노출
-- 확장 타입·API 클라이언트·조회 훅
-- 네비게이터 3뎁스 트리(폴더 > 세션 > 페이지)와 미정리 섹션
-- 폴더 생성·이름 변경·삭제 UI, `+` 다중 선택 모달, 세션 드래그앤드롭
-- 캔버스 제네릭화: 중심 노드 + 궤도 트랙 + 궤도별 회전 오프셋
-- 궤도 가시 슬롯 제한과 뒤편 보관, 잔여 개수 표시
-- 화면 밖 궤도 흐림 처리와 축 이동(화살표·휠)
-- 키보드 조작 재배정
-- backend pytest, extension vitest·타입 검사·빌드
-- `data-model-v2.md`, `api-design-v2.md`, `IA.md`, `DecisionLog.md`, `WorkLog.md` 갱신
+- 사이드패널 탭 구성 변경과 뷰 라우팅(`store/ui.ts`, `TopNavBar`, `App`).
+- 세션 목록의 행 리스트 전환(`SessionRow` 신규, `SessionListView` 재구성).
+- Ask 상시 독과 답변 오버레이(`AskDock`, `AskView` 신규, `SearchView` 대체).
+- 열린 탭 탭 승격(`OpenTabsView` 신규, `OpenTabsPanel` 높이 대응).
+- 현재 세션 카드·수동 저장 훅·클러스터링 표시 제거.
 
 ## 제외 범위
 
-- 자동 주제 클러스터링·LLM 폴더 추천
-- 중첩 폴더(폴더 안의 폴더)
-- 폴더 공유·내보내기
-- 세션 다중 소속(태그형)
-- 폴더 단위 AI 요약
-- 사이드패널의 폴더 UI (새 탭 Atlas 화면에 한정)
+- 타임라인 뷰, 설정 뷰, 세션 상세 뷰의 디자인 (다음 섹션).
+- 백엔드 변경 없음. `/sessions/cluster` 엔드포인트는 그대로 둔다.
+- Ask 답변의 "관련 세션"은 기존 `SessionCard`를 계속 쓴다. 목록과 표현이 갈리지만
+  이번 지시 범위가 세션 탭이므로 임의로 바꾸지 않는다.
 
 ## 변경할 파일
 
-**backend**
-
-- `app/db/models.py` — `Folder` 모델 추가, `Session.folder_id` 추가
-- `app/db/migrations.py` — `sessions.folder_id` additive 컬럼 등록
-- `app/schemas/folder.py` — 신규 요청·응답 스키마
-- `app/schemas/session.py` — `SessionDetail`에 `folder_id`
-- `app/api/folders.py` — 신규 라우터
-- `app/api/sessions.py` — 세션 응답 매핑에 folder_id 반영
-- `app/main.py` — 라우터 등록
-- `tests/test_folders.py` — 신규 테스트
-
-**extension**
-
-- `lib/types.ts` — `Folder`, `Session.folderId`
-- `lib/api.ts` — 폴더 API 클라이언트
-- `entrypoints/newtab/hooks/useFolders.ts` — 신규 조회·변경 훅
-- `entrypoints/newtab/components/atlas/data.ts` — `FolderNode`, 궤도 트랙 빌더
-- `entrypoints/newtab/components/atlas/AtlasNavigator.tsx` — 3뎁스 트리, DnD
-- `entrypoints/newtab/components/atlas/FolderAssignDialog.tsx` — 신규 일괄 선택 모달
-- `entrypoints/newtab/components/atlas/AtlasCanvas.tsx` — 궤도 트랙·회전·축 이동
-- `entrypoints/newtab/components/VariantAtlasReplica.tsx` — 포커스 대상 확장, 키 재배정
-- `entrypoints/newtab/lib/nav-state.ts` — 폴더 포커스 상태
-- `entrypoints/newtab/styles/atlas.css` — 폴더 행, 흐림, 회전 전환
+| 파일 | 변경 |
+| --- | --- |
+| `store/ui.ts` | `View`에서 `search` 제거·`tabs` 추가, `askOpen`/`openAsk`/`closeAsk` 추가, 죽은 `searchQuery`·클러스터링 상태 제거 |
+| `components/TopNavBar.tsx` | 탭 라벨 `타임라인/세션/열린 탭`, ask 열림 시 `‹ Ask AI` 헤더 + 새 대화 |
+| `components/SessionRow.tsx` | 신규 — 행 리스트 아이템, caret 펼침, 파비콘 스택 |
+| `components/AskDock.tsx` | 신규 — 하단 상주 입력창 |
+| `views/AskView.tsx` | 신규 — 답변 오버레이 (SearchView의 대화 렌더링 이관) |
+| `views/OpenTabsView.tsx` | 신규 — 열린 탭 탭 컨테이너 |
+| `views/SessionListView.tsx` | 병합 제안 + 행 리스트로 재구성 |
+| `components/OpenTabsPanel.tsx` | 목록 영역 `max-h-80` → 부모 높이 채움 |
+| `App.tsx` | 독·오버레이 레이아웃 |
+| `views/SearchView.tsx` | 삭제 (AskView가 대체) |
+| `components/CurrentSessionCard.tsx` | 삭제 |
+| `hooks/useSessions.ts` | `useSaveSessionsClustered` 제거 |
+| `tests/unit/ui-store.test.ts` | ask 오버레이·뷰 전환 테스트 추가 |
 
 ## 구현 순서
 
-1. 백엔드 모델·마이그레이션·스키마를 먼저 확정한다(계약 우선).
-2. 폴더 라우터와 세션 배정 엔드포인트를 구현하고 pytest를 추가한다.
-3. 확장 타입과 API 클라이언트를 백엔드 계약에 맞춘다.
-4. 네비게이터 3뎁스 트리와 폴더 CRUD·배정 UI를 구현한다.
-5. 캔버스를 중심 노드 + 궤도 트랙 구조로 일반화한다.
-6. 궤도 회전과 축 이동·흐림을 추가하고 키 배정을 재정리한다.
-7. 테스트·타입 검사·빌드를 실행한다.
-8. 문서와 WorkLog를 갱신한다.
+1. `store/ui.ts` 계약 확정 (View union, askOpen).
+2. `SessionRow` 신규 + `SessionListView` 재구성 + `CurrentSessionCard` 제거.
+3. `OpenTabsView` + `OpenTabsPanel` 높이 대응.
+4. `AskDock` + `AskView` + `TopNavBar` ask 헤더 + `App` 레이아웃, `SearchView` 삭제.
+5. 테스트 추가 후 `pnpm test && pnpm compile && pnpm build`.
+6. 문서 갱신(IA / DecisionLog / WorkLog).
 
-## 테스트 및 검증 방법
+## 테스트 및 검증
 
-```bash
-cd backend && python -m pytest -p no:asyncio
-cd extension && pnpm test && pnpm compile && pnpm build
-```
+- `cd extension && pnpm test` — ui store 신규 상태 전이 포함.
+- `pnpm compile` — `View` union 변경이 남긴 참조를 타입 검사로 잡는다.
+- `pnpm build`.
+- 실제 브라우저 스모크는 사용자 확인 필요(자동 검증 불가).
 
-- 폴더 생성 → 세션 배정 → 조회 → 폴더 삭제 후 세션 보존을 API 테스트로 확인한다.
-- 남의 폴더에 접근하면 404가 되는지 사용자 스코프를 테스트한다.
-- 궤도 분할·회전 오프셋 계산은 순수 함수로 분리해 단위 테스트한다.
+## 위험
 
-## 위험과 완화
-
-- **밀도 붕괴** — 폴더에 세션이 많으면 궤도가 화면을 넘는다. 궤도 축 이동과 흐림으로
-  대응하되, 동시 렌더 궤도 수에 상한을 둔다.
-- **숨긴 항목 인지 실패** — 뒤편으로 넘어간 점은 존재를 알 수 없다. 궤도마다
-  `현재/전체` 위치 표시를 붙인다.
-- **드래그앤드롭 접근성** — 포인터 전용 조작은 키보드 사용자를 배제한다.
-  `+` 버튼 경로가 동등한 대체 수단이 되도록 유지한다.
-- **휠 이벤트 충돌** — 새 탭 페이지 스크롤과 겹친다. 캔버스 위에서만 가로챈다.
-- **병합과의 정합성** — 흡수된 세션은 `merged_into`로 목록에서 빠지므로 폴더 소속을
-  따로 정리하지 않는다. 생존 세션의 폴더는 유지한다.
+- `View`에서 `search`를 없애면 참조가 남을 수 있다 → `pnpm compile`로 확인한다.
+- 수동 저장 제거로 `lib/api.ts:391 saveSessionsClustered`와 `hooks/useTabs.ts:39 useTabs`가
+  미사용이 된다. API 경계·백엔드 엔드포인트와 맞물려 있어 이번엔 지우지 않고 보고에 남긴다.
+- 하단 독이 세로 약 60px을 상시 점유한다. 행 높이가 커진 만큼 한 화면 세션 수가 줄어든다.
 
 ## 완료 조건
 
-- 폴더를 만들고 두 경로 모두로 세션을 넣을 수 있다.
-- 폴더를 선택하면 중심=폴더, 궤도=세션, 점=페이지로 그려진다.
-- 궤도의 점이 가시 한도를 넘으면 뒤편에 보관되고 회전으로 접근된다.
-- 화면 밖 궤도가 흐리게 보이고 축 이동으로 접근된다.
-- 미정리 세션 뷰가 같은 로직으로 동작한다.
-- 폴더를 지워도 세션이 사라지지 않는다.
-- 검증 명령이 모두 통과한다.
+- 세션 탭이 시안의 행 리스트로 보이고, caret 펼침에서 요약·탭 목록·복원/삭제가 모두 된다.
+- 요약 중·요약 실패가 접힌 행에서 보이고 재시도가 동작한다.
+- 메인 세 탭 하단에 입력창이 있고, 전송하면 답변 화면이 올라오고 뒤로가기로 복귀한다.
+- 열린 탭이 독립 탭으로 동작한다.
+- 테스트·타입 검사·빌드 통과.
+
+---
+
+# 2단계 — 타임라인 개편 (같은 브랜치)
+
+**상태:** 구현 완료 (2026-08-12) — 실제 브라우저 스모크 미실시
+
+## 작업 목표
+
+타임라인의 역할을 **브라우저 방문 기록의 대체**로 확정한다. "아까 본 거 뭐였지"를 즉시
+되짚어 다시 들어가는 화면으로, 최근 48시간을 훑는 밀도를 최우선으로 한다.
+
+## 현재 상태와 조사 결과
+
+- 목록의 원천은 서버가 아니라 로컬 IndexedDB 큐(48시간 보관)다(`useTimeline.ts:56-60`).
+  서버 조회는 세션 배지용이며 최대 3일치 캡(`:78`). **타임라인은 본질적으로 48시간 화면이다.**
+- 하단 `이번 주 탐색 분석` 카드만 7일치를 보고 있어 화면 안에서 시간 범위가 어긋나 있었다.
+- `SyncStatusCard` 가 opt-in 온보딩 / 수동 동기화 / 상태 표시 세 기능을 겸하고 있어,
+  통째로 지우면 수집을 켜는 인라인 경로까지 사라진다.
+- Ask 는 서버 데이터만 검색한다 — 방금 본 페이지(로컬 큐 `분류 대기`)는 검색 사각지대.
+
+## 사용자 결정 사항 (확인 완료)
+
+- 새로고침과 `지금 저장`을 상단 바 아이콘 하나로 통합한다.
+- 미처리·마지막 동기화는 sticky 날짜 헤더 우측에 붙인다(상태 전용 카드 없음).
+- 수집 안내는 조건부로 남긴다.
+- 로컬 필터를 추가한다.
+- 연속 같은 도메인 뭉치기는 이번에 하지 않는다(구현 난이도).
+- `이번 주 탐색 분석` 카드는 제거한다.
+
+## 제외 범위
+
+- 도메인 뭉치기(보류).
+- 타임라인을 48시간 너머로 넓히는 것 — 백엔드 기간 조회가 필요(미결정).
+- 설정 화면(다음 섹션).
+
+## 변경한 파일
+
+| 파일 | 변경 |
+| --- | --- |
+| `views/TimelineView.tsx` | 카드 2개 제거, 필터 입력, 조건부 수집 안내 |
+| `components/timeline/TimelineDateHeader.tsx` | sticky + 상태 슬롯 |
+| `components/timeline/CollectionOptInNotice.tsx` | 신규 — opt-in 안내 (전체/한 줄) |
+| `hooks/useTimeline.ts` | `filterTimelineEntries` 추가, `isFilteredOut` 구분 |
+| `components/TopNavBar.tsx` | 새로고침 = 동기화 + 무효화 통합 |
+| `components/SyncStatusCard.tsx` | 삭제 |
+| `wxt.config.ts` | `modulePreload: false` — 확장 페이지 preload 경고 제거 |
+| `tests/unit/timeline-filter.test.ts` | 신규 7건 |
+
+## 완료 조건
+
+- 상단 상태 카드와 하단 분석 카드가 없고, 첫 화면 목록 노출이 늘었다.
+- 미처리·마지막 동기화가 맨 위 sticky 헤더에서 보인다.
+- 상단 바 아이콘 하나로 동기화가 트리거된다.
+- 필터가 아직 동기화되지 않은 기록까지 즉시 걸러낸다.
+- 수집이 꺼져 있을 때 켜는 경로가 화면에 남아 있다.
+- 테스트·타입 검사·빌드 통과.

@@ -1,3 +1,4 @@
+import { hueForSession } from '../../../../lib/session-hue';
 import type { Folder, Session, SessionTimelineEvent } from '../../../../lib/types';
 
 export interface PageNode {
@@ -44,8 +45,6 @@ export interface FolderNode {
 }
 
 export type SessionEventsById = ReadonlyMap<string, SessionTimelineEvent[]>;
-
-const SESSION_HUES = ['#ef6f47', '#e09528', '#7fa452', '#3aa09a', '#727bcb', '#c06aa2'];
 
 /**
  * 궤도 앞면(사용자에게 보이는 반원)에 동시에 놓이는 점의 수.
@@ -136,11 +135,6 @@ function pagesFromTabs(session: Session): PageNode[] {
 
 const activityAt = (session: Session) =>
   new Date(session.lastActivityAt ?? session.updatedAt ?? session.createdAt);
-
-function hueForSession(id: string): string {
-  const hash = [...id].reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 0);
-  return SESSION_HUES[hash % SESSION_HUES.length];
-}
 
 function relativeDate(date: Date, now: Date): string {
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();

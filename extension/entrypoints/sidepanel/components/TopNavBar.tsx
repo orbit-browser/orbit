@@ -1,16 +1,59 @@
-import { RefreshCw, Settings, X } from 'lucide-react';
+import { ChevronLeft, Loader2, RefreshCw, Settings, Trash2, X } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAskConversation } from '../../shared/hooks/useAskConversation';
+import { triggerManualSync } from '../hooks/useSyncStatus';
 import { useUIStore } from '../store/ui';
-import { useQueryClient } from '@tanstack/react-query';
 
 export function TopNavBar() {
   const activeView = useUIStore((s) => s.activeView);
+  const askOpen = useUIStore((s) => s.askOpen);
+  const closeAsk = useUIStore((s) => s.closeAsk);
   const setView = useUIStore((s) => s.setView);
   const showToast = useUIStore((s) => s.showToast);
+  const { turns, startNewConversation } = useAskConversation();
   const queryClient = useQueryClient();
 
-  const isSettings = activeView === 'settings';
+  // 새로고침과 "지금 저장"을 한 버튼으로 합친다 — 사용자가 이 아이콘에 기대하는 건
+  // "최신으로 맞춰줘"이고, 타임라인에서 그건 곧 미처리 이벤트 동기화다.
+  const { mutate: refresh, isPending: isRefreshing } = useMutation({
+    mutationFn: triggerManualSync,
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      showToast('동기화를 요청했어요');
+    },
+    onError: () => {
+      queryClient.invalidateQueries();
+      showToast('동기화를 요청하지 못했어요. 화면만 새로고침했어요.');
+    },
+  });
 
-  if (isSettings) {
+  // Ask 답변 화면이 올라와 있는 동안에는 탭 대신 그 화면의 헤더 역할을 한다.
+  if (askOpen) {
+    return (
+      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-orbit-border bg-orbit-surface px-2 select-none">
+        <button
+          type="button"
+          onClick={closeAsk}
+          aria-label="답변 닫기"
+          className="cursor-pointer rounded-md p-1.5 text-orbit-text transition hover:bg-orbit-bg"
+        >
+          <ChevronLeft size={18} />
+        </button>
+        <span className="text-sm font-bold text-orbit-text">Ask AI</span>
+        {turns.length > 0 && (
+          <button
+            type="button"
+            onClick={startNewConversation}
+            className="ml-auto flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-[11px] text-orbit-muted transition hover:text-orbit-text"
+          >
+            <Trash2 size={11} /> 새 대화
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (activeView === 'settings') {
     return (
       <div className="flex h-12 items-center justify-between border-b border-orbit-border bg-orbit-surface px-4 shrink-0">
         <span className="text-sm font-bold text-orbit-text">설정</span>
@@ -28,7 +71,7 @@ export function TopNavBar() {
   const tabs = [
     { view: 'timeline' as const, label: '타임라인' },
     { view: 'sessions' as const, label: '세션' },
-    { view: 'search' as const, label: 'Ask AI' },
+    { view: 'tabs' as const, label: '열린 탭' },
   ];
 
   return (
@@ -59,14 +102,16 @@ export function TopNavBar() {
       <div className="flex items-center gap-0.5">
         <button
           type="button"
-          title="새로고침"
-          onClick={() => {
-            queryClient.invalidateQueries();
-            showToast('새로고침했어요');
-          }}
-          className="p-1.5 rounded-md text-orbit-muted hover:bg-orbit-bg hover:text-orbit-text transition cursor-pointer"
+          title="새로고침 · 지금 저장"
+          onClick={() => refresh()}
+          disabled={isRefreshing}
+          className="p-1.5 rounded-md text-orbit-muted hover:bg-orbit-bg hover:text-orbit-text transition cursor-pointer disabled:opacity-50"
         >
-          <RefreshCw size={14} />
+          {isRefreshing ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <RefreshCw size={14} />
+          )}
         </button>
         <button
           type="button"
