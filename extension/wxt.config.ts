@@ -40,6 +40,10 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   vite: () => ({
     plugins: [tailwindcss()],
+    // chrome-extension:// 페이지에서는 crossorigin modulepreload 의 fetch 모드가 실제 모듈
+    // 요청과 어긋나(cross-world resource mismatch) 크롬이 preload 를 버리고 다시 받는다.
+    // 동작에는 문제가 없지만 콘솔 경고만 남으므로 preload 태그를 아예 만들지 않는다.
+    build: { modulePreload: false },
   }),
   manifest: {
     name: 'Orbit',

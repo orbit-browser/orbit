@@ -112,14 +112,33 @@ async function loadTimelineEntries(): Promise<TimelineEntry[]> {
   return [...unsynced, ...syncedEntries].sort((a, b) => b.visitedAt.localeCompare(a.visitedAt));
 }
 
-export function useTimeline() {
+/**
+ * 로컬 목록을 제목·도메인·URL 문자 일치로 걸러낸다.
+ *
+ * Ask 는 서버에 저장된 것만 찾으므로 방금 본 페이지(아직 pending)는 잡히지 않는다.
+ * "아까 본 거"를 즉시 찾는 경로가 따로 필요해서, 네트워크를 타지 않는 필터를 둔다.
+ */
+export function filterTimelineEntries(
+  entries: TimelineEntry[],
+  query: string,
+): TimelineEntry[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return entries;
+  return entries.filter((entry) =>
+    [entry.title, entry.domain, entry.url].some((field) =>
+      field.toLowerCase().includes(normalized),
+    ),
+  );
+}
+
+export function useTimeline(query = '') {
   const queryClient = useQueryClient();
 
   useSyncStatusInvalidation(() => {
     queryClient.invalidateQueries({ queryKey: TIMELINE_QUERY_KEY });
   });
 
-  const query = useQuery({
+  const timelineQuery = useQuery({
     queryKey: TIMELINE_QUERY_KEY,
     queryFn: loadTimelineEntries,
     // orbit:syncStatus 변경 시 즉시 무효화되지만, 안전망으로 짧은 주기 재조회도 유지한다.
@@ -127,7 +146,7 @@ export function useTimeline() {
   });
 
   const groups = useMemo<TimelineDateGroup[]>(() => {
-    const entries = query.data ?? [];
+    const entries = filterTimelineEntries(timelineQuery.data ?? [], query);
     const byDate = new Map<string, TimelineEntry[]>();
     for (const entry of entries) {
       const key = dateKeyOf(entry.visitedAt);
@@ -142,13 +161,17 @@ export function useTimeline() {
         label: dateLabelOf(entries[0].visitedAt),
         entries,
       }));
-  }, [query.data]);
+  }, [timelineQuery.data, query]);
+
+  const hasEntries = (timelineQuery.data?.length ?? 0) > 0;
 
   return {
     groups,
-    isLoading: query.isLoading,
-    isError: query.isError,
-    isEmpty: !query.isLoading && !query.isError && groups.length === 0,
+    isLoading: timelineQuery.isLoading,
+    isError: timelineQuery.isError,
+    /** 필터 결과가 비었을 때 — 기록 자체가 없는 것과 구분해야 안내 문구가 맞다. */
+    isFilteredOut: hasEntries && groups.length === 0,
+    isEmpty: !timelineQuery.isLoading && !timelineQuery.isError && !hasEntries,
   };
 }
 

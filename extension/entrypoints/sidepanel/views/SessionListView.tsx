@@ -1,83 +1,45 @@
-import { useState } from 'react';
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { useMemo } from 'react';
 import { useSessions, usePendingSessionPoller } from '../hooks/useSessions';
-import { useUIStore } from '../store/ui';
-import { CurrentSessionCard } from '../components/CurrentSessionCard';
-import { SessionCard } from '../components/SessionCard';
+import { groupSessionsByRecency } from '../../../lib/session-groups';
+import { SessionRow } from '../components/SessionRow';
 import { StatePlaceholder } from '../components/StatePlaceholder';
 import { MergeSuggestionsSection } from '../components/MergeSuggestionsSection';
-import { OpenTabsPanel } from '../components/OpenTabsPanel';
-
-function ClusteringCard() {
-  return (
-    <div className="flex items-center gap-3 rounded-orbit-card border border-orbit-primary/30 bg-orbit-surface p-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orbit-bg">
-        <Loader2 size={18} className="animate-spin text-orbit-primary" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-orbit-primary">주제 분류 중…</p>
-        <p className="text-xs text-orbit-muted">탭을 주제별로 묶는 중이에요</p>
-      </div>
-    </div>
-  );
-}
 
 export function SessionListView() {
-  const [openTabsExpanded, setOpenTabsExpanded] = useState(false);
   usePendingSessionPoller();
   const { data: sessions, isLoading, isError } = useSessions();
-  const isClustering = useUIStore((s) => s.isClustering);
+
+  // 시간이 목록의 뼈대다 — 묶음이 리듬을 만들어야 행마다 굵기를 줄 필요가 없다.
+  const groups = useMemo(() => groupSessionsByRecency(sessions ?? []), [sessions]);
 
   return (
-    <div className="space-y-5 p-4 overflow-y-auto h-full">
-      <section className="space-y-2">
-        <p className="text-xs font-semibold text-orbit-muted">현재 세션</p>
-        <CurrentSessionCard />
-      </section>
+    <div className="h-full overflow-y-auto">
+      {/* 병합 제안은 목록보다 먼저 처리해야 목록이 흔들리지 않는다 */}
+      <div className="empty:hidden px-4 pt-4">
+        <MergeSuggestionsSection />
+      </div>
 
-      <section className="space-y-2">
-        <button
-          type="button"
-          aria-expanded={openTabsExpanded}
-          aria-controls="open-tabs-panel"
-          onClick={() => setOpenTabsExpanded((expanded) => !expanded)}
-          className="flex w-full cursor-pointer items-center justify-between rounded-lg px-1 py-1 text-xs font-semibold text-orbit-muted transition hover:text-orbit-text"
-        >
-          <span>열린 탭 찾기 · 북마크</span>
-          <ChevronDown
-            size={15}
-            className={`transition-transform ${openTabsExpanded ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {openTabsExpanded && (
-          <div id="open-tabs-panel">
-            <OpenTabsPanel />
-          </div>
-        )}
-      </section>
-
-      <MergeSuggestionsSection />
-
-      <section className="space-y-2">
-        <p className="text-xs font-semibold text-orbit-muted">저장된 세션</p>
+      <div className="px-2 py-2">
         <StatePlaceholder
-          loading={isLoading && !isClustering}
+          loading={isLoading}
           error={isError}
-          empty={!isClustering && !sessions?.length}
+          empty={!sessions?.length}
           emptyText="저장된 세션이 없어요"
         >
-          <div className="grid grid-cols-1 min-[500px]:grid-cols-2 min-[750px]:grid-cols-3 gap-3">
-            {isClustering && (
-              <div className="col-span-full">
-                <ClusteringCard />
-              </div>
-            )}
-            {sessions?.map((session) => (
-              <SessionCard key={session.id} session={session} />
+          <div className="space-y-4">
+            {groups.map((group) => (
+              <section key={group.key}>
+                <p className="sticky top-0 z-10 bg-orbit-bg px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-orbit-muted">
+                  {group.label}
+                </p>
+                {group.sessions.map((session) => (
+                  <SessionRow key={session.id} session={session} />
+                ))}
+              </section>
             ))}
           </div>
         </StatePlaceholder>
-      </section>
+      </div>
     </div>
   );
 }

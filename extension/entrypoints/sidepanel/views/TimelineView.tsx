@@ -1,97 +1,138 @@
-import { useQuery } from '@tanstack/react-query';
-import { SyncStatusCard } from '../components/SyncStatusCard';
+import { useEffect, useRef, useState } from 'react';
+import { Search, X } from 'lucide-react';
 import { StatePlaceholder } from '../components/StatePlaceholder';
+import { CollectionOptInNotice } from '../components/timeline/CollectionOptInNotice';
 import { TimelineDateHeader } from '../components/timeline/TimelineDateHeader';
 import { TimelineItem } from '../components/timeline/TimelineItem';
 import { useDeleteTimelineEntry, useTimeline } from '../hooks/useTimeline';
+import { useSyncStatus } from '../hooks/useSyncStatus';
 import { useSettingsStore } from '../store/settings';
 import { useUIStore } from '../store/ui';
-import { fetchAnalyticsOverview, type AnalyticsOverview } from '../../../lib/api';
 
-// "이번 주 탐색 분석" 요약 카드 — GET /analytics/overview?days=7 (docs/api-design-v2.md §9).
-// 집계 실패나 데이터 없음은 오류가 아니라 정상 범위(백엔드 병렬 구현 중)이므로 카드를 조용히 숨긴다.
-function formatDuration(ms: number): string {
-  const totalMinutes = Math.max(Math.round(ms / 60_000), 0);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours <= 0) return `${minutes}분`;
-  if (minutes === 0) return `${hours}시간`;
-  return `${hours}시간 ${minutes}분`;
-}
-
-function AnalyticsSummaryCard({ overview }: { overview: AnalyticsOverview }) {
-  const topSessions = overview.topSessionsByDuration.slice(0, 3);
-  const topDomains = overview.topDomains.slice(0, 3);
-  if (topSessions.length === 0 && topDomains.length === 0) return null;
-
-  return (
-    <div className="flex flex-col gap-3 rounded-orbit-card border border-orbit-border bg-orbit-surface p-3.5">
-      <p className="text-xs font-semibold text-orbit-text">이번 주 탐색 분석</p>
-      {topSessions.length > 0 && (
-        <div>
-          <p className="mb-1.5 text-[10px] font-medium text-orbit-muted">세션별 탐색 시간 top3</p>
-          <ul className="space-y-1">
-            {topSessions.map((s) => (
-              <li key={s.sessionId} className="flex items-center justify-between gap-2 text-xs">
-                <span className="min-w-0 flex-1 truncate text-orbit-text">{s.title}</span>
-                <span className="shrink-0 text-orbit-muted">
-                  {formatDuration(s.totalActiveDurationMs)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {topDomains.length > 0 && (
-        <div>
-          <p className="mb-1.5 text-[10px] font-medium text-orbit-muted">최다 도메인 top3</p>
-          <ul className="space-y-1">
-            {topDomains.map((d) => (
-              <li key={d.domain} className="flex items-center justify-between gap-2 text-xs">
-                <span className="min-w-0 flex-1 truncate text-orbit-text">{d.domain}</span>
-                <span className="shrink-0 text-orbit-muted">{d.visitCount}회</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// 사이드패널 기본 화면 — 방문 이벤트를 시간 역순으로 보여준다.
-// 계약 근거: docs/IA.md "타임라인 홈", docs/implementation-roadmap.md M4-15.
+// 사이드패널 기본 화면 — 최근 방문을 시간 역순으로 보여주는 "다시 찾기" 화면.
+// 목록의 원천은 로컬 큐(48시간 보관)이며 서버 조회는 세션 배지를 붙이는 용도다.
+// 계약 근거: docs/IA.md "타임라인", docs/target-architecture.md §7.
 export function TimelineView() {
-  const { groups, isLoading, isError, isEmpty } = useTimeline();
+  const [query, setQuery] = useState('');
+  // 필터는 평소 접혀 있다 — 세로는 목록에 쓰고, 필요할 때 헤더의 돋보기로 편다.
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+  const { groups, isLoading, isError, isEmpty, isFilteredOut } = useTimeline(query);
   const { mutate: deleteEntry } = useDeleteTimelineEntry();
+  const { data: syncStatus } = useSyncStatus();
   const collectionEnabled = useSettingsStore((s) => s.collectionEnabled);
   const showToast = useUIStore((s) => s.showToast);
-  const { data: analytics, isError: analyticsError } = useQuery({
-    queryKey: ['orbit-analytics-overview', 7],
-    queryFn: () => fetchAnalyticsOverview(7),
-  });
+
+  // 입력창은 접혀 있을 때도 마운트돼 있어야 높이 전환이 이어진다 — autoFocus 가 못 걸리므로
+  // 열림 전환에서 직접 포커스를 준다.
+  useEffect(() => {
+    if (filterOpen) filterInputRef.current?.focus({ preventScroll: true });
+  }, [filterOpen]);
+
+  // 닫을 때 입력을 비운다 — 접힌 채로 필터가 걸려 있으면 목록이 왜 짧은지 알 수 없다.
+  function closeFilter() {
+    setQuery('');
+    setFilterOpen(false);
+    filterInputRef.current?.blur();
+  }
+
+  // 수집이 꺼졌는데 기록도 없으면 목록 대신 안내가 화면 전체를 쓴다.
+  if (!collectionEnabled && isEmpty) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <CollectionOptInNotice />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 p-4 pb-2">
-        <SyncStatusCard />
+      {!collectionEnabled && (
+        <div className="shrink-0 px-3 pt-2.5">
+          <CollectionOptInNotice compact />
+        </div>
+      )}
+
+      {/*
+        펼치기 애니메이션 — grid-template-rows 를 0fr↔1fr 로 전환한다.
+        높이를 재서 px 로 넣지 않아도 되고, 입력창 높이가 바뀌어도 그대로 맞는다.
+        결과가 0건이면 날짜 헤더가 사라지므로 입력창은 목록 밖에 둬야 계속 고칠 수 있다.
+      */}
+      <div
+        className={`grid shrink-0 transition-[grid-template-rows] duration-200 ease-out ${
+          filterOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div
+            className={`px-3 pb-1 pt-2.5 transition-[opacity,transform] duration-200 ease-out ${
+              filterOpen ? 'translate-y-0 opacity-100' : '-translate-y-1 opacity-0'
+            }`}
+          >
+            <div className="relative">
+              <Search
+                size={13}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-orbit-muted"
+              />
+              <input
+                ref={filterInputRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') closeFilter();
+                }}
+                placeholder="제목·사이트로 걸러내기"
+                aria-label="최근 기록 걸러내기"
+                // 접혀 있을 때는 화면에 없는 것과 같아야 한다 — Tab 순회와 스크린리더에서 뺀다.
+                tabIndex={filterOpen ? 0 : -1}
+                aria-hidden={!filterOpen}
+                className="h-8 w-full rounded-lg border border-orbit-border/70 bg-orbit-surface pl-8 pr-8 text-xs text-orbit-text outline-none transition focus:border-orbit-primary/60"
+              />
+              <button
+                type="button"
+                onClick={closeFilter}
+                aria-label="필터 닫기"
+                title="닫기 (Esc)"
+                tabIndex={filterOpen ? 0 : -1}
+                aria-hidden={!filterOpen}
+                className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded p-0.5 text-orbit-muted transition hover:text-orbit-text"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
         <StatePlaceholder
           loading={isLoading}
           error={isError}
-          empty={isEmpty}
+          empty={isEmpty || isFilteredOut}
           emptyText={
-            collectionEnabled
-              ? '오늘의 탐색이 여기에 기록됩니다'
-              : '수집을 켜면 방문 기록이 여기에 쌓여요'
+            isFilteredOut
+              ? `“${query.trim()}” 와 일치하는 기록이 없어요`
+              : '오늘의 탐색이 여기에 기록됩니다'
           }
         >
-          <div className="space-y-4">
-            {groups.map((group) => (
+          <div className="space-y-3">
+            {groups.map((group, index) => (
               <section key={group.dateKey}>
-                <TimelineDateHeader label={group.label} />
+                <TimelineDateHeader
+                  label={group.label}
+                  // 동기화 현황은 "지금 상태"라 맨 위 그룹에만 붙인다.
+                  status={
+                    index === 0
+                      ? {
+                          pendingCount: syncStatus?.pendingCount ?? 0,
+                          lastSyncAt: syncStatus?.lastSyncAt ?? null,
+                        }
+                      : undefined
+                  }
+                  onOpenFilter={
+                    index === 0 && !filterOpen ? () => setFilterOpen(true) : undefined
+                  }
+                />
                 <div className="space-y-0.5">
                   {group.entries.map((entry) => (
                     <TimelineItem
@@ -112,12 +153,6 @@ export function TimelineView() {
           </div>
         </StatePlaceholder>
       </div>
-
-      {!analyticsError && analytics && (
-        <div className="shrink-0 px-4 pb-4">
-          <AnalyticsSummaryCard overview={analytics} />
-        </div>
-      )}
     </div>
   );
 }

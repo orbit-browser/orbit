@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { Globe } from 'lucide-react';
-import { faviconUrl } from '../../../lib/favicon';
+import { faviconLetter, faviconUrl } from '../../../lib/favicon';
 
 interface FaviconProps {
   /** 페이지 URL — 있으면 확장 내장 파비콘으로 그린다(네트워크 요청 없음). */
@@ -49,5 +48,14 @@ export function Favicon({ pageUrl, src, size = 16 }: FaviconProps) {
     );
   }
 
-  return <Globe size={size} className="text-orbit-muted shrink-0" />;
+  // 중립 아이콘은 모든 사이트가 똑같아 보여 구분에 쓸모가 없다 — 도메인 첫 글자를 쓴다.
+  return (
+    <span
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.6) }}
+      className="flex shrink-0 items-center justify-center rounded-sm bg-orbit-bg font-bold text-orbit-muted"
+      aria-hidden
+    >
+      {faviconLetter(pageUrl ?? src ?? '')}
+    </span>
+  );
 }

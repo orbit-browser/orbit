@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useUIStore } from '../../entrypoints/sidepanel/store/ui';
+import { isAskDockView, useUIStore } from '../../entrypoints/sidepanel/store/ui';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -9,6 +9,36 @@ beforeEach(() => {
 afterEach(() => {
   useUIStore.getState().dismissToast();
   vi.useRealTimers();
+});
+
+describe('sidepanel ask 오버레이', () => {
+  it('메인 세 탭에서만 입력창을 띄운다', () => {
+    expect(isAskDockView('timeline')).toBe(true);
+    expect(isAskDockView('sessions')).toBe(true);
+    expect(isAskDockView('tabs')).toBe(true);
+    expect(isAskDockView('detail')).toBe(false);
+    expect(isAskDockView('settings')).toBe(false);
+  });
+
+  it('세션을 열면 답변 화면을 닫는다 — 상세에는 독이 없어 되돌릴 수 없다', () => {
+    useUIStore.getState().openAsk();
+    expect(useUIStore.getState().askOpen).toBe(true);
+
+    useUIStore.getState().openSession('session-1');
+
+    expect(useUIStore.getState().askOpen).toBe(false);
+    expect(useUIStore.getState().activeView).toBe('detail');
+    expect(useUIStore.getState().selectedSessionId).toBe('session-1');
+  });
+
+  it('닫아도 탭 전환 상태는 건드리지 않는다', () => {
+    useUIStore.getState().setView('tabs');
+    useUIStore.getState().openAsk();
+    useUIStore.getState().closeAsk();
+
+    expect(useUIStore.getState().askOpen).toBe(false);
+    expect(useUIStore.getState().activeView).toBe('tabs');
+  });
 });
 
 describe('sidepanel toast', () => {
