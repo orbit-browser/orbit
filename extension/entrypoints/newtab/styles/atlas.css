@@ -51,11 +51,60 @@
   --header-h: 62px;
   --atlas-nav-w: 272px;
 
+  /* 궤도 캔버스 안쪽 노드의 테두리, 트레이 위 페이드 — 배경색에 물리는 값들 */
+  --node-rim: #ffffff;
+  --fade-page-0: rgba(254, 250, 246, 0);
+  --fade-page-94: rgba(254, 250, 246, 0.94);
+
   font-family: 'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
   font-size: 14px;
   line-height: 1.55;
   color: var(--text-primary);
 }
+
+/*
+ * 다크 — index.css 의 다크 팔레트와 같은 흙빛 계열. 캔버스는 색 대비로 위계를 만들기 때문에
+ * 배경·표면·선을 한 벌 통째로 갈아 끼운다.
+ *
+ * 선택자가 `.atlas-page`·`.nav-drawer` 까지 다시 짚는 이유: 라이트 토큰이 :root 가 아니라
+ * 그 두 클래스에 선언돼 있다. CSS 변수는 **가장 가까운 조상**이 이기므로 html 에만 걸면
+ * 대시보드 안쪽에서는 클래스에 붙은 라이트 값이 그대로 이긴다(명시도가 아니라 스코프 문제).
+ */
+html[data-theme='dark'],
+html[data-theme='dark'] .atlas-page,
+html[data-theme='dark'] .nav-drawer {
+  --bg-page: #17130f;
+  --bg-card: #211b16;
+  --bg-card-hover: #2b231c;
+  --bg-input: #211b16;
+  --bg-sunken: rgba(255, 138, 99, 0.12);
+
+  --text-primary: #f2e9e2;
+  --text-secondary: #b0a29a;
+  --text-tertiary: #8d8078;
+  --text-disabled: #665c55;
+
+  --accent: #ff8a63;
+  --accent-hover: #ff9d7a;
+  --accent-muted: #b8654a;
+  --accent-soft: rgba(255, 138, 99, 0.16);
+  --accent-softer: rgba(255, 138, 99, 0.09);
+  --accent-glow: rgba(255, 138, 99, 0.22);
+
+  --border-subtle: rgba(240, 205, 185, 0.13);
+  --border-default: rgba(240, 205, 185, 0.17);
+  --border-strong: rgba(240, 205, 185, 0.23);
+  --border-accent: rgba(255, 138, 99, 0.34);
+
+  --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.45);
+  --shadow-card: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+  --shadow-float: 0 20px 40px rgba(0, 0, 0, 0.5);
+
+  --node-rim: #f2e9e2;
+  --fade-page-0: rgba(23, 19, 15, 0);
+  --fade-page-94: rgba(23, 19, 15, 0.94);
+}
+
 
 .atlas-page {
   /* 배경은 단색 — 방향성 있는 그라디언트를 두면 톤이 좌우로 갈린다 */
@@ -276,7 +325,7 @@ body.atlas-resizing {
 
 .atlas-header__search input:focus {
   border-color: var(--accent-muted);
-  box-shadow: 0 12px 32px rgba(178, 112, 84, 0.07);
+  box-shadow: 0 12px 32px var(--wash-3);
 }
 
 .atlas-header__search-actions {
@@ -351,9 +400,9 @@ body.atlas-resizing {
 }
 
 .atlas-header__segment--active {
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--text-primary);
-  box-shadow: 0 2px 8px rgba(178, 112, 84, 0.07);
+  box-shadow: 0 2px 8px var(--wash-3);
 }
 
 .atlas-header__settings {
@@ -793,8 +842,8 @@ body.atlas-resizing {
   margin: 0 10px 6px;
   padding: 6px 9px;
   border-radius: 8px;
-  background: color-mix(in srgb, #d64545 10%, transparent);
-  color: #a63232;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
   font-size: 11.5px;
 }
 
@@ -997,7 +1046,13 @@ body.atlas-resizing .atlas-nav__resizer::after {
 .atlas-stage__scaler {
   position: absolute;
   inset: 0;
-  transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
+  /* 씬이 통째로 바뀔 때 옅어졌다 짙어진다 (AtlasCanvas 의 SCENE_FADE_MS 와 맞춘다). */
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.atlas-stage__scaler--leaving {
+  opacity: 0;
+  transform: scale(0.975);
 }
 
 .atlas-stage__svg {
@@ -1064,7 +1119,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 
 .atlas-node__rim {
   fill: none;
-  stroke: #ffffff;
+  stroke: var(--node-rim);
   stroke-width: 1;
   opacity: 0.18;
   pointer-events: none;
@@ -1132,54 +1187,6 @@ body.atlas-resizing .atlas-nav__resizer::after {
   color: var(--text-tertiary);
 }
 
-/* ── 궤도 축(반경 방향) 이동 ── */
-/* 창 밖으로 나간 궤도가 있다는 신호. 아래쪽은 흐림으로 덮어 잘린 티를 낸다. */
-.atlas-stage__axis {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 34;
-  pointer-events: none;
-}
-
-/* bottom 은 트레이 높이만큼 인라인으로 띄운다 — 트레이 뒤에 깔리면 안 보인다. */
-.atlas-stage__axis--out {
-  padding: 56px 0 14px;
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  background: linear-gradient(to bottom, transparent, var(--bg-page) 62%);
-}
-
-.atlas-stage__axis--in {
-  top: 8px;
-}
-
-.atlas-stage__axis button {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 11px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  cursor: pointer;
-  pointer-events: auto;
-  transition: color 0.2s ease, border-color 0.2s ease;
-}
-
-.atlas-stage__axis button:hover {
-  color: var(--text-primary);
-  border-color: var(--accent);
-}
-
-/* 창 밖 궤도 — 보이되 만질 수 없다. */
-.atlas-arc--beyond {
-  stroke-dasharray: 3 6;
-}
-
 .atlas-arc--focused {
   stroke-width: 2.2;
 }
@@ -1190,14 +1197,18 @@ body.atlas-resizing .atlas-nav__resizer::after {
 }
 
 /* ── 세션 레이블 칩 ── */
+/*
+ * --chip-focus: 이 칩의 궤도가 초점에 얼마나 가까운지(0~1).
+ * 크기를 클래스로 갈아 끼우면 초점이 미끄러지는 도중 칩이 한 번 튄다 — 연속값으로 잇는다.
+ */
 .atlas-chip {
   position: absolute;
-  transform: translateX(calc(-50% + var(--chip-dx, 0px)));
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 8px;
   max-width: 260px;
-  height: 30px;
+  height: calc(26px + 4px * var(--chip-focus, 1));
   padding: 0 13px;
   border-radius: var(--r-pill);
   background: var(--bg-card);
@@ -1255,6 +1266,10 @@ body.atlas-resizing .atlas-nav__resizer::after {
 
 /* ── 페이지 위성 ── */
 /* 페이지 노드 — 그림자 없는 평면 점 (메인 .orbit-node-minimal 어법) */
+/*
+ * --sat-near: 이 점이 속한 궤도가 초점에 얼마나 가까운지(0~1).
+ * 세션을 옮기는 동안 나가는 궤도와 들어오는 궤도가 이 값으로 교차한다.
+ */
 .atlas-sat {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -1264,7 +1279,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
   border: none;
   border-radius: 50%;
   background: var(--accent);
-  opacity: 0.55;
+  opacity: calc(0.55 * var(--sat-near, 1));
   cursor: pointer;
   z-index: 30;
   transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), height 0.3s cubic-bezier(0.16, 1, 0.3, 1),
@@ -1277,11 +1292,24 @@ body.atlas-resizing .atlas-nav__resizer::after {
   border-radius: 50%;
 }
 
+/*
+ * 궤도 양 끝의 축소 점 — 보이는 궤도 밖에 페이지가 더 있다는 표시.
+ * 크기·농도를 --sat-fade(1→0)에 걸어 뒤편으로 사라지게 한다.
+ * 값이 매 프레임 바뀌므로 전이를 걸면 회전을 따라오지 못하고 뭉갠다.
+ */
+.atlas-sat--edge {
+  width: calc(3px + 4px * var(--sat-fade, 1));
+  height: calc(3px + 4px * var(--sat-fade, 1));
+  opacity: calc(0.5 * var(--sat-fade, 1) * var(--sat-near, 1));
+  pointer-events: none;
+  transition: none;
+}
+
 .atlas-sat:hover,
 .atlas-sat--active {
   width: 11px;
   height: 11px;
-  opacity: 1;
+  opacity: var(--sat-near, 1);
   box-shadow: 0 0 0 5px var(--accent-glow);
   z-index: 32;
 }
@@ -1296,7 +1324,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
   border-radius: 12px;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  box-shadow: 0 8px 24px rgba(178, 112, 84, 0.07);
+  box-shadow: 0 8px 24px var(--wash-3);
   white-space: nowrap;
   text-align: left;
   pointer-events: none;
@@ -1337,7 +1365,8 @@ body.atlas-resizing .atlas-nav__resizer::after {
 .atlas-stage__hint {
   position: absolute;
   left: 50%;
-  bottom: 22px;
+  /* 트레이가 열리면 그 위로 올라간다 — 카드가 가려지면 안 된다(인라인 지정). */
+  bottom: var(--hint-bottom, 22px);
   transform: translateX(-50%);
   z-index: 35;
   padding: 8px 18px;
@@ -1463,12 +1492,24 @@ body.atlas-resizing .atlas-nav__resizer::after {
   bottom: 0;
   z-index: 30;
   padding: 20px 24px 22px;
-  background: linear-gradient(180deg, rgba(254, 250, 246, 0) 0%, rgba(254, 250, 246, 0.94) 26%, var(--bg-page) 100%);
-  animation: atlas-tray-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  background: linear-gradient(180deg, var(--fade-page-0) 0%, var(--fade-page-94) 26%, var(--bg-page) 100%);
+  /* 캔버스가 위로 올라가는 시간(SPIN_TAU 기준 약 0.35s)과 맞춰 함께 움직이게 한다. */
+  animation: atlas-tray-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* 아래에서 올라온다 — 트레이가 차지할 자리만큼 밀려 있다가 제자리로. */
 @keyframes atlas-tray-in {
-  from { opacity: 0; transform: translateY(16px); }
+  from { opacity: 0; transform: translateY(100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 세션만 바뀔 때는 트레이가 그대로 있으므로 카드만 가볍게 뜬다. */
+.atlas-tray__cards {
+  animation: atlas-cards-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes atlas-cards-in {
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -1486,22 +1527,6 @@ body.atlas-resizing .atlas-nav__resizer::after {
   align-items: baseline;
   gap: 10px;
   min-width: 0;
-}
-
-/* 메인 .badge 와 같은 어법 — 채움이 아니라 옅은 배경 + 강조색 글자 */
-.atlas-tray__badge {
-  align-self: center;
-  flex-shrink: 0;
-  height: 22px;
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: var(--r-pill);
-  background: var(--accent-soft);
-  color: var(--accent);
-  white-space: nowrap;
 }
 
 .atlas-tray__title {
@@ -1656,7 +1681,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 }
 
 .atlas-card__open-option:hover {
-  background: rgba(178, 112, 84, 0.06);
+  background: var(--wash-2);
 }
 
 .atlas-card__open-option i {
@@ -1697,7 +1722,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 }
 
 .atlas-page-menu__item:hover {
-  background: rgba(178, 112, 84, 0.06);
+  background: var(--wash-2);
 }
 
 .atlas-card__icon {
@@ -1732,10 +1757,10 @@ body.atlas-resizing .atlas-nav__resizer::after {
   font-weight: 600;
   line-height: 1.35;
   color: var(--text-primary);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  /* 사이드패널이 열려 캔버스가 좁아져도 카드 높이가 흔들리지 않게 한 줄로 자른다. */
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .atlas-card__domain {
@@ -1891,15 +1916,25 @@ body.atlas-resizing .atlas-nav__resizer::after {
   overflow: hidden;
 }
 
+/*
+ * 이름이 길면 잘리지 않고 끝에 … 이 붙어야 한다.
+ * text-overflow 는 flex 컨테이너에 먹지 않는다 — 파비콘과 나란히 놓으려고 inline-flex 를
+ * 쓰므로, 글자는 안쪽 라벨(블록)에서 잘라야 한다.
+ */
 .atlas-detail__crumb {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   max-width: 130px;
+  font-weight: 500;
+}
+
+.atlas-detail__crumb-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
 }
 
 .atlas-detail__crumbs i.ph-caret-right {
@@ -1952,6 +1987,14 @@ body.atlas-resizing .atlas-nav__resizer::after {
 }
 
 /* breadcrumb 은 글자 옆이라 작게 */
+/* 폴더 개요의 세션 줄 — 궤도 색과 같은 점으로 캔버스와 잇는다. */
+.atlas-detail__action-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
 .atlas-detail__crumb-mark {
   display: inline-grid;
   place-items: center;
@@ -1972,6 +2015,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
   font-size: 20px;
   color: inherit;
 }
+
 
 /* 제목 인라인 편집 — 크기·굵기를 표시 상태와 맞춰 전환이 튀지 않게 */
 .atlas-detail__title-input {
@@ -2010,7 +2054,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 .atlas-detail__action-error {
   margin-top: 8px;
   font-size: 12px;
-  color: #b8452b;
+  color: var(--danger);
 }
 
 .atlas-detail__topic-text {
@@ -2105,7 +2149,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 .atlas-detail__insight {
   padding: 18px;
   border-radius: var(--r-md);
-  background: linear-gradient(135deg, #ffffff 0%, #fff6ef 100%);
+  background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-card-hover) 100%);
   border: 1px solid rgba(240, 117, 80, 0.12);
   box-shadow: var(--shadow-soft);
   display: flex;
@@ -2141,7 +2185,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 
 .atlas-detail__insight-btn:hover {
   opacity: 0.88;
-  box-shadow: 0 4px 14px rgba(178, 112, 84, 0.07);
+  box-shadow: 0 4px 14px var(--wash-3);
 }
 
 .atlas-detail__summary {
@@ -2344,7 +2388,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 
 .atlas-detail__input-box input:focus {
   border-color: var(--accent-muted);
-  box-shadow: 0 8px 22px rgba(178, 112, 84, 0.07);
+  box-shadow: 0 8px 22px var(--wash-3);
 }
 
 .atlas-detail__input-box button {
@@ -2388,7 +2432,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 .atlas-modal__backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(40, 26, 20, 0.28);
+  background: var(--overlay-dim);
 }
 
 .atlas-modal__panel {
@@ -2402,7 +2446,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
   background: var(--bg-card);
-  box-shadow: 0 24px 60px rgba(120, 74, 52, 0.18);
+  box-shadow: 0 24px 60px var(--overlay-shadow);
 }
 
 .atlas-modal__head {
@@ -2538,8 +2582,8 @@ body.atlas-resizing .atlas-nav__resizer::after {
 .atlas-modal__error {
   padding: 7px 10px;
   border-radius: 8px;
-  background: color-mix(in srgb, #d64545 10%, transparent);
-  color: #a63232;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
   font-size: 12px;
 }
 

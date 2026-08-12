@@ -1,17 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { renameSession } from '../../../../lib/api';
+import { setSessionAlias } from '../../../../lib/api';
 import { broadcastSessionChange } from '../../../../lib/session-events';
 import { restoreSession, type RestoreTarget } from '../../lib/restore';
 import { PageFavicon } from './PageFavicon';
-import type { PageNode, SessionNode } from './data';
-import { formatMinutes, mostRevisitedPage, representativePage, topDomains } from './data';
+import type { FolderNode, PageNode, SessionNode } from './data';
+import {
+  folderTopDomains,
+  folderTotals,
+  formatMinutes,
+  largestSession,
+  mostRevisitedPage,
+  representativePage,
+  topDomains,
+} from './data';
 
 
 interface AtlasDetailProps {
+  /** 폴더를 보고 있는데 아직 세션을 고르지 않았을 때 폴더 개요를 보여 준다. */
+  folder: FolderNode | null;
   session: SessionNode | null;
   page: PageNode | null;
   onSelectPage: (pageId: string) => void;
+  onSelectSession: (sessionId: string) => void;
 }
 
 interface Stat {
@@ -19,7 +30,13 @@ interface Stat {
   value: string;
 }
 
-export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
+export function AtlasDetail({
+  folder,
+  session,
+  page,
+  onSelectPage,
+  onSelectSession,
+}: AtlasDetailProps) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
@@ -50,7 +67,7 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
     if (!next || next === session.title) return;
 
     try {
-      await renameSession(session.id, next);
+      await setSessionAlias(session.id, next);
       void queryClient.invalidateQueries({ queryKey: ['newtab', 'atlas-data'] });
       // 사이드패널이 열려 있으면 그쪽 목록도 함께 갱신된다.
       broadcastSessionChange({ type: 'sessions:changed' });
@@ -65,18 +82,25 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
     setActionError(await restoreSession(session, target));
   };
 
-  const level: 'page' | 'session' | 'empty' = page
+  // 세션을 고르지 않은 채 폴더만 보고 있으면 폴더 개요를 낸다.
+  const level: 'page' | 'session' | 'folder' | 'empty' = page
     ? 'page'
     : session
     ? 'session'
+    : folder
+    ? 'folder'
     : 'empty';
 
-  const title = page?.title ?? session?.title ?? 'Orbit Atlas';
+  const totals = folder ? folderTotals(folder) : null;
+
+  const title = page?.title ?? session?.title ?? folder?.name ?? 'Orbit Atlas';
   const subtitle =
     level === 'page'
       ? `${page!.domain} · ${page!.minutes}분 체류`
       : level === 'session'
       ? `${session!.date} · ${formatMinutes(session!.minutes)}`
+      : level === 'folder'
+      ? `폴더 · 세션 ${totals!.sessionCount}개`
       : '세션을 선택해 주세요';
 
   const stats: Stat[] =
@@ -89,6 +113,11 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
       ? [
           { label: '페이지', value: `${session!.pages.length}개` },
           { label: '활성 시간', value: formatMinutes(session!.minutes) },
+        ]
+      : level === 'folder'
+      ? [
+          { label: '페이지', value: `${totals!.pageCount}개` },
+          { label: '활성 시간', value: formatMinutes(totals!.minutes) },
         ]
       : [];
 
@@ -104,6 +133,16 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
       if (!top) return '이 세션에는 아직 페이지 탐색 기록이 없습니다.';
       return `${domains || '여러 페이지'} 중심으로 ${formatMinutes(session.minutes)}을 썼고, “${top.title}” 을 총 ${top.visits}회 방문했습니다.`;
     }
+    if (level === 'folder' && folder) {
+      if (totals!.sessionCount === 0) {
+        return '이 폴더는 비어 있습니다. 왼쪽 목록에서 세션을 끌어다 놓거나 + 로 추가하세요.';
+      }
+      const largest = largestSession(folder);
+      const domains = folderTopDomains(folder, 2).map((d) => d.domain).join(', ');
+      return `세션 ${totals!.sessionCount}개에 걸쳐 ${domains || '여러 사이트'} 중심으로 ${formatMinutes(totals!.minutes)}을 썼습니다.${
+        largest ? ` 가장 큰 탐색은 “${largest.title}”(${largest.pages.length}p) 입니다.` : ''
+      }`;
+    }
     return '왼쪽에서 세션을 고르면 탐색 기록 요약이 여기에 표시됩니다.';
   })();
 
@@ -112,17 +151,19 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
       <div className="atlas-detail__head">
         <div className="atlas-detail__head-top">
           <span className="atlas-detail__heading">세부 정보</span>
-          <div className="atlas-detail__head-actions">
-            <button
-              type="button"
-              aria-label="세션 이름 편집"
-              title="세션 이름 편집"
-              onClick={startEditing}
-              disabled={!session}
-            >
-              <i className="ph ph-pencil-simple"></i>
-            </button>
-          </div>
+          {/* 이름 편집은 세션에만 있다. 폴더 이름은 왼쪽 네비게이터에서 고친다. */}
+          {session && (
+            <div className="atlas-detail__head-actions">
+              <button
+                type="button"
+                aria-label="세션 이름 편집"
+                title="세션 이름 편집"
+                onClick={startEditing}
+              >
+                <i className="ph ph-pencil-simple"></i>
+              </button>
+            </div>
+          )}
         </div>
 
         {session && (
@@ -134,12 +175,14 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
                   <PageFavicon url={rep.url} domain={rep.domain} className="atlas-detail__crumb-mark" />
                 ) : null;
               })()}
-              {session.title}
+              <span className="atlas-detail__crumb-label">{session.title}</span>
             </span>
             {page && (
               <>
                 <i className="ph ph-caret-right"></i>
-                <span className="atlas-detail__crumb atlas-detail__crumb--current">{page.domain}</span>
+                <span className="atlas-detail__crumb atlas-detail__crumb--current">
+                  <span className="atlas-detail__crumb-label">{page.domain}</span>
+                </span>
               </>
             )}
           </nav>
@@ -147,32 +190,36 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
 
         <div className="atlas-detail__topic">
           <div className="atlas-detail__topic-row">
-            <div
-              className="atlas-detail__topic-icon"
-              style={
-                session
-                  ? {
-                      background: `color-mix(in srgb, ${session.hue} 12%, transparent)`,
-                      color: session.hue,
-                    }
-                  : undefined
-              }
-            >
-              {level === 'page' && page ? (
-                <PageFavicon url={page.url} domain={page.domain} className="atlas-detail__topic-mark" />
-              ) : session ? (
-                (() => {
-                  const rep = representativePage(session);
-                  return rep ? (
-                    <PageFavicon url={rep.url} domain={rep.domain} className="atlas-detail__topic-mark" />
-                  ) : (
-                    <i className="ph ph-circles-three"></i>
-                  );
-                })()
-              ) : (
-                <i className="ph ph-circles-three"></i>
-              )}
-            </div>
+            {/*
+              * 아이콘은 그것이 무엇인지 알려 줄 때만 둔다 — 페이지·세션은 대표 파비콘이
+              * 정보지만, 폴더·빈 상태의 일반 기호는 자리만 차지한다.
+              */}
+            {(level === 'page' || level === 'session') && (
+              <div
+                className="atlas-detail__topic-icon"
+                style={
+                  session
+                    ? {
+                        background: `color-mix(in srgb, ${session.hue} 12%, transparent)`,
+                        color: session.hue,
+                      }
+                    : undefined
+                }
+              >
+                {level === 'page' && page ? (
+                  <PageFavicon url={page.url} domain={page.domain} className="atlas-detail__topic-mark" />
+                ) : (
+                  (() => {
+                    const rep = session ? representativePage(session) : null;
+                    return rep ? (
+                      <PageFavicon url={rep.url} domain={rep.domain} className="atlas-detail__topic-mark" />
+                    ) : (
+                      <i className="ph ph-circles-three"></i>
+                    );
+                  })()
+                )}
+              </div>
+            )}
             <div className="atlas-detail__topic-text">
               {editing && session ? (
                 <input
@@ -223,6 +270,48 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
             <p>{insight}</p>
           </div>
         </section>
+
+        {level === 'folder' && folder && folder.sessions.length > 0 && (
+          <section>
+            <div className="atlas-detail__section-title">세션 {folder.sessions.length}개</div>
+            <div className="atlas-detail__actions">
+              {folder.sessions.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="atlas-detail__action"
+                  onClick={() => onSelectSession(item.id)}
+                >
+                  <span className="atlas-detail__action-left">
+                    <span
+                      className="atlas-detail__action-dot"
+                      style={{ background: item.hue }}
+                      aria-hidden
+                    />
+                    {item.title}
+                  </span>
+                  <span className="atlas-detail__action-meta">
+                    {item.pages.length}p · {item.date}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {level === 'folder' && folder && folder.sessions.length > 0 && (
+          <section>
+            <div className="atlas-detail__section-title">주요 도메인</div>
+            <div className="atlas-detail__tags">
+              {folderTopDomains(folder).map(({ domain, count }) => (
+                <span key={domain} className="atlas-detail__tag">
+                  {domain}
+                  {count > 1 && <em>{count}</em>}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
 
         {session && session.summary.overview && (
           <section>
@@ -286,41 +375,42 @@ export function AtlasDetail({ session, page, onSelectPage }: AtlasDetailProps) {
           </section>
         )}
 
-        <section>
-          <div className="atlas-detail__section-title">작업</div>
-          {/* 마우스를 올리면 "새 창으로" 가 함께 드러난다 — 기본 동작은 현재 창에 열기 */}
-          <div className="atlas-detail__actions atlas-detail__actions--open">
-            <button
-              type="button"
-              className="atlas-detail__action"
-              disabled={!session}
-              onClick={() => void openAllTabs('current')}
-            >
-              <span className="atlas-detail__action-left">
-                <i className="ph ph-arrow-square-out"></i>
-                세션 탭 모두 열기
-              </span>
-              <i className="ph ph-caret-right"></i>
-            </button>
-            <button
-              type="button"
-              className="atlas-detail__action atlas-detail__action--alt"
-              disabled={!session}
-              onClick={() => void openAllTabs('new-window')}
-            >
-              <span className="atlas-detail__action-left">
-                <i className="ph ph-arrow-square-out"></i>
-                새 창으로 모두 열기
-              </span>
-              <i className="ph ph-caret-right"></i>
-            </button>
-          </div>
-          {actionError && (
-            <p className="atlas-detail__action-error" role="alert">
-              {actionError}
-            </p>
-          )}
-        </section>
+        {/* 열 세션이 없으면 작업 자체가 없다 — 비활성 버튼만 남기지 않는다. */}
+        {session && (
+          <section>
+            <div className="atlas-detail__section-title">작업</div>
+            {/* 마우스를 올리면 "새 창으로" 가 함께 드러난다 — 기본 동작은 현재 창에 열기 */}
+            <div className="atlas-detail__actions atlas-detail__actions--open">
+              <button
+                type="button"
+                className="atlas-detail__action"
+                onClick={() => void openAllTabs('current')}
+              >
+                <span className="atlas-detail__action-left">
+                  <i className="ph ph-arrow-square-out"></i>
+                  세션 탭 모두 열기
+                </span>
+                <i className="ph ph-caret-right"></i>
+              </button>
+              <button
+                type="button"
+                className="atlas-detail__action atlas-detail__action--alt"
+                onClick={() => void openAllTabs('new-window')}
+              >
+                <span className="atlas-detail__action-left">
+                  <i className="ph ph-arrow-square-out"></i>
+                  새 창으로 모두 열기
+                </span>
+                <i className="ph ph-caret-right"></i>
+              </button>
+            </div>
+            {actionError && (
+              <p className="atlas-detail__action-error" role="alert">
+                {actionError}
+              </p>
+            )}
+          </section>
+        )}
       </div>
 
     </aside>

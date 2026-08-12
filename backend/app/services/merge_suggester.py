@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..db.models import Session as SessionModel
+from ..db.models import Session as SessionModel, session_display_title
 from ..db.vector import get_vector, search_similar_with_scores
 from ..schemas.session import MergeSignal, MergeSuggestion
 
@@ -29,10 +29,15 @@ class SessionMeta:
     """순수 판정에 필요한 세션 메타(경량, DB 무관)."""
 
     id: str
+    # 병합 판정(제목 토큰 겹침)의 기준이 되는 내부 이름. 사용자 별칭을 섞지 않는다 —
+    # 사용자가 이름을 바꿨다고 병합 후보가 달라지면 안 된다.
     title: str
     keywords: tuple[str, ...]
     event_count: int
     order_ts: datetime  # started_at(없으면 created_at) — 동률 tie-break용
+    # 제안 카드에 보여 줄 이름(별칭 우선). 점수에는 쓰지 않는다.
+    # 비어 있으면 title로 되돌아간다 — 판정만 검증하는 호출자는 채우지 않아도 된다.
+    display_title: str = ""
 
 
 def _normalize_tokens(values: list[str]) -> set[str]:
@@ -85,8 +90,8 @@ def evaluate_pair(
     return MergeSuggestion(
         survivor_id=survivor.id,
         absorbed_id=absorbed.id,
-        survivor_title=survivor.title,
-        absorbed_title=absorbed.title,
+        survivor_title=survivor.display_title or survivor.title,
+        absorbed_title=absorbed.display_title or absorbed.title,
         score=vector_score,
         signals=MergeSignal(vector_score=vector_score, keyword_overlap=overlap),
     )
@@ -96,6 +101,7 @@ def _to_meta(session: SessionModel) -> SessionMeta:
     return SessionMeta(
         id=session.id,
         title=session.title or "",
+        display_title=session_display_title(session) or "",
         keywords=tuple(str(k) for k in (session.keywords or [])),
         event_count=session.event_count or 0,
         order_ts=session.started_at or session.created_at,

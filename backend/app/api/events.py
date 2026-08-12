@@ -9,7 +9,13 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..db.models import ExplorationEvent, Session as SessionModel, SessionEvent, SyncBatch
+from ..db.models import (
+    ExplorationEvent,
+    SESSION_DISPLAY_TITLE,
+    Session as SessionModel,
+    SessionEvent,
+    SyncBatch,
+)
 from ..db.session import get_db
 from ..schemas.event import (
     EventBatchRequest,
@@ -197,7 +203,7 @@ async def _fetch_events_for_date(
     # discarded 이벤트도 반환한다 — 세션에서 제외됐을 뿐 탐색 기록으로는 유효하므로
     # Timeline에 "제외됨" 뱃지로 노출된다(사용자 결정 2026-08-05).
     result = await db.execute(
-        select(ExplorationEvent, SessionEvent.session_id, SessionModel.title)
+        select(ExplorationEvent, SessionEvent.session_id, SESSION_DISPLAY_TITLE)
         .outerjoin(SessionEvent, SessionEvent.event_id == ExplorationEvent.id)
         .outerjoin(SessionModel, SessionEvent.session_id == SessionModel.id)
         .where(

@@ -31,6 +31,7 @@ from ...db.models import (
     RecommendationCache,
     Session as SessionModel,
     SessionEvent,
+    session_display_title,
 )
 from ...db.session import AsyncSessionLocal
 from ...db.vector import search_similar_with_scores
@@ -126,7 +127,9 @@ async def _collect_signals(
         signals.append(
             SessionSignals(
                 session_id=session.id,
-                title=session.title,
+                # 추천 카드 라벨 겸 리랭크 프롬프트 표기 — 사용자가 부르는 이름을 쓴다.
+                # 1차 점수의 term 추출(_context_overlap)은 canonical title을 그대로 본다.
+                title=session_display_title(session),
                 overview=str(summary.get("overview") or ""),
                 last_activity_at=session.last_activity_at or session.created_at,
                 open_task_count=_open_task_count(summary),

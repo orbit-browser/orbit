@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, REAL, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, REAL, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -58,6 +58,28 @@ class Session(Base):
     # 애플리케이션에서 NULL 되돌리기로 처리한다. 조회 측은 존재하지 않는 폴더 id를
     # 미정리로 간주해 방어한다.
     folder_id: Mapped[str | None] = mapped_column(String(36), default=None, index=True)
+
+    # 사용자가 붙인 표시용 이름. NULL이면 title을 그대로 보여준다.
+    #
+    # title을 직접 고치지 않는 이유: title은 임베딩 텍스트(_embed_and_upsert),
+    # 병합 게이팅의 제목 Jaccard(merge_service), 추천 term 추출의 기준이고,
+    # 배치 세션화가 매번 다시 만들어 낸다(session_updater). 사용자가 고친 이름을
+    # 거기에 실으면 저장된 벡터와 어긋나고 배치가 덮어쓴다.
+    alias: Mapped[str | None] = mapped_column(String(100), default=None)
+
+
+def session_display_title(session: Session) -> str:
+    """사용자에게 보여 줄 세션 이름. **응답 경계에서만** 쓴다.
+
+    내부 로직(임베딩·병합 점수·프롬프트 term 추출)은 session.title을 그대로 봐야 한다.
+    파생 프로퍼티가 아니라 함수인 이유: 매퍼를 검증하는 테스트 대역이 실제 컬럼(alias)만
+    흉내 내면 되고, 파생 규칙을 대역이 따라 적을 필요가 없다.
+    """
+    return session.alias or session.title
+
+
+# 컬럼만 뽑는 조회(ORM 객체가 없는 select)에서 쓰는 표시 이름.
+SESSION_DISPLAY_TITLE = func.coalesce(Session.alias, Session.title)
 
 
 class ExplorationEvent(Base):

@@ -5,7 +5,7 @@ import { FolderAssignDialog } from './FolderAssignDialog';
 import { loadSeenSessions, markSessionSeen } from '../../lib/seen-sessions';
 import { useSessionSync } from '../../hooks/useSessionSync';
 import { useFolderMutations } from '../../hooks/useFolders';
-import type { FolderNode, SessionNode } from './data';
+import { sortSessions, type FolderNode, type SessionNode, type SessionSort } from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
@@ -36,7 +36,19 @@ interface AtlasNavigatorProps {
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
   searchInputRef?: React.Ref<HTMLInputElement>;
+  sort: SessionSort;
+  onSortChange: (sort: SessionSort) => void;
 }
+
+const SORT_LABEL: Record<SessionSort, string> = {
+  recent: '최신순',
+  title: '가나다순',
+};
+
+const SORT_ICON: Record<SessionSort, string> = {
+  recent: 'ph-clock-counter-clockwise',
+  title: 'ph-sort-ascending',
+};
 
 function Highlight({ text, query }: { text: string; query: string }) {
   if (!query) return <>{text}</>;
@@ -77,6 +89,8 @@ export function AtlasNavigator({
   searchOpen,
   onSearchOpenChange,
   searchInputRef,
+  sort,
+  onSortChange,
 }: AtlasNavigatorProps) {
   /**
    * "새로 저장됨" 점을 이미 확인한 세션들. 사용자가 세션을 열면 표시를 지운다.
@@ -85,13 +99,20 @@ export function AtlasNavigator({
 
   // 사이드패널에서 병합하면 새로고침 없이 여기 목록이 따라 바뀐다.
   const { absorbingId, survivingId } = useSessionSync();
-  const { create, rename, remove, assign, unassign } = useFolderMutations();
+  const { create, rename, remove, assign, unassign, renameSessionAlias } = useFolderMutations();
 
   /** 드롭 대상 강조 — 'unfiled' 는 폴더에서 빼는 자리. */
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  /**
+   * 세션을 끄는 중인지. "정리 안 됨" 자리는 비었으면 감추지만, 끌고 있는 동안에는
+   * 폴더에서 빼는 유일한 드롭 대상이라 도로 꺼내 준다.
+   */
+  const [draggingSession, setDraggingSession] = useState(false);
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  /** 이름을 고치고 있는 세션. 폴더 이름 편집과 상태를 나눠 둔다(id 가 겹칠 수 있다). */
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [assignTarget, setAssignTarget] = useState<string | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
 
@@ -161,30 +182,61 @@ export function AtlasNavigator({
     [],
   );
 
+  /**
+   * 새 폴더 확정.
+   *
+   * Enter 와 blur 가 같은 함수를 부른다 — 요청을 기다리는 동안 입력창을 남겨 두면
+   * 성공 뒤 입력창이 사라지며 blur 가 한 번 더 발화해 같은 이름으로 폴더가 두 개
+   * 생긴다. 그래서 **먼저 입력창을 닫고** 요청을 보내며, 실패했을 때만 되돌린다.
+   */
   const submitNewFolder = async () => {
     const name = draftName.trim();
-    if (!name) {
-      setCreating(false);
-      return;
-    }
+    setCreating(false);
+    setDraftName('');
+    if (!name) return;
     const ok = await runFolderAction(() => create.mutateAsync(name), '폴더를 만들지 못했어요');
-    if (ok) {
-      setCreating(false);
-      setDraftName('');
+    if (!ok) {
+      setDraftName(name);
+      setCreating(true);
     }
   };
 
+  /** 새 폴더와 같은 이유로 입력창을 먼저 닫는다 — blur 가 요청을 한 번 더 보내지 않도록. */
   const submitRename = async (folderId: string) => {
     const name = draftName.trim();
-    if (!name) {
-      setRenamingId(null);
-      return;
-    }
+    setRenamingId(null);
+    setDraftName('');
+    if (!name) return;
     const ok = await runFolderAction(
       () => rename.mutateAsync({ folderId, name }),
       '이름을 바꾸지 못했어요',
     );
-    if (ok) setRenamingId(null);
+    if (!ok) {
+      setDraftName(name);
+      setRenamingId(folderId);
+    }
+  };
+
+  /**
+   * 세션 이름 확정 — 폴더와 같은 이유로 입력창을 먼저 닫고 요청을 보낸다.
+   *
+   * 서버에는 별칭으로 저장되고 AI 가 만든 원래 이름은 그대로 남는다. 비우면 별칭을
+   * 지워 원래 이름으로 돌아간다.
+   */
+  const submitSessionName = async (session: SessionNode) => {
+    const name = draftName.trim();
+    setRenamingSessionId(null);
+    setDraftName('');
+    if (name === (session.alias ?? '')) return;
+
+    const ok = await runFolderAction(
+      () => renameSessionAlias.mutateAsync({ sessionId: session.id, alias: name }),
+      '이름을 바꾸지 못했어요',
+    );
+    if (!ok) {
+      setDraftName(name);
+      setRenamingSessionId(session.id);
+    }
   };
 
   const deleteFolderWithConfirm = async (folder: FolderNode) => {
@@ -259,9 +311,15 @@ export function AtlasNavigator({
           onDragStart={(event) => {
             event.dataTransfer.setData(DRAG_TYPE, session.id);
             event.dataTransfer.effectAllowed = 'move';
+            setDraggingSession(true);
           }}
-          onClick={() => handleSelectSession(session.id)}
-          onKeyDown={(event) => event.key === 'Enter' && handleSelectSession(session.id)}
+          onDragEnd={() => setDraggingSession(false)}
+          onClick={() => renamingSessionId !== session.id && handleSelectSession(session.id)}
+          onKeyDown={(event) =>
+            event.key === 'Enter' &&
+            renamingSessionId !== session.id &&
+            handleSelectSession(session.id)
+          }
           role="button"
           tabIndex={0}
           title={`${session.title} — ${session.date}`}
@@ -277,12 +335,49 @@ export function AtlasNavigator({
           >
             <i className={isOpen ? 'ph ph-caret-down' : 'ph ph-caret-right'} />
           </button>
-          <span className="atlas-row__label">
-            <Highlight text={session.title} query={query} />
-          </span>
+          {renamingSessionId === session.id ? (
+            <input
+              autoFocus
+              className="atlas-row__input"
+              value={draftName}
+              placeholder={session.title}
+              maxLength={100}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => setDraftName(event.target.value)}
+              onBlur={() => void submitSessionName(session)}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === 'Enter') void submitSessionName(session);
+                // 이름을 먼저 비워야 뒤따르는 blur 가 별칭을 덮어쓰지 않는다.
+                if (event.key === 'Escape') {
+                  setDraftName('');
+                  setRenamingSessionId(null);
+                }
+              }}
+            />
+          ) : (
+            <span className="atlas-row__label">
+              <Highlight text={session.title} query={query} />
+            </span>
+          )}
           <span className="atlas-row__meta">{session.pages.length}p</span>
           {/* 대표 아이콘은 오른쪽 끝 — 제목이 길어져도 자리가 흔들리지 않는다 */}
           <span className="atlas-row__trailing">
+            <button
+              type="button"
+              className="atlas-row__action"
+              aria-label={`${session.title} 이름 바꾸기`}
+              title="이름 바꾸기"
+              onClick={(event) => {
+                event.stopPropagation();
+                setFolderError(null);
+                // 별칭이 없으면 빈 칸으로 시작하고 원래 이름을 placeholder 로 보여 준다.
+                setDraftName(session.alias ?? '');
+                setRenamingSessionId(session.id);
+              }}
+            >
+              <i className="ph ph-pencil-simple" />
+            </button>
             {session.folderId && (
               <button
                 type="button"
@@ -368,6 +463,14 @@ export function AtlasNavigator({
           >
             <i className="ph ph-folder-plus" />
           </button>
+          <button
+            type="button"
+            title={`정렬: ${SORT_LABEL[sort]} (눌러서 ${SORT_LABEL[sort === 'recent' ? 'title' : 'recent']}으로)`}
+            aria-label={`세션 정렬 ${SORT_LABEL[sort]}`}
+            onClick={() => onSortChange(sort === 'recent' ? 'title' : 'recent')}
+          >
+            <i className={`ph ${SORT_ICON[sort]}`} />
+          </button>
           <button type="button" title="모두 접기" aria-label="모두 접기" onClick={onCollapseAll}>
             <i className="ph ph-arrows-in-line-vertical" />
           </button>
@@ -416,7 +519,11 @@ export function AtlasNavigator({
                   onBlur={() => void submitNewFolder()}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') void submitNewFolder();
-                    if (event.key === 'Escape') setCreating(false);
+                    // 이름을 먼저 비워야 뒤따르는 blur 가 폴더를 만들지 않는다.
+                    if (event.key === 'Escape') {
+                      setDraftName('');
+                      setCreating(false);
+                    }
                   }}
                 />
               </div>
@@ -475,7 +582,10 @@ export function AtlasNavigator({
                         onBlur={() => void submitRename(folder.id)}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') void submitRename(folder.id);
-                          if (event.key === 'Escape') setRenamingId(null);
+                          if (event.key === 'Escape') {
+                            setDraftName('');
+                            setRenamingId(null);
+                          }
                         }}
                       />
                     ) : (
@@ -532,7 +642,9 @@ export function AtlasNavigator({
                           세션을 여기로 끌어다 놓거나 + 로 추가하세요
                         </div>
                       ) : (
-                        folder.sessions.map((session) => renderSession(session, null))
+                        sortSessions(folder.sessions, sort).map((session) =>
+                          renderSession(session, null),
+                        )
                       )}
                     </div>
                   )}
@@ -540,22 +652,28 @@ export function AtlasNavigator({
               );
             })}
 
-            <div
-              className={cx(
-                'atlas-nav__section',
-                dropTarget === 'unfiled' && 'atlas-nav__section--drop',
-              )}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-                setDropTarget('unfiled');
-              }}
-              onDragLeave={() => setDropTarget((prev) => (prev === 'unfiled' ? null : prev))}
-              onDrop={(event) => void handleDropOnUnfiled(event)}
-            >
-              정리 안 됨
-              <span className="atlas-nav__section-count">{unfiled.length}</span>
-            </div>
+            {/* 비어 있으면 감춘다 — 0 만 적힌 줄은 아무것도 알려주지 않는다. */}
+            {(unfiled.length > 0 || draggingSession) && (
+              <div
+                className={cx(
+                  'atlas-nav__section',
+                  dropTarget === 'unfiled' && 'atlas-nav__section--drop',
+                )}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
+                  setDropTarget('unfiled');
+                }}
+                onDragLeave={() => setDropTarget((prev) => (prev === 'unfiled' ? null : prev))}
+                onDrop={(event) => {
+                  setDraggingSession(false);
+                  void handleDropOnUnfiled(event);
+                }}
+              >
+                정리 안 됨
+                <span className="atlas-nav__section-count">{unfiled.length}</span>
+              </div>
+            )}
 
             {unfiled.length === 0 && folders.length === 0 && (
               <div className="atlas-nav__empty">
@@ -564,7 +682,7 @@ export function AtlasNavigator({
               </div>
             )}
 
-            {unfiled.map((session) => renderSession(session, null))}
+            {sortSessions(unfiled, sort).map((session) => renderSession(session, null))}
           </>
         )}
       </div>

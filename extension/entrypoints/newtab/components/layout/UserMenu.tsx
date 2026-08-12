@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Gift, Settings, MessageSquare, Users, ArrowUpRight, LogOut } from 'lucide-react';
+import { ChevronDown, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../../../../lib/useAuth';
+import { SettingsPanel } from './SettingsPanel';
 
 /**
  * 우측 상단 프로필 — 클릭하면 계정/설정 메뉴가 아래로 열린다.
@@ -15,6 +16,7 @@ function initials(name: string | null, email: string): string {
 
 export function UserMenu() {
   const [open, setOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { session, signOut } = useAuth();
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -61,25 +63,17 @@ export function UserMenu() {
           </div>
 
           <div className="user-menu__group">
-            <button type="button" className="user-menu__item" role="menuitem">
-              <Gift size={15} />
-              <span>친구 초대</span>
-            </button>
-          </div>
-
-          <div className="user-menu__group">
-            <button type="button" className="user-menu__item" role="menuitem">
+            <button
+              type="button"
+              className="user-menu__item"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                setSettingsOpen(true);
+              }}
+            >
               <Settings size={15} />
               <span>설정</span>
-            </button>
-            <button type="button" className="user-menu__item" role="menuitem">
-              <MessageSquare size={15} />
-              <span>의견 보내기</span>
-            </button>
-            <button type="button" className="user-menu__item" role="menuitem">
-              <Users size={15} />
-              <span>커뮤니티 참여</span>
-              <ArrowUpRight size={13} className="user-menu__external" />
             </button>
           </div>
 
@@ -99,6 +93,8 @@ export function UserMenu() {
           </div>
         </div>
       )}
+
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

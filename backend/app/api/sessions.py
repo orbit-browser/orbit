@@ -13,6 +13,7 @@ from ..db.models import (
     SessionEvent,
     SessionVersion,
     SyncBatch,
+    session_display_title,
 )
 from ..db.session import AsyncSessionLocal, get_db
 from .deps import current_user_id
@@ -72,7 +73,10 @@ def _to_detail(session: SessionModel) -> SessionDetail:
     )
     return SessionDetail(
         session_id=session.id,
-        title=session.title,
+        # 표시 이름은 별칭이 우선한다. 내부 이름(session.title)은 임베딩·병합 점수·
+        # 배치 세션화가 쓰는 값이라 여기서만 갈아 끼우고 저장값은 건드리지 않는다.
+        title=session_display_title(session),
+        alias=session.alias,
         summary=summary,
         summary_status=session.summary_status,  # type: ignore[arg-type]
         tabs=tabs,
@@ -310,7 +314,9 @@ async def patch_session(
 ) -> SessionDetail:
     session = await _owned_session(db, session_id, user_id)
 
-    session.title = body.title
+    # 빈 문자열은 "별칭 지우기"로 본다 — 공백만 남은 이름을 저장하면 제목이 사라져 보인다.
+    alias = (body.alias or "").strip()
+    session.alias = alias or None
     session.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(session)

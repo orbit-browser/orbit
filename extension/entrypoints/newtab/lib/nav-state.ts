@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import type { SessionSort } from '../components/atlas/data';
 
 /**
  * 메인 · 아틀라스가 공유하는 네비게이터 상태.
@@ -21,6 +22,8 @@ export interface NavState {
   focusedFolderId: string | null;
   selectedSessionId: string | null;
   selectedPageId: string | null;
+  /** 세션 목록 정렬. 폴더 순서는 사용자가 만든 position 을 그대로 둔다. */
+  sessionSort: SessionSort;
 }
 
 export const NAV_DEFAULT_WIDTH = 288;
@@ -38,6 +41,7 @@ let state: NavState = {
   focusedFolderId: null,
   selectedSessionId: null,
   selectedPageId: null,
+  sessionSort: 'recent',
 };
 
 export function getNavState(): NavState {
