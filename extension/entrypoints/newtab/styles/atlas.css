@@ -1036,6 +1036,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  container-type: inline-size;
 }
 
 .atlas-stage {
@@ -1377,6 +1378,9 @@ body.atlas-resizing .atlas-nav__resizer::after {
   display: flex;
   align-items: center;
   gap: 10px;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100% - 24px);
   font-size: 12px;
   color: var(--text-secondary);
 }
@@ -1392,6 +1396,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 .atlas-stage__hint-actions {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   padding-left: 10px;
   border-left: 1px solid var(--border-subtle);
 }
@@ -1399,6 +1404,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 .atlas-stage__hint-close {
   width: 20px;
   height: 20px;
+  flex: 0 0 20px;
   display: grid;
   place-items: center;
   border: none;
@@ -1433,6 +1439,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
   opacity: 0;
   pointer-events: none;
   cursor: pointer;
+  flex-shrink: 0;
   transition: width 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease,
     padding 0.26s cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -1449,6 +1456,52 @@ body.atlas-resizing .atlas-nav__resizer::after {
 .atlas-stage__hint-never:hover {
   color: var(--accent-hover);
   text-decoration: underline;
+}
+
+/* 사이드바로 캔버스가 좁아지면 hover 중 줄바꿈으로 닫기 버튼이 움직이지 않게 한다. */
+@container (max-width: 840px) {
+  .atlas-stage__hint-never {
+    width: 84px;
+    padding-left: 8px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@container (max-width: 720px) {
+  .atlas-stage__hint {
+    padding-inline: 14px;
+    gap: 8px;
+    font-size: 11.5px;
+  }
+
+  .atlas-stage__hint-actions {
+    padding-left: 8px;
+  }
+
+  .atlas-stage__hint-never {
+    width: 80px;
+    padding-left: 6px;
+    font-size: 11px;
+  }
+}
+
+@container (max-width: 560px) {
+  .atlas-stage__hint {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .atlas-stage__hint > span:first-child {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .atlas-stage__hint-actions {
+    margin-left: auto;
+    padding-left: 0;
+    border-left: none;
+  }
 }
 
 @keyframes atlas-rise {
