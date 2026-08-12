@@ -974,6 +974,88 @@ body {
   opacity: 0.88;
 }
 
+/*
+  최근 검색 기록 — 검색창 포커스 시 아래로 열린다.
+  절대 배치라 아래 바로가기 줄을 밀어내지 않는다.
+*/
+.search-history {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  box-shadow: 0 16px 40px var(--shadow-warm);
+  animation: search-history-drop 0.16s ease-out both;
+}
+
+@keyframes search-history-drop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.search-history__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  color: var(--text-main);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.search-history__item--active {
+  background: var(--wash-1);
+}
+
+.search-history__icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.search-history__query {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-history__remove {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  /* 가리키고 있는 줄에서만 보인다 — 목록이 X 표시로 어수선해지지 않게. */
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.search-history__item--active .search-history__remove {
+  opacity: 1;
+}
+
+.search-history__remove:hover {
+  background: var(--wash-2);
+  color: var(--text-main);
+}
+
+.search-history__remove:focus-visible {
+  opacity: 1;
+}
+
 /* 복원 실패 안내 — 시안에 없던 슬롯. 탭이 안 열렸는데 무반응이면 버튼 고장으로 보인다. */
 .home-error {
   text-align: center;

@@ -3257,3 +3257,56 @@ PR #14 충돌 해결 과정에서 `DecisionLog.md`를 재구성할 때 출력 �
 팝업을 확인하는 시각·통합 스모크.
 
 ---
+
+## 2026-08-12 — 새 탭 검색창 최근 검색 기록
+
+**브랜치:** `feat/search-history`
+
+### 배경
+
+새 탭 히어로 검색창은 검색을 실행하기만 하고 무엇을 검색했는지 남기지 않았다. 크롬 기본 새 탭이나
+구글에서는 검색창에 커서를 넣으면 최근 검색어가 뜨는데, Orbit 새 탭은 매번 처음부터 타이핑해야 했다.
+
+### 결정한 데이터 출처
+
+구글 새 탭의 최근 검색 목록은 구글 계정 검색 기록이라 확장이 읽을 수 없고, 크롬 주소창에서 한
+검색도 확장에는 보이지 않는다. `history` 권한을 붙여 방문 기록의 검색엔진 URL에서 쿼리를 역추적할
+수도 있지만 보조 기능 하나에 전체 방문 기록 읽기 권한은 과하다고 보고, **Orbit 검색창에서 실행한
+검색어만 로컬에 남기는 방식**으로 사용자 확인을 받아 진행했다(`DecisionLog.md` 같은 날짜 항목).
+
+### 변경 내용
+
+- `entrypoints/newtab/lib/search-history.ts` (신규) — 저장 형식과 순수 로직. 바로가기
+  (`shortcuts.ts`)와 같이 순수 함수와 `chrome.storage.local` 접근을 나눴다.
+  같은 검색어는 새로 쌓지 않고 시각만 갱신해 맨 위로 올리고, 상한 10개를 넘기면 오래된 것이
+  밀려난다. 저장된 값이 손상됐으면 형식이 맞는 항목만 남긴다.
+- `entrypoints/newtab/components/sections/SearchHistoryDropdown.tsx` (신규) — 드롭다운.
+  `combobox`/`listbox` 역할과 `aria-activedescendant`로 키보드 선택을 스크린리더에 전달한다.
+- `entrypoints/newtab/components/sections/OrbitHero.tsx` — 검색 실행부를 `runSearch`로 분리하고
+  검색어일 때만 기록을 남긴다. 포커스 시 목록 표시, 입력값으로 필터, ↑↓ 이동, Enter·클릭으로 즉시
+  검색, Esc로 닫기, 항목별 삭제를 배선했다. 기존 Tab 모드 전환은 그대로 유지한다.
+- `entrypoints/newtab/styles/index.css` — `.search-history` 계열 스타일. 절대 배치라 아래
+  바로가기 줄을 밀어내지 않는다. 삭제 버튼은 활성 줄에서만 보인다.
+- `tests/unit/search-history.test.ts` (신규) — 중복 승격, 상한, 빈 입력 무시, 대소문자 무시 필터,
+  손상된 저장값, 저장소 읽기·쓰기 실패 경로.
+
+### 구현 중 처리한 문제
+
+- **드롭다운 클릭이 먹지 않는 순서 문제** — 입력창의 `blur`가 항목 `click`보다 먼저 일어나 목록이
+  닫히면 클릭이 사라진다. 항목과 삭제 버튼의 `onMouseDown`에서 `preventDefault()`로 포커스가
+  입력창에 남게 했다.
+- **결과 페이지가 탭을 대체하는 타이밍** — `chrome.search.query({ disposition: 'CURRENT_TAB' })`는
+  이 탭을 결과 페이지로 바꾼다. 검색 후에 저장하면 실행되지 않을 수 있어 기록을 먼저 저장한다.
+- **주소 입력 제외** — `parseOmniboxInput`이 `navigate`로 판정한 입력은 검색어가 아니므로 기록하지
+  않고 그대로 이동한다.
+
+### 검증
+
+```
+pnpm test     → 20 files / 200 tests 통과 (신규 13개 포함)
+pnpm compile  → 통과
+pnpm build    → 통과 (chrome-mv3, 921.33 kB)
+```
+
+**미실시** — 실제 브라우저에서 확장을 로드한 화면 스모크. 포커스 시 목록 표시와 선택 시 검색 실행은
+사용자 확인이 필요하다.
