@@ -228,7 +228,7 @@ export function OrbitHero({
       {/* 검색창 — 모드 전환을 입력창 안에 넣어 요소 수를 줄였다 */}
       <div className="search-container">
         <form onSubmit={handleSubmit}>
-          <div className="search-shell">
+          <div className={`search-shell${historyOpen ? ' search-shell--with-history' : ''}`}>
             <input
               ref={inputRef}
               type="text"
