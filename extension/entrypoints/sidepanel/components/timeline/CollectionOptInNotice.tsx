@@ -9,13 +9,20 @@ import { useUIStore } from '../../store/ui';
  * 평소에는 목록의 세로 공간을 전혀 쓰지 않는다.
  * `compact` 는 기록이 이미 남아 있을 때 목록 위에 얹는 한 줄 형태.
  */
-export function CollectionOptInNotice({ compact = false }: { compact?: boolean }) {
+export function CollectionOptInNotice({
+  compact = false,
+  onEnabled,
+}: {
+  compact?: boolean;
+  onEnabled?: () => void;
+}) {
   const setCollectionEnabled = useSettingsStore((s) => s.setCollectionEnabled);
   const showToast = useUIStore((s) => s.showToast);
 
   function enable() {
     setCollectionEnabled(true);
     showToast('탐색 기록 수집을 켰어요');
+    onEnabled?.();
   }
 
   if (compact) {
@@ -30,7 +37,7 @@ export function CollectionOptInNotice({ compact = false }: { compact?: boolean }
           onClick={enable}
           className="shrink-0 cursor-pointer rounded-md bg-orbit-primary px-2 py-1 text-[11px] font-bold text-white transition hover:brightness-95"
         >
-          켜기
+          수집 켜기
         </button>
       </div>
     );
