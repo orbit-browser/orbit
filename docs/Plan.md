@@ -678,13 +678,13 @@
 
 ---
 
-## 2026-08-12 — 온보딩 완료 후 대시보드 진입, 최근 검색 기록 드롭다운 정렬
+## 2026-08-12 — 온보딩 완료 후 홈 복귀, 최근 검색 기록 드롭다운 정렬
 
 **브랜치:** `main`
 
 ### 작업 목표
 
-1. 온보딩 투어가 끝난 뒤 안내 탭이 멈춰 있지 않고 대시보드(아틀라스)로 넘어가게 한다.
+1. 온보딩 투어가 끝난 뒤 안내 탭이 멈춰 있지 않고 새 탭 홈으로 돌아가게 한다.
 2. 최근 검색 기록 드롭다운이 검색창 바로 아래에 구글 새 탭처럼 이어 붙어 열리게 한다.
 
 ### 현재 상태와 조사 결과
@@ -700,20 +700,22 @@
 
 ### 포함 범위
 
-- `replaceWithAtlas()` — `onboarding=1` 쿼리를 지우고 아틀라스 해시로 히스토리를 덮어쓴다
-- `OnboardingLaunch`가 온보딩 상태를 구독해 `complete`가 되면 대시보드로 넘어간다
+- `replaceWithHome()` — `onboarding=1` 쿼리를 지우고 히스토리를 덮어쓴다
+- `OnboardingLaunch`가 온보딩 상태를 구독해 `complete`가 되면 홈으로 돌아간다
+- `main.tsx`가 안내 탭 여부를 상태로 들고 popstate 에서 갱신한다(홈은 라우트가 안 바뀌어
+  리렌더가 일어나지 않는다)
 - 드롭다운 기준을 검색창만 감싼 `form`으로 바꾸고, 열린 동안 입력창과 한 판으로 잇는다
 
 ### 제외 범위
 
 - 온보딩 단계·문구·mock 데이터 변경
 - 안내 탭이 이미 닫힌 경우 새 탭을 다시 열어 주기
-- 대시보드 진입 시 네비게이터를 펼친 채 열기(히어로 그래픽 경로만 유지)
-- 신규 사용자의 빈 대시보드 화면 자체를 손보기
+- 신규 사용자의 빈 홈 화면(최근 탐색·추천 없음) 자체를 손보기
 
 ### 변경할 파일
 
-- `entrypoints/newtab/lib/navigation.ts` — `replaceWithAtlas()`
+- `entrypoints/newtab/lib/navigation.ts` — `replaceWithHome()`, `isOnboardingLaunch()`
+- `entrypoints/newtab/main.tsx` — 안내 탭 여부를 상태로 관리
 - `entrypoints/newtab/components/sections/OnboardingLaunch.tsx` — 완료 감지와 이동
 - `entrypoints/newtab/styles/index.css` — `.search-container > form`, `.search-shell--with-history`
 - `entrypoints/newtab/components/sections/OrbitHero.tsx` — 열림 상태 클래스
@@ -721,11 +723,11 @@
 ### 테스트 및 검증
 
 - `pnpm test`, `pnpm compile`, `pnpm build`
-- 실제 브라우저: 설치 → 로그인 → 사이드패널 투어 완료 → 안내 탭이 대시보드로 바뀌는지
+- 실제 브라우저: 설치 → 로그인 → 사이드패널 투어 완료 → 안내 탭이 홈으로 바뀌는지
 - 뒤로가기로 안내 화면에 돌아가지 않는지(replaceState)
 
 ### 위험과 완료 조건
 
-- 온보딩을 이미 끝낸 사용자가 `?onboarding=1`을 직접 열면 즉시 대시보드로 넘어간다(의도된 동작).
+- 온보딩을 이미 끝낸 사용자가 `?onboarding=1`을 직접 열면 즉시 홈으로 넘어간다(의도된 동작).
 - 안내 탭이 닫혀 있으면 이동 대상이 없어 아무 일도 일어나지 않는다. 알려진 한계로 남긴다.
-- 투어 완료 직후 안내 탭이 대시보드로 바뀌고 드롭다운이 검색창에 붙어 열리면 완료다.
+- 투어 완료 직후 안내 탭이 홈으로 바뀌고 드롭다운이 검색창에 붙어 열리면 완료다.

@@ -51,14 +51,19 @@ export function navigateToAtlas(target: AtlasTarget = {}) {
   navigate(`${ATLAS_HASH}${qs ? `?${qs}` : ''}`);
 }
 
+/** 최초 설치 안내 탭인지 — `newtab.html?onboarding=1` */
+export function isOnboardingLaunch(): boolean {
+  return new URLSearchParams(window.location.search).get('onboarding') === '1';
+}
+
 /**
- * 온보딩 안내 탭(`newtab.html?onboarding=1`)을 대시보드로 바꾼다.
+ * 온보딩 안내 탭(`newtab.html?onboarding=1`)을 평범한 새 탭 홈으로 돌려놓는다.
  *
- * 해시만 바꾸면 `onboarding=1` 쿼리가 남아 안내 화면이 계속 렌더되므로 쿼리까지 지운다.
+ * `onboarding=1` 쿼리가 남으면 안내 화면이 계속 렌더되므로 쿼리를 지운다.
  * 뒤로가기로 끝난 안내 화면에 돌아갈 이유가 없어 pushState 가 아니라 replaceState 다.
  */
-export function replaceWithAtlas() {
-  window.history.replaceState({}, '', `${window.location.pathname}${ATLAS_HASH}`);
+export function replaceWithHome() {
+  window.history.replaceState({}, '', window.location.pathname);
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 

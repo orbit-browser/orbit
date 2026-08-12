@@ -7,7 +7,7 @@ import './styles/phosphor.css';
 import './styles/index.css';
 import App from './App';
 import { OrbitAtlasPage } from './pages/OrbitAtlasPage';
-import { getRoute } from './lib/navigation';
+import { getRoute, isOnboardingLaunch } from './lib/navigation';
 import { LoginScreen } from './components/sections/LoginScreen';
 import { OnboardingLaunch } from './components/sections/OnboardingLaunch';
 import { useAuth } from '../../lib/useAuth';
@@ -22,10 +22,18 @@ function Root() {
   const { settings } = useOrbitSettings();
   const [route, setRoute] = useState(getRoute);
   const { session, loading } = useAuth();
-  const onboarding = new URLSearchParams(window.location.search).get('onboarding') === '1';
+  /*
+    상태로 들고 있어야 한다. 온보딩이 끝나면 안내 탭이 쿼리를 지우고 홈으로 돌아오는데,
+    그때 라우트는 계속 `home` 이라 setRoute 만으로는 리렌더가 일어나지 않는다.
+    렌더 중에 URL 을 다시 읽는 방식이면 안내 화면이 그대로 남는다.
+  */
+  const [onboarding, setOnboarding] = useState(isOnboardingLaunch);
 
   useEffect(() => {
-    const onPop = () => setRoute(getRoute());
+    const onPop = () => {
+      setRoute(getRoute());
+      setOnboarding(isOnboardingLaunch());
+    };
     window.addEventListener('popstate', onPop);
     // 주소창에서 해시만 바꾸는 경우 popstate 가 오지 않는 브라우저가 있어 함께 듣는다.
     window.addEventListener('hashchange', onPop);
