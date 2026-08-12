@@ -54,7 +54,7 @@ uvicorn app.main:app --reload
 | POST | `/sessions/cluster` | 탭을 주제별로 클러스터링해 세션 N개로 분리 저장 |
 | GET | `/sessions` | 세션 목록 (최신순) |
 | GET | `/sessions/{id}` | 세션 상세 |
-| PATCH | `/sessions/{id}` | 제목 수정 |
+| PATCH | `/sessions/{id}` | 이름 수정 — `{"alias": "..."}`. 내부 이름(`title`)은 그대로 두고 별칭만 저장한다. `null`/빈 문자열이면 별칭을 지운다 |
 | POST | `/sessions/{id}/retry-summary` | AI 요약 실패(`summary_status=failed`) 세션 재시도 |
 | DELETE | `/sessions/{id}` | 세션 삭제 (Qdrant 포인트도 함께 삭제) |
 | GET | `/search?q=&rerank=` | 자연어 검색. score threshold 적용 후 `rerank=true`면 후보를 더 넓게 가져와 LLM으로 재정렬 |

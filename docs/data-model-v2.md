@@ -111,8 +111,13 @@ ALTER TABLE sessions ADD COLUMN total_active_duration_ms BIGINT NOT NULL DEFAULT
 ALTER TABLE sessions ADD COLUMN event_count             INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sessions ADD COLUMN keywords                JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE sessions ADD COLUMN confidence              REAL;
+ALTER TABLE sessions ADD COLUMN alias                   VARCHAR(100);            -- 사용자 표시 이름. NULL=title 사용
 ```
 
+- `alias`: 사용자가 붙인 표시 이름. **`title` 은 사용자 편집으로 바뀌지 않는다** — `title` 은
+  임베딩 텍스트, 병합 게이팅의 제목 Jaccard, 추천 term 추출의 기준이고 배치 세션화가 매번
+  다시 만들어 내므로 사용자 작명을 실으면 저장된 벡터와 어긋나고 배치가 덮어쓴다.
+  응답 경계에서만 `coalesce(alias, title)` 로 합쳐 내보낸다(`session_display_title`).
 - `origin='snapshot'`: 기존 `POST /sessions`/`POST /sessions/cluster` 경로로 만들어진 세션(기본값 — 기존 데이터와 신규 스냅샷 세션 모두 여기 해당).
 - `origin='events'`: Auto Session(배치 파이프라인)이 `action: create`로 새로 만든 세션.
 - extension 검색/임베딩 코드가 참조하는 `summary`/`tabs` JSONB는 그대로 유지한다 — 형식을 바꾸지 않아야 `_to_detail()`(`api/sessions.py:39-65`)과 extension 매퍼(`extension/lib/api.ts`)가 무변경으로 동작한다.

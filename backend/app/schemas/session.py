@@ -22,7 +22,14 @@ class SaveSessionRequest(BaseModel):
 
 
 class PatchSessionRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=100)
+    """세션 이름 수정 — 사용자가 바꾸는 것은 별칭(alias)이다.
+
+    title은 AI 요약이 만들고 임베딩·병합 점수·배치 세션화의 기준이 되는 내부 이름이라
+    사용자 편집으로 덮지 않는다(docs/DecisionLog.md 2026-08-12). 빈 문자열이나 null을
+    보내면 별칭을 지우고 원래 이름으로 돌아간다.
+    """
+
+    alias: str | None = Field(default=None, max_length=100)
 
 
 class MergeRequest(BaseModel):
@@ -54,7 +61,10 @@ class TabItemResponse(BaseModel):
 
 class SessionDetail(BaseModel):
     session_id: str
+    # 표시 이름 — 별칭이 있으면 별칭이다. 내부 이름은 응답에 싣지 않는다.
     title: str
+    # 사용자가 붙인 별칭. 편집창 초기값과 "원래 이름으로 되돌리기" 판단에만 쓴다.
+    alias: str | None = None
     summary: SessionSummary
     summary_status: SummaryStatus
     tabs: list[TabItemResponse]

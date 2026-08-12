@@ -61,7 +61,11 @@ def test_period_start_defaults_to_current_time_when_now_not_given():
 
 def test_fetch_top_sessions_maps_fields():
     session = SimpleNamespace(
-        id="s1", title="RTX 5070 구매 비교", total_active_duration_ms=28800000, event_count=12
+        id="s1",
+        title="RTX 5070 구매 비교",
+        alias=None,
+        total_active_duration_ms=28800000,
+        event_count=12,
     )
     db = _QueuedDB([_ScalarsResult([session])])
 

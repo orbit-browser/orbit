@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.embedding import embed
 from ..ai.reranker import rerank as llm_rerank
-from ..db.models import ExplorationEvent, Session as SessionModel, SessionEvent
+from ..db.models import (
+    ExplorationEvent,
+    SESSION_DISPLAY_TITLE,
+    Session as SessionModel,
+    SessionEvent,
+)
 from ..db.session import get_db
 from ..db.vector import search_similar
 from ..schemas.event import MemorySearchEventItem, MemorySearchResponse
@@ -104,7 +109,7 @@ async def _fetch_session_relevance_events(db: AsyncSession, session_ids: list[st
     if not session_ids:
         return []
     result = await db.execute(
-        select(SessionEvent, ExplorationEvent, SessionModel.title)
+        select(SessionEvent, ExplorationEvent, SESSION_DISPLAY_TITLE)
         .join(ExplorationEvent, SessionEvent.event_id == ExplorationEvent.id)
         .join(SessionModel, SessionEvent.session_id == SessionModel.id)
         .where(SessionEvent.session_id.in_(session_ids))
@@ -132,7 +137,7 @@ async def _fetch_keyword_matched_events(
     """title/search_query/domain ILIKE 직접 매칭 — 세션 미할당 이벤트까지 커버(§8)."""
     like = f"%{q}%"
     result = await db.execute(
-        select(ExplorationEvent, SessionEvent.session_id, SessionModel.title)
+        select(ExplorationEvent, SessionEvent.session_id, SESSION_DISPLAY_TITLE)
         .outerjoin(SessionEvent, SessionEvent.event_id == ExplorationEvent.id)
         .outerjoin(SessionModel, SessionEvent.session_id == SessionModel.id)
         .where(
