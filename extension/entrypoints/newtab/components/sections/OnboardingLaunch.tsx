@@ -1,18 +1,32 @@
 import { useEffect, useState } from 'react';
 import { PanelRightOpen } from 'lucide-react';
 import { startOnboarding } from '../../../../lib/onboarding';
+import { useOnboarding } from '../../../../lib/useOnboarding';
+import { replaceWithAtlas } from '../../lib/navigation';
 
 export function OnboardingLaunch() {
   const [opening, setOpening] = useState(false);
   const [opened, setOpened] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [windowId, setWindowId] = useState<number | null>(null);
+  const { state, loading } = useOnboarding();
 
   useEffect(() => {
     void chrome.windows.getCurrent()
       .then((current) => setWindowId(current.id ?? null))
       .catch(() => setError('현재 브라우저 창을 확인하지 못했어요. 새 탭에서 다시 시도해 주세요.'));
   }, []);
+
+  /*
+    투어는 사이드패널에서 끝나고 이 탭은 안내 화면에 멈춰 있다.
+    완료·건너뛰기가 저장되는 순간(`orbit:onboarding` 변경) 이 탭을 대시보드로 넘겨
+    첫 실행이 화면 없이 끊기지 않게 한다. 사이드패널은 탭이 아니라 이 탭이 계속 활성이므로
+    탭을 따로 활성화하지 않아도 사용자는 전환을 바로 본다.
+  */
+  useEffect(() => {
+    if (loading || state.status !== 'complete') return;
+    replaceWithAtlas();
+  }, [loading, state.status]);
 
   async function openSidePanel() {
     setOpening(true);

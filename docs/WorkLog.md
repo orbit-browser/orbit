@@ -3400,3 +3400,89 @@ pnpm build    → 통과 (chrome-mv3, 921.33 kB)
 
 **미실시** — 실제 브라우저에서 확장을 로드한 화면 스모크. 포커스 시 목록 표시와 선택 시 검색 실행은
 사용자 확인이 필요하다.
+
+---
+
+## 2026-08-12 — 실 Backend·실 LLM 데모 영상 계획
+
+### 요청과 결정
+
+Playwright로 실제 작동 화면을 조작해 데모 영상을 만들되 mock 응답 대신 현재 구현된 실제 Backend와
+실제 LLM을 사용하고, 사이드패널뿐 아니라 새 탭 메인 대시보드와 Atlas도 함께 보여주기로 했다.
+
+### 조사와 계획 반영
+
+- 기존 Playwright E2E는 실제 확장·Backend·LLM까지 성공한 이력이 있지만 스크립트가 저장소에 없다.
+- 사이드패널의 타임라인·세션화 장면에서 새 탭 홈의 최근 탐색, Atlas 탐색 경로, Ask, 복원으로
+  이어지는 90~120초 스토리보드를 `docs/Plan.md`에 추가했다.
+- API fixture, DB seed, 데모 전용 UI 모드는 제외하고 방문 이벤트부터 LLM 세션화까지 실제 경로만 쓴다.
+- LLM 출력 변동에 대비해 생성 제목이 아니라 방문 URL과 최근 활동 시각으로 촬영 대상을 식별한다.
+- 개인정보 보호를 위해 전용 프로필·데모 계정을 사용하고, Playwright 원본 page video를 합성해
+  OS 전체 화면과 개인 알림을 녹화하지 않는 방식을 기본으로 정했다.
+
+### 현재 제약과 미실시
+
+- Extension에 Playwright 실행 의존성이 없고 현재 머신에서 `ffmpeg`를 찾지 못했다. 구현 단계에서
+  저장소 밖 도구 캐시에 portable ffmpeg를 준비해야 한다.
+- 기존 작업 트리에 `OrbitHero.tsx`, `newtab/styles/index.css` 사용자 변경과 `.playwright-mcp/`,
+  `docs/orbit-logic.html`, `fig-map.png`, `top.png` 미추적 파일이 있어 보존 대상으로 기록했다.
+- 이번 단계는 계획 문서만 갱신했다. Playwright 설치, 실제 LLM 호출, 브라우저 조작, 영상 녹화,
+  테스트·빌드는 실행하지 않았다.
+
+## 2026-08-12 — 온보딩 완료 후 대시보드 진입, 검색 기록 드롭다운 위치 수정
+
+### 1. 온보딩이 끝난 뒤 안내 탭이 멈춰 있던 문제
+
+**증상** — 사이드패널 투어를 완료하거나 건너뛰어도 안내 탭이 `사이드패널에서 계속하세요`
+상태로 남아 첫 실행이 화면 없이 끊겼다.
+
+**원인** — 완료 처리는 `completeOnboarding()`으로 `orbit:onboarding`을 `complete`로 저장하는
+것뿐이고(`OnboardingPrototype.tsx:497,507`), 안내 탭의 `OnboardingLaunch`는 그 변화를 구독하지
+않았다. 사이드패널만 실제 화면으로 전환됐다.
+
+**해결** — `OnboardingLaunch`가 `useOnboarding()`으로 상태를 구독하고 `complete`가 되면
+`replaceWithAtlas()`로 대시보드로 넘어간다.
+
+- `entrypoints/newtab/lib/navigation.ts` — `replaceWithAtlas()` 추가. 해시만 바꾸면
+  `onboarding=1` 쿼리가 남아 `main.tsx:25`의 플래그가 계속 참이라 안내 화면이 다시 렌더된다.
+  그래서 쿼리까지 지우고 `replaceState` 로 히스토리를 덮어쓴 뒤 popstate 를 알린다.
+  뒤로가기로 끝난 안내 화면에 돌아갈 이유가 없어 pushState 를 쓰지 않았다.
+- `entrypoints/newtab/components/sections/OnboardingLaunch.tsx` — 완료 감지와 이동.
+
+사이드패널은 탭이 아니라 안내 탭이 계속 활성 탭이므로 `chrome.tabs.update`로 탭을 따로
+활성화하지 않아도 사용자는 전환을 즉시 본다.
+
+### 2. 최근 검색 기록 드롭다운이 바로가기 아래에 열리던 문제
+
+**증상** — 검색창에 커서를 넣으면 목록이 검색창이 아니라 바로가기 타일 줄 **아래**에 떴다.
+
+**원인** — `.search-history`의 `position: absolute` 기준(`.search-container`)이 검색창과
+바로가기를 함께 감싸는 컨테이너였다(`OrbitHero.tsx:123`). `top: calc(100% + 8px)`가 컨테이너
+전체 높이 아래를 가리켰다.
+
+**해결** — 기준을 검색창만 감싼 `form`으로 좁혔다(`.search-container > form { position: relative }`).
+이어서 사용자 요청대로 구글 새 탭처럼 입력창과 목록을 한 덩어리로 이었다.
+
+- 목록이 열리면 입력창에 `search-shell--with-history`가 붙어 아래쪽 라운드와 테두리가 사라진다
+- 목록은 `top: 100%`로 간격 없이 붙고 테두리 색을 입력창 포커스 색과 맞췄다. 둘이 만나는
+  위쪽 선만 `--border-subtle` 구분선으로 남겼다
+- 그림자가 두 번 겹치면 이어진 자리에 경계선처럼 보여, 열린 동안에는 입력창 그림자를 끄고
+  목록 쪽 그림자만 남겼다
+- 아래로 밀려 내려오던 애니메이션은 이어 붙은 형태와 어긋나 페이드만 남겼다
+
+### 검증
+
+```
+pnpm test     → 20 files / 200 tests 통과
+pnpm compile  → 통과
+pnpm build    → 통과 (chrome-mv3, 928.43 kB)
+```
+
+**미실시** — 실제 설치 흐름(설치 → 로그인 → 투어 완료 → 안내 탭 대시보드 전환)의 브라우저 확인.
+드롭다운 위치는 사용자 화면에서 문제가 확인됐고 수정 후 재확인은 사용자에게 남아 있다.
+
+### 알려진 한계
+
+- 안내 탭을 이미 닫은 상태에서 투어를 완료하면 이동할 탭이 없어 사이드패널 전환만 일어난다.
+  탭을 새로 열어 주는 동작은 사용자가 원하지 않은 탭을 만들 수 있어 넣지 않았다.
+- 신규 사용자는 아직 세션이 없어 대시보드가 빈 상태로 열린다.

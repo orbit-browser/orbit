@@ -51,6 +51,17 @@ export function navigateToAtlas(target: AtlasTarget = {}) {
   navigate(`${ATLAS_HASH}${qs ? `?${qs}` : ''}`);
 }
 
+/**
+ * 온보딩 안내 탭(`newtab.html?onboarding=1`)을 대시보드로 바꾼다.
+ *
+ * 해시만 바꾸면 `onboarding=1` 쿼리가 남아 안내 화면이 계속 렌더되므로 쿼리까지 지운다.
+ * 뒤로가기로 끝난 안내 화면에 돌아갈 이유가 없어 pushState 가 아니라 replaceState 다.
+ */
+export function replaceWithAtlas() {
+  window.history.replaceState({}, '', `${window.location.pathname}${ATLAS_HASH}`);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
 export function readAtlasTarget(): AtlasTarget {
   const params = new URLSearchParams(splitHash().query);
   return {
