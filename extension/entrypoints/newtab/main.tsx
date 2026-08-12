@@ -9,6 +9,7 @@ import App from './App';
 import { OrbitAtlasPage } from './pages/OrbitAtlasPage';
 import { getRoute } from './lib/navigation';
 import { LoginScreen } from './components/sections/LoginScreen';
+import { OnboardingLaunch } from './components/sections/OnboardingLaunch';
 import { useAuth } from '../../lib/useAuth';
 import { useOrbitSettings } from './hooks/useOrbitSettings';
 import { useTheme } from './hooks/useTheme';
@@ -21,6 +22,7 @@ function Root() {
   const { settings } = useOrbitSettings();
   const [route, setRoute] = useState(getRoute);
   const { session, loading } = useAuth();
+  const onboarding = new URLSearchParams(window.location.search).get('onboarding') === '1';
 
   useEffect(() => {
     const onPop = () => setRoute(getRoute());
@@ -42,6 +44,14 @@ function Root() {
     return (
       <div className="app-container">
         <LoginScreen />
+      </div>
+    );
+  }
+
+  if (onboarding) {
+    return (
+      <div className="app-container">
+        <OnboardingLaunch />
       </div>
     );
   }

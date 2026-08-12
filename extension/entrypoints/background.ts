@@ -1,4 +1,5 @@
 import { handlePageContentReady, initCollector } from '../lib/events/collector';
+import { openOnboardingForInstall } from '../lib/onboarding';
 import { initTriggers } from '../lib/sync/triggers';
 import type { PageContent } from '../lib/types';
 
@@ -13,6 +14,12 @@ export default defineBackground(() => {
   chrome.sidePanel
     ?.setPanelBehavior({ openPanelOnActionClick: true })
     .catch((err) => console.error('[Orbit] sidePanel 설정 실패', err));
+
+  chrome.runtime.onInstalled.addListener(({ reason }) => {
+    void openOnboardingForInstall(reason).catch((err) =>
+      console.error('[Orbit] 온보딩 화면 열기 실패', err),
+    );
+  });
 
   // 탭 변경 → 사이드패널에 알림 (50ms 디바운스로 연속 이벤트 묶음)
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;

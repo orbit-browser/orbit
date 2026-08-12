@@ -419,3 +419,46 @@
 
 - Google 버튼은 새 브랜드 자산을 임의 제작하지 않고 텍스트 `G` 표식만 사용한다.
 - 두 화면에서 로그인 이유와 수집 선택권이 보이고, loading·error 상태가 유지되면 완료다.
+
+---
+
+## 2026-08-12 — 설치 후 온보딩 프로토타입
+
+### 작업 목표와 조사 결과
+
+확장 설치 직후 로그인부터 수집 opt-in, 핵심 기능 이해까지 이어지는 첫 실행 흐름을 만든다. 신규
+사용자에게는 실데이터가 없고 `chrome.sidePanel.open()`은 사용자 제스처가 필요하므로, 로그인 후
+별도 CTA로 패널을 열고 격리된 mock 데이터를 사용한다.
+
+### 포함 범위와 제외 범위
+
+- 포함: 최초 설치 안내 탭, 로그인 후 패널 시작 CTA, storage 상태, 7단계 spotlight, 충분한 mock
+  타임라인·세션·열린 탭, Ask, 다음·건너뛰기·완료, 단계 재개.
+- 제외: 백엔드 API·스키마, 실제 데이터 저장, 분석 이벤트, A/B 테스트, 기존 사용자 강제 노출,
+  설정 기능 안내.
+
+### 변경 파일과 구현 순서
+
+- `lib/onboarding.ts`, `lib/useOnboarding.ts` — 상태 계약·저장·구독.
+- `entrypoints/background.ts` — 최초 설치 탭 열기.
+- `entrypoints/newtab/main.tsx`, `OnboardingLaunch.tsx` — 로그인 후 사용자 클릭으로 패널 열기.
+- `entrypoints/sidepanel/App.tsx`, `components/onboarding/*` — mock 화면과 spotlight.
+- `CollectionOptInNotice.tsx` — 실제 수집 설정 완료 콜백.
+- `tests/unit/onboarding.test.ts` — 저장 상태와 설치 분기.
+
+1. pending/touring/complete 상태 계약을 만든다.
+2. 설치 시에만 안내 탭을 열고 로그인 후 CTA에서 touring 상태와 패널 열기를 요청한다.
+3. `수집 → 타임라인 설명 → 세션 탭 직접 클릭 → 세션 설명 → 열린 탭 직접 클릭 → 열린 탭 설명
+   → Ask` 순서로 구성한다.
+4. 타임라인 10개, 세션 6개, 열린 탭 8개를 채우고 실제 행 형식을 재사용한다.
+5. 수집·세션·열린 탭 단계의 실제 대상만 포인터 입력을 허용하며, 안내 카드는 강조 영역과 겹치지
+   않게 배치한다.
+6. 테스트·타입 검사·빌드·Playwright MCP 시각 검증 후 문서를 갱신한다.
+
+### 검증, 위험과 완료 조건
+
+- `pnpm.cmd test`, `pnpm.cmd compile`, `pnpm.cmd build`, `git diff --check`.
+- 461×799 다크 모드 전체 7단계와 320×700·461×767 첫 단계에서 가림·잘림·직접 클릭을 확인한다.
+- 패널 열기 실패 시 툴바 아이콘으로 계속할 수 있음을 안내한다.
+- mock은 실제 저장·API 호출을 하지 않고, 건너뛰기는 수집을 임의로 켜지 않는다.
+- 사용자가 세션·열린 탭을 직접 눌러야 화면이 전환되고 저장 단계로 정상 재개되면 완료다.

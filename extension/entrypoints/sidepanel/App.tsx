@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { LoginGate } from './components/LoginGate';
+import { OnboardingPrototype } from './components/onboarding/OnboardingPrototype';
 import { TopNavBar } from './components/TopNavBar';
 import { AskDock } from './components/AskDock';
 import { Toast } from './components/Toast';
@@ -11,6 +12,7 @@ import { OpenTabsView } from './views/OpenTabsView';
 import { AskView } from './views/AskView';
 import { SessionDetailView } from './views/SessionDetailView';
 import { SettingsView } from './views/SettingsView';
+import { useOnboarding } from '../../lib/useOnboarding';
 
 function CurrentView() {
   const view = useUIStore((s) => s.activeView);
@@ -28,9 +30,28 @@ function CurrentView() {
   }
 }
 
-export default function App() {
+function SignedInPanel() {
   const activeView = useUIStore((s) => s.activeView);
   const showAsk = isAskDockView(activeView);
+  const { state, loading } = useOnboarding();
+
+  if (loading) return <div className="h-full w-full bg-orbit-bg" />;
+  if (state.status !== 'complete') return <OnboardingPrototype initialStep={state.step} />;
+
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden bg-orbit-bg text-orbit-text">
+      <TopNavBar />
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <CurrentView />
+        {showAsk && <AskView />}
+      </main>
+      {showAsk && <AskDock />}
+      <Toast />
+    </div>
+  );
+}
+
+export default function App() {
   const theme = useSettingsStore((s) => s.theme);
 
   /*
@@ -51,15 +72,7 @@ export default function App() {
 
   return (
     <LoginGate>
-      <div className="flex h-full w-full flex-col overflow-hidden bg-orbit-bg text-orbit-text">
-        <TopNavBar />
-        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <CurrentView />
-          {showAsk && <AskView />}
-        </main>
-        {showAsk && <AskDock />}
-        <Toast />
-      </div>
+      <SignedInPanel />
     </LoginGate>
   );
 }
