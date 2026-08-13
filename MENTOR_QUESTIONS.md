@@ -1,7 +1,13 @@
 # Orbit — 멘토 질문 리스트 (Upstage 멘토 기준)
 
+> **이 문서는 멘토링 준비 시점의 질문 목록이며, 당시 계획하던 구성을 전제로 쓰였다.**
+> 이후 LLM 구성은 SKT A.X-K1 ↔ LG K-EXAONE 상호 폴백으로 확정됐고 Upstage는 임베딩
+> 전용으로 남았다(근거: `docs/DecisionLog.md` 2026-08-05). 아래에 나오는 Solar Pro 3 /
+> Solar Mini 기반 서술은 당시 전제이며 현재 구현이 아니다. 현재 배선은 루트
+> `README.md`의 "국내 AI 모델 활용" 절을 참고한다.
+
 > 전국민 AI 경진대회 / 2인 팀
-> Chrome Extension + FastAPI + **Solar Pro 3** + **embedding-query**
+> Chrome Extension + FastAPI + Upstage `embedding-query`/`embedding-passage`
 
 ---
 

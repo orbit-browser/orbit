@@ -2,6 +2,13 @@
 
 > 탐색 이벤트를 상시 기억하고, 세션으로 자동 재구성해 자연어로 되짚어보는 **Personal Exploration Memory**
 
+> **2026년도 인공지능 루키(AI Rookie) 대회 · 국내 AI 트랙 출품작**
+> 세션 의도 분석 · 요약 · 답변 · 검색까지 AI 파이프라인 전 구간을 SKT A.X-K1,
+> LG K-EXAONE, Upstage 임베딩으로 구성했습니다. 어느 단계에 어떤 모델이 쓰이는지는
+> [국내 AI 모델 활용](#국내-ai-모델-활용), 브라우저 데이터를 어디까지 수집하고
+> 무엇을 외부로 보내지 않는지는 [데이터 처리와 프라이버시](#데이터-처리와-프라이버시)에
+> 정리했습니다.
+
 Orbit은 브라우저 방문 이벤트를 opt-in 상시 수집해 로컬 큐에 쌓고, 동기화 시점에 배치로
 LLM 의도 분석을 거쳐 탐색 세션을 자동 생성·성장(Auto Session)시키는 Chrome Extension +
 FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존 스냅샷 흐름도 그대로 유지합니다.
@@ -42,6 +49,68 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
 세부 설계와 결정 근거는 [`docs/product-direction-v2.md`](./docs/product-direction-v2.md),
 [`docs/target-architecture.md`](./docs/target-architecture.md), 초기 구현 이력은
 [`IMPLEMENTATION.md`](./IMPLEMENTATION.md)를 참고하세요.
+
+## 국내 AI 모델 활용
+
+대회 연계기업 5곳(KT, LG AI연구원, NC AI, SKT, 업스테이지) 가운데 **SKT · LG AI연구원 ·
+업스테이지** 3곳의 모델을 사용합니다. 파이프라인의 LLM·임베딩 호출은 전부 국내 모델이며,
+외산 LLM을 호출하는 코드 경로는 없습니다.
+
+| 파이프라인 단계 | Primary | Fallback | 구현 |
+|---|---|---|---|
+| 세션 의도 분석(append/create/hold/discard) | LG K-EXAONE | SKT A.X-K1 | `ai/llm.py: chat_completion_intent` |
+| 탭 클러스터링(스냅샷 저장) | LG K-EXAONE | SKT A.X-K1 | `ai/llm.py: chat_completion_light` |
+| 세션 요약·제목 생성 | SKT A.X-K1 | LG K-EXAONE | `ai/llm.py: chat_completion` |
+| Ask AI 답변 스트리밍 | SKT A.X-K1 | LG K-EXAONE | `ai/llm.py: chat_completion_stream_with_meta` |
+| 검색·추천 리랭킹 | SKT A.X-K1 | LG K-EXAONE | `ai/reranker.py`, `services/recommender/llm_rerank.py` |
+| 저장 임베딩 | Upstage `embedding-passage` | — | `services/embedding_sync.py` |
+| 검색·의도 라우팅 임베딩 | Upstage `embedding-query` | — | `services/ask_service.py`, `services/assistant_router.py` |
+
+- **상호 폴백** — 두 LLM은 서로의 폴백이다. 폴백 방향이 단계마다 반대인 것은 실측에 따른
+  배정으로, 의도 분석은 EXAONE이 노이즈 제외에서 우세했고 요약·리랭킹은 A.X-K1이 나았다
+  (근거: `docs/DecisionLog.md` 2026-08-05). 한 공급자가 중단돼도 기능은 유지된다.
+- **호출 제약 대응** — A.X-K1의 3 RPS 제한 때문에 LLM 호출은 전역 레이트 리미터
+  (`ai/llm.py: _throttle`)로 직렬화한다. 방문 이벤트마다 LLM을 호출하지 않고 동기화
+  시점에 배치로만 분석하는 설계도 같은 제약에서 나왔다.
+- **EXAONE 서빙 경로** — `LGAI-EXAONE/K-EXAONE-236B-A23B`를 FriendliAI serverless
+  엔드포인트로 호출한다. dedicated 엔드포인트는 웜 상태에서도 호출당 ~60초라 대화형 UX에
+  맞지 않아 serverless를 택했다. EXAONE 4.0은 hybrid reasoning 모델이라 분류·요약
+  용도에서는 `enable_thinking=False`로 추론 트레이스를 끈다(끄지 않으면 `max_tokens`를
+  트레이스에 소모하고 본문이 비어 온다 — 2026-08-05 실측).
+- **`openai` 패키지에 대한 주의** — 백엔드는 `openai` Python SDK를 쓰지만 OpenAI 호환
+  클라이언트로만 사용하며, `base_url`은 각각 A.X-K1 · FriendliAI · Upstage를 가리킨다.
+
+## 데이터 처리와 프라이버시
+
+브라우저 방문 이벤트를 다루는 서비스라 수집 범위를 기본값에서부터 좁게 잡았습니다.
+아래는 코드 기준 실제 동작입니다(`extension/lib/settings.ts`,
+`extension/lib/events/collector.ts`, `backend/app/services/event_filter.py`).
+
+| 설정 | 기본값 | 동작 |
+|---|---|---|
+| `collectionEnabled` | **off** | 켜기 전까지 방문 이벤트를 한 건도 수집하지 않는다(opt-in) |
+| `contentCapture` | on | 페이지 본문 발췌 수집. 끄면 제목·URL만 남는다 |
+| `excludeSensitive` | on | 민감 도메인·경로의 **본문을 수집하지 않는다** |
+| `autoSyncEnabled` | off | 자동 동기화도 opt-in. 끄면 수동 동기화만 동작한다 |
+
+- **수집 대상 제한** — `http`/`https`만 수집한다. `chrome://`, `about:`,
+  `chrome-extension://` 등은 수집기 진입 단계에서 걸러진다.
+- **민감 정보 처리** — 금융 도메인과 인증 경로(`/login`, `/auth` 등)는 **본문만 제거하고
+  방문 이벤트(제목·URL)는 남긴다.** 세션 복원을 유지하기 위한 절충이며 완전 미수집이
+  아니다. 판정 규칙은 확장(`lib/sensitive-domains.ts`)과 백엔드
+  (`services/event_filter.py`)에 같은 의미로 이중 구현해, 확장을 우회한 요청도 서버에서
+  다시 걸러진다.
+- **URL 정규화** — 추적 파라미터(`utm_*`, `gclid`, `fbclid`)는 인제스트 시점에 제거한다.
+- **로컬 우선 큐** — 이벤트는 IndexedDB 로컬 큐에 먼저 쌓이고
+  (`open→pending→syncing→synced`), 동기화가 성공한 뒤에만 정리된다. MV3 서비스 워커가
+  종료돼도 유실되지 않으며, 동기화 전까지 데이터는 기기를 벗어나지 않는다.
+- **외부로 나가는 데이터** — 동기화 시점에 이벤트의 제목·URL·본문 발췌가 의도 분석과
+  요약을 위해 LLM API로, 이벤트의 제목·도메인·검색어가 서브클러스터링을 위해, 세션 요약이
+  검색 색인을 위해 임베딩 API로 전송된다. 그 외 경로는 아래 예외뿐이다.
+- **탭 이동 질의의 예외** — Ask AI에 탭 이동 가능성이 있는 입력을 넣으면 현재 일반 창
+  탭의 제목·URL이 의미 매칭을 위해 백엔드와 Upstage 임베딩 API로 전송된다. 이 후보는
+  DB나 Qdrant에 저장하지 않으며, `excludeSensitive`가 켜져 있으면 민감 URL은 후보에서도
+  제외된다.
 
 ## 아키텍처 개요
 
@@ -102,7 +171,7 @@ orbit/
 docker compose up -d postgres qdrant
 cd backend
 pip install -e .
-cp .env.example .env   # UPSTAGE_API_KEY, AXK1_API_KEY 채우기
+# backend/.env 를 직접 작성한다 — 아래 "백엔드 환경변수" 참고
 uvicorn app.main:app --reload
 
 # Extension
@@ -116,6 +185,31 @@ pnpm dev        # WXT dev 서버 → Chrome 에 확장 자동 로드
 
 설치하면 **새 탭이 Orbit 홈으로 대체**됩니다(`chrome_url_overrides.newtab`).
 되돌리려면 확장을 비활성화하거나 `extension/entrypoints/newtab/`을 제거하고 다시 빌드하세요.
+
+### 백엔드 환경변수
+
+리포지터리에 `backend/.env.example` 은 없으므로 `backend/.env` 를 직접 만듭니다.
+AI 키 3종은 모두 필요합니다.
+
+```bash
+AXK1_API_KEY=<SKT A.X-K1 키>       # 요약·리랭킹·Ask 답변 primary
+FRIENDLI_API_KEY=<FriendliAI 키>   # LG K-EXAONE — 의도분석·클러스터링 primary
+UPSTAGE_API_KEY=<Upstage 키>       # 임베딩(저장·검색)
+```
+
+`GOOGLE_CLIENT_ID` 와 `JWT_SECRET` 은 아래 구글 로그인 설정에서 함께 채웁니다.
+루트 `.env.example` 은 확장이 쓰는 `VITE_API_BASE_URL` 만 담고 있어 백엔드용이 아닙니다.
+
+키가 비면 다음과 같이 동작합니다.
+
+- `UPSTAGE_API_KEY` 없음 → 임베딩에는 폴백 공급자가 없어 요청이 그대로 실패한다. 검색과
+  Ask AI 뿐 아니라 배치 세션화(서브클러스터링·세션 후보 탐색)까지 멈추므로 Auto Session이
+  동작하지 않는다.
+- `FRIENDLI_API_KEY` 없음 → EXAONE 클라이언트 생성 단계에서 예외가 나므로, EXAONE 이
+  primary 인 의도 분석·클러스터링이 매번 A.X-K1 폴백으로 처리되고, A.X-K1 이 primary 인
+  단계는 폴백이 사라진다. 기능은 도는 것처럼 보이지만 **국내 AI 2종 병행 구성이 실제로는
+  1종으로 축소된 상태**이므로 시연 전에 반드시 확인한다.
+- `AXK1_API_KEY` 없음 → 위와 대칭으로 요약·리랭킹·Ask 답변이 EXAONE 단독으로 처리된다.
 
 ### 구글 로그인 설정 (필수)
 
@@ -166,6 +260,12 @@ cd backend
 python -m eval.run_eval
 ```
 
+백엔드 테스트는 외부 API를 대역 처리하지만
+`tests/test_llm_stream.py::test_stream_falls_back_before_first_token` 하나는 예외입니다 —
+스트림 함수만 mock 하고 클라이언트 생성은 mock 하지 않아, `FRIENDLI_API_KEY` 가 비어 있으면
+openai SDK 가 클라이언트 생성 단계에서 `Missing credentials` 예외를 던져 실패합니다.
+`backend/.env` 에 키가 채워져 있으면 통과합니다.
+
 ## 기술 스택
 
 | 레이어 | 기술 |
@@ -174,4 +274,4 @@ python -m eval.run_eval
 | Extension 로컬 큐 | IndexedDB + `idb` |
 | Backend | FastAPI, SQLAlchemy (async) + PostgreSQL, Pydantic v2 |
 | 벡터 검색 | Qdrant |
-| AI | SKT A.X-K1(요약·의도분석·리랭킹 primary), LG K-EXAONE(FriendliAI serverless, 클러스터링 primary) — 상호 폴백, Upstage embedding-query(검색)/embedding-passage(저장) |
+| AI | SKT A.X-K1(요약·리랭킹·Ask 답변 primary), LG K-EXAONE(FriendliAI serverless — 의도분석·클러스터링 primary) — 상호 폴백, Upstage embedding-query(검색)/embedding-passage(저장). 단계별 배정은 [국내 AI 모델 활용](#국내-ai-모델-활용) 참고 |

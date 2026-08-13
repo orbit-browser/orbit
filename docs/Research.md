@@ -8,9 +8,10 @@
 |---|---|---|
 | Chrome Extension | WXT + React + MV3 | 사이드패널과 콘텐츠 추출 구현 완료 |
 | Backend | FastAPI + async SQLAlchemy | 비동기 API와 PostgreSQL 연동 구현 완료 |
-| 세션 검색 | Solar Embedding + Qdrant | 자연어 벡터 검색 구현 완료 |
-| 탭 클러스터링 | Solar Mini LLM | 소표본 제목/URL 분류 실측에서 임베딩 방식보다 적합 |
-| 요약 | A.X-K1, Solar Pro 3 fallback | 한국어 요약과 공급자 장애 대응 |
+| 세션 검색 | Upstage 비대칭 임베딩 + Qdrant | 자연어 벡터 검색 구현 완료 |
+| 배치 의도 분석 | K-EXAONE primary, A.X-K1 fallback | 품질 대등·노이즈 제외 우세, 429는 즉시 폴백으로 흡수 |
+| 탭 클러스터링 | K-EXAONE primary, A.X-K1 fallback | 소표본 제목/URL 분류 실측에서 임베딩 방식보다 적합 |
+| 요약·리랭킹 | A.X-K1 primary, K-EXAONE fallback | 한국어 요약 우세, 상호 폴백으로 공급자 장애 대응 |
 | 상태 관리 | TanStack Query + Zustand | 서버 상태와 로컬 UI 상태 분리 |
 
 ## 프로젝트 내 실측 결과
@@ -41,7 +42,7 @@
 - 유일한 실패는 `Orbit`↔`오빗` 표현에서 정답 GitHub 탭이 top-1이지만 top-2 격차가 0.021로
   자동 이동을 보류한 경우다. margin을 낮추면 후보에 없는 “음악 사이트” 요청을 YouTube로
   잘못 이동할 위험이 있어 안전 차단을 우선했다.
-- EXAONE/A.X/Solar Mini 구조화 resolver도 실제 호출했지만 단일 후보 요청에서 간접 표현 누락과
+- LLM 구조화 resolver도 실제 호출했지만 단일 후보 요청에서 간접 표현 누락과
   오선택이 관찰되어 주 경로로 채택하지 않았다.
 - 실제 HTTP smoke에서 영상 이동 문장이 YouTube 후보를 `score=0.397971`, `margin=0.212456`로 선택했다.
 

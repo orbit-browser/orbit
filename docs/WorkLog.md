@@ -3448,3 +3448,216 @@ pnpm build    → 통과 (chrome-mv3, 928.43 kB)
   부족한 560px 이하에서만 안내 문구와 액션을 두 줄로 분리한다.
 - 검증: `pnpm test` 20개 파일·200개 테스트 통과, `pnpm compile` 통과,
   최종 CSS 반영 후 `pnpm build` 통과(chrome-mv3, 929.13 kB).
+
+---
+
+## 2026-08-13 — README를 인공지능 루키 대회(국내 AI 트랙) 기준으로 갱신
+
+### 배경
+
+2026년도 인공지능 루키(AI Rookie) 대회 공고(과기정통부 공고 제2026-0378호)와 전국민 AI
+경진대회 통합 공고(제2026-0376호)를 확인했다. 트랙은 ①일반 ②국내 AI(연계기업: KT,
+LG AI연구원, NC AI, SKT, 업스테이지) 두 가지이고, 일정은 접수 3.27~5.8 → 예선 5월 →
+본선 8월(중간 결과물 제출·심사) → 1차 결선 11월 → 최종 결선 11월 → 시상 12월이다.
+세부 평가기준·배점은 공고에 없고 "심사위원단 심의 후 홈페이지 공지"로만 되어 있어,
+공고에 명시된 대회 목적과 트랙 정의에 맞춰 README를 정렬했다.
+
+Orbit은 SKT A.X-K1 · LG K-EXAONE · Upstage 임베딩만 사용해 연계기업 3곳에 해당하는데,
+기존 README는 이 사실이 기술 스택 표 한 행에만 있었다.
+
+### 변경
+
+- `README.md` — 상단에 국내 AI 트랙 출품작 표기와 두 섹션으로의 링크 추가.
+- `README.md` — `## 국내 AI 모델 활용` 신설. 파이프라인 7개 단계의 primary/fallback과
+  구현 위치를 표로 정리하고, 상호 폴백 방향이 단계마다 반대인 근거(DecisionLog 2026-08-05),
+  A.X-K1 3 RPS 대응, EXAONE serverless 채택 및 `enable_thinking=False` 이유,
+  `openai` SDK를 호환 클라이언트로만 쓴다는 점을 기록했다.
+- `README.md` — `## 데이터 처리와 프라이버시` 신설. 설정 4종의 기본값과 실제 동작,
+  http/https 한정 수집, 민감 URL은 본문만 제거하고 이벤트는 남긴다는 점(확장·백엔드
+  이중 구현), 추적 파라미터 제거, 로컬 우선 큐, 외부로 나가는 데이터와 탭 이동 질의
+  예외를 코드 기준으로 정리했다.
+- `README.md` — `### 백엔드 환경변수` 신설. 필요한 AI 키 3종과 각 키가 비었을 때의 동작.
+- `README.md` — 기술 스택 표의 AI 행 수정. 의도분석 primary를 A.X-K1으로 적고 있었으나
+  실제로는 EXAONE이다(`ai/llm.py: chat_completion_intent`).
+- `docs/WorkLog.md` — 이 기록.
+
+### 해결한 문제
+
+**증상** — README 실행 절차의 `cd backend && cp .env.example .env` 가 실패한다.
+**원인** — `backend/.env.example` 이 존재하지 않는다. 루트 `.env.example` 은 확장용
+`VITE_API_BASE_URL` 만 담고 있어 백엔드 설정과 무관하다. 또 주석이 채울 키로
+`UPSTAGE_API_KEY, AXK1_API_KEY` 만 안내해 `FRIENDLI_API_KEY` 가 빠져 있었다.
+**해결** — 해당 줄을 제거하고 `### 백엔드 환경변수` 섹션에서 키 3종을 명시했다.
+`.env.example` 파일 신설은 설정 표면 변경이라 이번 범위에 넣지 않았다.
+
+**증상** — `python -m pytest -p no:asyncio` 에서
+`tests/test_llm_stream.py::test_stream_falls_back_before_first_token` 1건 실패.
+**원인** — 이 테스트는 `_stream_provider` 만 monkeypatch 하고 클라이언트 생성은
+mock 하지 않는다. openai SDK 2.44.0 은 빈 `api_key` 로 클라이언트를 만들면
+`OpenAIError: Missing credentials` 를 던지므로, `FRIENDLI_API_KEY` 가 비어 있는 환경에서
+fallback 클라이언트 생성 단계에서 죽는다. 테스트 자체의 결함이며 제품 코드 결함은 아니다.
+**해결** — 코드는 고치지 않고(요청 범위 밖) README 테스트 섹션에 이 예외를 명시했다.
+`FRIENDLI_API_KEY=dummy-key-for-test` 를 주면 488개 전부 통과함을 확인했다.
+
+### 검증
+
+```
+cd backend && python -m pytest -p no:asyncio
+  → 1 failed, 487 passed  (FRIENDLI_API_KEY 미설정 로컬 환경)
+FRIENDLI_API_KEY=dummy-key-for-test python -m pytest -p no:asyncio
+  → 488 passed
+```
+
+**미실시** — extension 쪽 `pnpm test / compile / build`. 이번 변경은 문서만 건드려
+확장 산출물에 영향이 없다.
+
+### 남은 문제
+
+- 로컬 `backend/.env` 에 `FRIENDLI_API_KEY`, `GOOGLE_CLIENT_ID`, `JWT_SECRET` 이 비어
+  있다(키 존재 여부만 확인, 값은 읽지 않음). 이 상태로 시연하면 EXAONE 호출이 매번
+  실패해 의도분석·클러스터링이 A.X-K1 단독으로 처리되고 구글 로그인은 전부 거부된다.
+  본선 시연 전에 채워야 한다.
+- `ppt.md` §7 이 "A.X-K1 + Solar Pro 3 를 메인 LLM" 으로 적고 있으나 실제 구현은
+  A.X-K1 ↔ EXAONE 상호 폴백이고 Upstage 는 임베딩 전용이다. 제출물 간 진술이 어긋나므로
+  갱신이 필요하다(이번 범위 밖).
+- 대회 세부 평가기준·배점이 공개되면 README 구성을 다시 맞출 여지가 있다.
+
+---
+
+## 2026-08-13 — ppt.md를 현재 구현 기준으로 갱신
+
+### 배경
+
+`ppt.md`는 예선 도전제안서 시점에 작성된 발표 요약이라 구현과 여러 곳에서 어긋나 있었다.
+README를 대회 기준으로 갱신하면서 제출물 간 진술 불일치가 드러나 함께 정리했다.
+
+### 바로잡은 사실 오류
+
+- **§5 모델 배정 전면 오류** — 배치 의도 분석·탭 클러스터링·리랭킹을 모두 "Solar Mini"가
+  한다고 적혀 있었고, 요약 fallback은 "Upstage Solar Pro 3"로 적혀 있었다. 실제로는
+  의도분석·클러스터링이 EXAONE(primary)→A.X-K1, 요약·리랭킹이 A.X-K1(primary)→EXAONE
+  이다. **Solar Mini와 Solar Pro 3는 코드 어디에서도 호출되지 않는다**(`backend/app`
+  전체 grep 결과 `ai/__init__.py`의 낡은 주석 한 줄뿐). Upstage는 임베딩 전용이다.
+- **§5 서브클러스터링 서술이 사실과 반대** — "cosine 유사도 임계값 규칙을 쓰지 않고 LLM
+  프롬프트 기반 판단으로만 그룹핑한다"고 적혀 있었으나, 실제로는 평균 코사인 임계값
+  0.31의 average-linkage 응집 클러스터링으로 시간 그룹을 선분리한 뒤 LLM에 넘긴다
+  (`services/subclusterer.py`). HDBSCAN을 쓰지 않는다는 부분만 맞다. 임베딩이 거친
+  선분리를, LLM이 세밀한 판단을 맡는 실제 역할 분담으로 고쳐 썼다.
+- **§7 최종 전략 오류** — "A.X K1과 Solar Pro 3를 메인 LLM, Solar Embedding을 임베딩으로"
+  → 실제 확정 구성(A.X-K1 ↔ EXAONE 상호 폴백, Upstage 임베딩 전용)으로 교체하고,
+  예선 시점 스펙 판단이 실측에서 뒤집힌 지점 두 곳을 근거와 함께 남겼다.
+- **§5와 §9의 상호 모순** — §5는 "Structured Output 방식이 아니라 프롬프트 JSON 추출",
+  §9는 "Structured Output으로 action plan을 만든 뒤 실행"이라고 반대로 적고 있었다.
+  실제 구현(`ai/json_utils.py: extract_json`)에 맞춰 전자로 통일했다.
+
+### 그 밖의 갱신
+
+- §3 기능 목록을 7개 → 12개로. 누락돼 있던 Orbit 홈(새 탭 대체), 아틀라스, Ask AI,
+  열린 탭 찾기·북마크, 세션 병합, 상시 수집 설정을 추가했다.
+- §4를 스냅샷 중심 서술에서 Auto Session 주 경로 중심으로 고쳤다.
+- §5 파이프라인에 빠져 있던 인제스트·시간 그룹화·서브클러스터링·후보 세션 검색 단계를
+  넣어 실제 `sync_pipeline.run_batch` 순서와 맞췄다.
+- §6을 "3단계 MVP 계획"에서 "구현 현황 + 남은 계획"으로 전환했다. 남은 계획 항목은
+  `docs/product-direction-v2.md`의 대회 후 Stage 2~4에서 가져왔다. 기존 3차 MVP에 있던
+  AI 비교표·TODO 추출·Notion export는 구현되지 않았고 현재 로드맵에도 없어 뺐다.
+- §2의 문제 정의를 탭 중심에서 탐색 흐름 중심으로 조정했다(2번 "중복 탭 과잉" →
+  "저장하지 않은 탐색의 증발", 3번 "탭 검색 불가" → "탐색 경로 검색 불가").
+- §9를 "개발 시 중요한 방향성"(계획)에서 "개발 원칙과 데이터 처리"(실제 동작)로 전환.
+- 문서 상단에 기준 시점(2026-08-13, 본선 중간 결과물)과 "구현된 내용만 적는다" 규칙 명시.
+
+### 검증
+
+- 사실 확인은 코드 직접 확인으로 수행했다 — `ai/llm.py`, `services/subclusterer.py`,
+  `services/sync_pipeline.py`, `config.py`, `extension/entrypoints/content.ts`,
+  `extension/lib/settings.ts`, `backend/eval/`.
+- 테스트 개수(488)와 평가 하네스 4종·골든셋 케이스 11개는 실제 실행·파일 목록으로 확인.
+- 문서만 변경해 별도 빌드·테스트는 실행하지 않았다.
+
+### 남은 문제
+
+- `backend/app/ai/__init__.py` 주석이 아직 "Solar Pro 3 / A.X K1 호출, Solar Embedding,
+  HDBSCAN 클러스터링"으로 남아 있다. 실제 구성과 다르므로 코드 정리 시 함께 고쳐야 한다
+  (이번 범위 밖 — 문서 작업이라 코드는 건드리지 않았다).
+
+---
+
+## 2026-08-13 — 스테일 문서의 LLM 배선 서술 정정 (Solar Mini / Solar Pro 3 잔재 제거)
+
+### 배경
+
+루트 README와 ppt.md를 갱신한 뒤에도, 폐기된 배선(A.X-K1 + Solar Mini + Solar Pro 3)을
+설명하는 문서가 남아 있다는 지적을 받았다. 지적된 4곳을 확인하고 저장소 전체를 다시
+훑어 실제 대상 범위를 확정했다.
+
+### 지적 내용 중 정정한 부분
+
+지적에는 "A.X-K1 = 의도분석·요약·리랭킹"으로 적혀 있었으나 **의도분석은 현재
+K-EXAONE(primary) → A.X-K1(fallback)** 이다. 근거로 인용된 `DecisionLog.md` 2026-08-05
+"LLM 재배정" 항목은 이후 세 건의 결정으로 대체됐다.
+
+- 2026-08-05 "의도분석 모델 재확인" — 초기에 A.X 유지로 확정
+- 2026-08-05 "의도분석 EXAONE-primary 하이브리드 전환 (구현·실데이터 검증 완료)" —
+  상태 "승인·구현". `chat_completion_intent` 신설(EXAONE 우선, `max_retries=0` +
+  12초 타임아웃으로 429/지연 시 즉시 A.X 폴백). 실데이터 139개 이벤트 재세션화 검증 완료.
+- 2026-08-05 "프롬프트 v5 + 배치 감사 필드 개선" — 감사 필드에 `exaone:3,A.X-K1:1`
+  형태로 폴백률을 기록하도록 개선(EXAONE이 주 경로임을 전제한 변경)
+
+코드도 이와 일치한다 — `intent_analyzer.py:181` → `chat_completion_intent`.
+따라서 문서를 "의도분석 = A.X-K1"으로 맞추지 않고, EXAONE primary로 기재했다.
+
+### 변경
+
+- `backend/README.md` — 지적된 모델 서술 외에 스냅샷 시절에 멈춰 있던 부분을 함께 갱신했다.
+  ① 개요를 이벤트 인제스트·배치 세션화 포함으로 수정 ② 구조 트리에 빠져 있던 api 7개
+  (events/sync/ask/assistant/tab_actions/analytics 등), services 대부분, `db/migrations.py`,
+  `eval/`을 추가 ③ `cp .env.example .env` 제거(파일이 존재하지 않음) 후 필요한 키 3종 명시
+  ④ AI 모델 구성 표를 단계별 primary/fallback + 구현 함수로 교체하고 EXAONE 방향이 반대인
+  이유·3 RPS 리미터·`enable_thinking=false`·스트림 폴백 제약을 근거로 추가
+  ⑤ 미완성 항목의 solar-pro3 언급 정정 + Alembic 미도입 항목 추가
+- `docs/Research.md` — "현재 채택 기술" 표에서 탭 클러스터링·요약 행을 실제 배선으로 고치고
+  배치 의도 분석 행을 신설했다. 자연어 resolver 실측 기록의 모델 나열도 정정했다.
+- `backend/app/ai/__init__.py` — 주석을 실제 구성으로 교체했다. "(후속 구현)" 표기도
+  제거했다(구현 완료 상태였다). 코드 동작 변경 없음(주석만).
+- `docs/evaluation-plan.md` — 실 LLM 모드 설명이 `intent_analyzer.py`가 A.X-K1/solar-pro3를
+  호출한다고 적고 있어 EXAONE primary / A.X-K1 fallback으로 정정했다.
+- `MENTOR_QUESTIONS.md` — 부제가 "Solar Pro 3"를 현재 구성처럼 표기하고 있었다. 내용은
+  멘토링 준비 시점의 기록이라 보존하고, 상단에 시점 배너를 달아 당시 전제임을 명시했다.
+- `ppt.md` — 앞선 작업에서 이미 갱신 완료. 잔여 언급 3건은 의도한 것이다(예선 시점 후보
+  조사 목록, "Solar Pro 3를 LLM 경로에서 뺐다"는 서술, "HDBSCAN을 쓰지 않는다"는 서술).
+
+### 손대지 않은 문서와 이유
+
+역사 기록임이 문서 자체에 이미 명시돼 있어 보존했다. 고치면 기록이 왜곡된다.
+
+- `IMPLEMENTATION.md` — 상단에 "이 문서는 2026-06 초기 구현 기록이다" 배너와
+  `docs/target-architecture.md` 링크가 이미 있다.
+- `docs/current-state-audit.md` — "Personal Exploration Memory 전환 전", "조사 기준
+  2026-08-03" 배너가 이미 있다.
+- `docs/improvement-report.md`(갱신일 2026-07-12), `docs/implementation-roadmap.md`
+  (M0 태스크 기록) — 날짜가 명시된 시점 기록이다. 다만 improvement-report의
+  "발표자료 정합화 ⏳ 대기" 항목은 이번 ppt.md 갱신으로 실제로 처리됐다.
+
+### 검증
+
+```
+cd backend && FRIENDLI_API_KEY=dummy-key-for-test python -m pytest -p no:asyncio
+  → 488 passed
+grep -rn "[Ss]olar" backend/  → 0건
+```
+
+`ai/__init__.py`는 주석만 바꿨지만 import 경로 파일이라 전체 테스트를 다시 돌려 확인했다.
+
+---
+
+## 2026-08-13 — improvement-report의 발표자료 정합화(P1) 완료 표시
+
+- `docs/improvement-report.md` — "한눈에 보기" 표의 `발표자료 정합화` 행을 `⏳ 대기`에서
+  `✅ 완료 (2026-08-13)`으로 바꾸고, §3 P1 본문을 실제 처리 내용으로 갱신했다.
+- 이 항목이 전제한 정정 목표("HDBSCAN 서술을 Solar Mini LLM 클러스터링으로 수정")는
+  그사이 폐기됐다. Solar가 배선에서 빠졌고, 배치 경로에는 임베딩 average-linkage
+  선분리(`subclusterer.py`, 평균 코사인 0.31)가 실제로 도입돼 "코사인 임계값을 쓰지
+  않는다"는 원래 서술 방향 자체가 사실과 반대가 됐다. 완료로 표시하되 목표가 달라진
+  경위를 취소선과 함께 남겨, 나중에 "왜 계획과 다르게 처리됐지?"가 나오지 않게 했다.
+- 문서 상단 후속 상태 배너에도 2026-08-13 항목을 추가했다(기존 2026-08-07 항목과 같은 방식).
+  본문의 Solar 관련 서술이 2026-07-12 시점 기록임을 명시해 날짜 스냅샷 성격을 유지했다.
+- 검증: 문서만 변경. 별도 실행 없음.

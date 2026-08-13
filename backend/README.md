@@ -1,33 +1,55 @@
 # Orbit Backend
 
-FastAPI 기반 세션 API + AI 파이프라인. Extension이 보낸 탭 목록을 저장하고,
-A.X-K1 / Solar Pro 3로 요약을 생성하고, embedding-passage/embedding-query + Qdrant로 자연어 검색을 제공합니다.
+FastAPI 기반 이벤트 인제스트 + 세션 API + AI 파이프라인. Extension이 보낸 방문 이벤트를
+받아 배치로 세션화하고, 국내 LLM(SKT A.X-K1 ↔ LG K-EXAONE 상호 폴백)으로 의도 분석과
+요약을 수행하며, Upstage embedding-passage/embedding-query + Qdrant로 자연어 검색을
+제공합니다. "지금 열린 탭 저장" 스냅샷 경로도 그대로 유지합니다.
 
 ## 구조
 
 ```
 backend/
 └─ app/
-   ├─ main.py            # FastAPI 진입점, 라우터 등록, lifespan에서 DB/Qdrant 초기화 + 미완료 세션 복구
+   ├─ main.py             # FastAPI 진입점, 라우터 등록, lifespan에서 DB/Qdrant 초기화 + 미완료 세션 복구
    ├─ config.py           # 환경변수 (.env) 로드
    ├─ api/
-   │  ├─ sessions.py      # POST /sessions, /sessions/cluster, GET/PATCH/DELETE /sessions/{id}, POST /sessions/{id}/retry-summary
-   │  └─ search.py        # GET /search (임베딩 검색 + 선택적 LLM 리랭킹)
-   ├─ schemas/
-   │  └─ session.py       # Pydantic v2 요청/응답 스키마
+   │  ├─ events.py        # POST /events — 방문 이벤트 인제스트
+   │  ├─ sync.py          # POST /sync — 배치 세션화 트리거
+   │  ├─ sessions.py      # 세션 CRUD, /sessions/cluster(스냅샷), 요약 재시도, 병합
+   │  ├─ search.py        # GET /search (임베딩 검색 + 선택적 LLM 리랭킹)
+   │  ├─ ask.py           # POST /ask/stream — 근거 기반 SSE 답변
+   │  ├─ assistant.py     # POST /assistant/route — Ask 입력 의도 판별
+   │  ├─ tab_actions.py   # POST /tab-actions/resolve — 열린 탭 이동 대상 판별
+   │  ├─ analytics.py     # 탐색 통계 집계
+   │  ├─ recommendations.py, folders.py, settings.py, auth.py, deps.py
+   ├─ schemas/            # Pydantic v2 요청/응답 스키마 (도메인별 분리)
    ├─ services/
-   │  └─ summarizer.py    # 탭 목록 → LLM 요약 JSON, 잘못된 결과는 실패 상태로 전파
+   │  ├─ event_filter.py  # 인제스트 전처리 — 시스템 URL 제외, URL 정규화, 민감 URL 판정
+   │  ├─ grouper.py       # 30분 공백 기준 시간 그룹화
+   │  ├─ subclusterer.py  # 임베딩 average-linkage 선분리 (평균 코사인 임계값)
+   │  ├─ intent_analyzer.py  # 그룹 → append/create/hold/discard 판단
+   │  ├─ session_updater.py  # 판단 결과를 세션에 반영 + 버전 기록
+   │  ├─ sync_pipeline.py    # 위 단계를 묶는 배치 오케스트레이션(run_batch)
+   │  ├─ summarizer.py       # 세션 → LLM 요약 JSON, 잘못된 결과는 실패 상태로 전파
+   │  ├─ embedding_sync.py   # 요약 → passage 임베딩 → Qdrant upsert
+   │  ├─ noise_filter.py     # 규칙 기반 노이즈 이벤트 제외
+   │  ├─ merge_suggester.py, merge_service.py  # 세션 병합 제안·실행·되돌리기
+   │  ├─ ask_service.py, assistant_router.py, tab_action_resolver.py
+   │  ├─ recommender/        # 추천 세션 스코어링 + LLM 리랭킹
+   │  └─ google_auth.py, auth_tokens.py, users.py, app_settings.py
    ├─ ai/
-   │  ├─ llm.py           # A.X-K1 / Solar Pro 3 / Solar Mini 클라이언트 + fallback 로직
+   │  ├─ llm.py           # A.X-K1 / K-EXAONE 클라이언트 + 단계별 상호 폴백, 전역 레이트 리미터
    │  ├─ embedding.py     # embedding-query/embedding-passage 클라이언트 (4096차원, 비대칭 임베딩)
-   │  ├─ clusterer.py     # 탭을 주제별로 그루핑 (Solar Mini)
-   │  ├─ reranker.py      # 검색 결과를 쿼리 관련성 순으로 재정렬 (Solar Mini)
+   │  ├─ clusterer.py     # 스냅샷 경로에서 탭을 주제별로 그루핑
+   │  ├─ reranker.py      # 검색 결과를 쿼리 관련성 순으로 재정렬
    │  └─ json_utils.py    # LLM 응답에서 JSON 추출 (펜스/잡담/순수 JSON 공통 처리)
    └─ db/
-      ├─ models.py        # SQLAlchemy Session 모델 (PostgreSQL, JSONB) — summary_status/embedding_status 포함
-      ├─ session.py        # 비동기 DB 세션 팩토리
-      └─ vector.py         # Qdrant 클라이언트, 컬렉션 초기화, upsert/search/delete
-tests/                     # pytest 단위 테스트 (AI 파싱/분류/요약, 검색 API, Qdrant 계약)
+      ├─ models.py        # SQLAlchemy 모델 (PostgreSQL, JSONB) — 이벤트/세션/매핑/버전
+      ├─ migrations.py    # 멱등 ALTER 러너 (Alembic 미도입 — docs/migration-plan.md)
+      ├─ session.py       # 비동기 DB 세션 팩토리
+      └─ vector.py        # Qdrant 클라이언트, 컬렉션 초기화, upsert/search/delete
+tests/                    # pytest 단위 테스트 (외부 API·DB·LLM은 전부 대역 처리)
+eval/                     # 골든셋 평가 하네스 — 세션 분류·검색 리콜·Ask 라우팅·탭 이동
 ```
 
 ## 실행
@@ -36,7 +58,9 @@ tests/                     # pytest 단위 테스트 (AI 파싱/분류/요약, �
 docker compose up -d postgres qdrant   # 루트에서
 cd backend
 pip install -e ".[dev]"                # 또는 uv sync
-cp .env.example .env                   # UPSTAGE_API_KEY, AXK1_API_KEY 채우기
+# backend/.env 를 직접 작성한다 (backend/.env.example 은 없다).
+# AXK1_API_KEY, FRIENDLI_API_KEY, UPSTAGE_API_KEY 3종이 모두 필요하며,
+# 구글 로그인용 GOOGLE_CLIENT_ID / JWT_SECRET 은 루트 README 참고.
 uvicorn app.main:app --reload
 ```
 
@@ -76,12 +100,28 @@ Qdrant 검색 장애는 503으로 반환하며 내부 예외 상세는 API 응�
 
 ## AI 모델 구성
 
-| 역할 | 모델 | 비고 |
-|---|---|---|
-| 세션 요약 (primary) | `A.X-K1` | 429/5xx/연결 실패/타임아웃 시 `solar-pro3`로 자동 fallback |
-| 탭 클러스터링 / 검색 리랭킹 (경량) | `solar-mini` | 실패 시 `solar-pro3`로 fallback |
-| 검색 쿼리 임베딩 | `embedding-query` | 4096차원, Qdrant cosine 검색 |
-| 저장 문서(요약) 임베딩 | `embedding-passage` | 비대칭 임베딩 — 쿼리/문서에 서로 다른 모델 사용 |
+두 LLM은 서로의 폴백이다. 단계별로 실측 우세한 쪽을 primary로 두되 반대쪽을 fallback으로
+걸어, 한 공급자가 중단돼도 기능이 멈추지 않는다(근거: `docs/DecisionLog.md` 2026-08-05).
+
+| 역할 | Primary | Fallback | 구현 |
+|---|---|---|---|
+| 배치 의도 분석 (append/create/hold/discard) | `K-EXAONE` | `A.X-K1` | `llm.chat_completion_intent` |
+| 탭 클러스터링 (스냅샷 경로) | `K-EXAONE` | `A.X-K1` | `llm.chat_completion_light` |
+| 세션 요약 | `A.X-K1` | `K-EXAONE` | `llm.chat_completion(_with_meta)` |
+| 검색·추천 리랭킹 | `A.X-K1` | `K-EXAONE` | `llm.chat_completion` |
+| Ask 답변 스트리밍 | `A.X-K1` | `K-EXAONE` | `llm.chat_completion_stream_with_meta` |
+| 검색 쿼리 임베딩 | `embedding-query` | — | 4096차원, Qdrant cosine 검색 |
+| 저장 문서(요약) 임베딩 | `embedding-passage` | — | 비대칭 임베딩 — 쿼리/문서에 서로 다른 모델 |
+
+- 의도 분석만 EXAONE 우선 방향이 반대인 이유: 공정 재평가에서 품질은 대등했고
+  노이즈 제외는 EXAONE이 우세했다. serverless rate limit(429)이나 지연은
+  `max_retries=0` + 12초 타임아웃으로 즉시 A.X-K1에 넘겨 흡수한다.
+- `A.X-K1`은 3 RPS 제한이 있어 모든 LLM 호출을 전역 최소 간격 리미터로 직렬화한다.
+- `K-EXAONE`(`LGAI-EXAONE/K-EXAONE-236B-A23B`)은 FriendliAI serverless로 호출하며,
+  hybrid reasoning 모델이라 `chat_template_kwargs.enable_thinking=false`를 항상 보낸다.
+  끄지 않으면 출력 토큰을 추론 트레이스가 소진해 content가 비어 온다.
+- Ask 스트리밍은 첫 토큰 전 실패에만 폴백한다. 토큰을 이미 보낸 뒤 끊기면 다른 모델로
+  이어붙일 수 없어 `StreamInterruptedError`로 호출자에게 부분 실패를 알린다.
 
 세션 저장 흐름: 저장 요청 → 규칙 기반 제목으로 즉시 DB 저장(`summary_status=pending`) 및 응답 →
 백그라운드에서 LLM 요약 생성(`summary_status=done|failed`) → 요약 텍스트를 embedding-passage로
@@ -96,4 +136,7 @@ Extension은 `usePendingSessionPoller`로 `summary_status`를 폴링해 반영�
 ## 알려진 미완성 항목
 
 - Structured Output(`response_format`) 미적용 — 현재는 프롬프트 지시 + JSON 추출(`json_utils`) +
-  실패 시 규칙 기반 fallback으로 안정성을 확보하고 있다. solar-pro3의 JSON 모드 지원 여부는 별도 확인 필요.
+  실패 시 규칙 기반 fallback으로 안정성을 확보하고 있다. A.X-K1과 K-EXAONE의 JSON 모드
+  지원 여부는 별도 확인이 필요하다.
+- Alembic 미도입 — `create_all` + 멱등 ALTER 러너(`db/migrations.py`)로 대응 중이다.
+  실사용 데이터가 쌓이면 버전 관리 마이그레이션으로 전환해야 한다.

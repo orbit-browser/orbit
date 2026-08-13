@@ -101,7 +101,7 @@ Auto Session의 핵심 위험은 "의도 분석 품질 — 오할당이 좋은 �
 
 | 모드 | 동작 | 용도 |
 |---|---|---|
-| 실 LLM 모드 | `intent_analyzer.py`가 실제로 A.X-K1/solar-pro3 API를 호출 | 프롬프트 튜닝 후 실측 성능 확인, 정기적인 품질 점검(비용 발생) |
+| 실 LLM 모드 | `intent_analyzer.py`가 실제로 K-EXAONE(primary)/A.X-K1(fallback) API를 호출 | 프롬프트 튜닝 후 실측 성능 확인, 정기적인 품질 점검(비용 발생) |
 | 기록 재생 모드 | 이전 실 LLM 모드 실행에서 저장해 둔 원문 응답을 그대로 재생해 동일한 assignments를 재계산 | CI에서 비용 없이 회귀 확인, 지표 계산 로직 자체의 버그를 잡을 때 |
 
 이는 계획서 §12(테스트와 검증)의 "단위 테스트는 monkeypatch, 평가는 실 호출" 원칙과 같은 선을 따른다 — `backend/tests/`의 단위 테스트는 `intent_analyzer`가 특정 형식의 JSON을 올바르게 파싱/방어하는지만 monkeypatch로 검증하고, `backend/eval/run_eval.py`는 실제 모델 성능(정확도)을 측정하는 별도 트랙이다. 두 트랙을 분리해야 "테스트는 항상 통과하지만 실제 배치는 품질이 나쁜" 상황을 놓치지 않는다.
