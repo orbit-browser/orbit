@@ -3661,3 +3661,51 @@ grep -rn "[Ss]olar" backend/  → 0건
 - 문서 상단 후속 상태 배너에도 2026-08-13 항목을 추가했다(기존 2026-08-07 항목과 같은 방식).
   본문의 Solar 관련 서술이 2026-07-12 시점 기록임을 명시해 날짜 스냅샷 성격을 유지했다.
 - 검증: 문서만 변경. 별도 실행 없음.
+
+---
+
+## 2026-08-14 — 스트림 폴백 테스트가 로컬 API 키에 의존하던 문제
+
+### 증상
+
+`python -m pytest -p no:asyncio` 에서 1건 실패.
+
+```
+FAILED tests/test_llm_stream.py::test_stream_falls_back_before_first_token
+  openai.OpenAIError: Missing credentials. Please pass an `api_key`, ...
+```
+
+### 원인
+
+`openai` SDK(설치본 2.44.0)는 빈 `api_key` 로 `AsyncOpenAI` 를 만들면 **생성 시점에**
+예외를 던진다. 테스트는 `_stream_provider` 만 대역 처리했는데, 그 인자로 넘길
+클라이언트(`llm.py:121` `_axk1_client()`, `llm.py:153` `_friendli_client()`)는
+그대로 실제 생성된다. 로컬 `.env` 에 `FRIENDLI_API_KEY` 가 없어 폴백 경로에서 터졌다.
+
+즉 스트림 로직이 아니라 환경 설정이 결과를 좌우하고 있었다 — AGENTS.md §12
+"테스트는 실제 키나 네트워크에 의존하지 않는다" 위반이다. `test_stream_does_not_
+fallback_after_first_token` 도 같은 구조라, 로컬에 `AXK1_API_KEY` 가 있어서 우연히
+통과하고 있었을 뿐이다(신규 클론·CI 에서는 동일하게 실패한다).
+
+### 해결
+
+`tests/test_llm_stream.py` 에 `_stub_clients(monkeypatch)` 를 두고 두 테스트 모두에서
+클라이언트 팩토리 두 개를 대역 처리했다. 대역 provider 가 첫 인자를 쓰지 않으므로
+`lambda: None` 으로 충분하다. 프로덕션 코드는 손대지 않았다 — 빈 키에 대한 현재
+동작(§10 fail-closed)이 의도된 설계다.
+
+### 검증
+
+```
+backend   python -m pytest -p no:asyncio        # 488 passed (직전 487 passed / 1 failed)
+extension pnpm test                             # 20 files / 200 passed
+```
+
+키 의존이 실제로 끊겼는지 확인하기 위해 `AXK1_API_KEY` · `FRIENDLI_API_KEY` ·
+`UPSTAGE_API_KEY` 를 모두 빈 문자열로 덮은 하위 프로세스에서 다시 실행해 2건 통과를
+확인했다(오버라이드가 적용됐는지 `settings` 값이 전부 빈 값인 것도 함께 확인).
+
+### 남은 일
+
+- `backend/pyproject.toml` 의 `openai>=1.55` 는 상한이 없어 SDK 변경에 그대로 노출된다.
+  이번 실패의 직접 원인은 아니었으나(테스트 구조 문제), 상한 핀은 별도 결정 사항.
