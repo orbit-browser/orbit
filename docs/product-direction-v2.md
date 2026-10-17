@@ -46,7 +46,7 @@ Personal Exploration Memory는 이 파편들을 하나의 **탐색 궤도(Explor
 | P1 | History/방문 이벤트 수집 + 자동 세션 갱신(Auto Session 코어) |
 | P2 | Timeline UI + 저장 구조(Memory Store) + Intent 검색 |
 | P3 | Dashboard/Exploration Analytics |
-| P4 | Team Workspace(로드맵만 — MVP 제외) |
+| P4 | Team Workspace — MVP 제외였으나 대회 후 1단계(세션 공유형) 착수(2026-10-17, `feat/team-workspace`) |
 | P5 | ChatGPT/Gemini 연동(로드맵만 — MVP 제외) |
 
 ## 5. MVP 범위와 제외 목록
@@ -125,7 +125,7 @@ Personal Exploration Memory는 방문 이벤트를 상시 기록한다는 점에
 | Stage 1 | 이번 MVP | `exploration_events`가 Memory의 원자 단위, 세션은 그 위의 AI 파생 뷰. `source`/`event_type` 필드를 미리 두어 확장 지점 확보. 브라우저 방문 + 열린 탭까지 |
 | Stage 2 | 대회 후 | 소스 어댑터 — 북마크·PDF·GitHub 이벤트를 같은 `POST /events`로 인제스트(`source='bookmark'|'pdf'|'github'`). 파이프라인·검색·Timeline은 무변경으로 새 소스를 흡수 |
 | Stage 3 (P5) | 대회 후 | ChatGPT/Gemini 대화를 이벤트로(`source='chatgpt'`) — 대화와 방문이 한 세션 Timeline에 병렬 표시. 이벤트 단위 임베딩 도입은 검색 Recall 측정 결과에 따라 검토 |
-| Stage 4 (P4) | 대회 후 | Team Workspace/세션 공유 — `user_id`가 이미 전 테이블에 있어 인증+권한 계층만 추가하면 데이터 모델 변경 불필요. 세션 단위 read-only 공유부터 |
+| Stage 4 (P4) | 대회 후 | Team Workspace — 1단계 세션 공유형(라이브 참조, read-only) 구현(2026-10-17). 처음엔 "`user_id`만 있으면 데이터 모델 변경 불필요"로 봤으나 워크스페이스·멤버십·공유 관계 테이블이 필요했다(`data-model-v2.md` §10). 2단계에 팀 수집 모드 |
 
 ## 8. 핵심 성공 기준
 

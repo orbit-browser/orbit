@@ -245,7 +245,8 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
   "query": "지난주 보험 비교 기록에서 가격이 가장 낮았던 선택지는?",
   "session_id": null,
   "rerank": true,
-  "intent": "search_memory"
+  "intent": "search_memory",
+  "workspace_id": null
 }
 ```
 
@@ -255,6 +256,8 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
 - `intent`: `find_sessions`, `search_memory`, `search_session` 중 하나. 기본은 하위 호환을 위한
   `search_memory`다. `find_sessions`는 최대 5개 세션을 반환하고 답변 LLM을 호출하지 않으며,
   `search_session`은 지정 세션 또는 가장 가까운 세션 1개만 사용한다.
+- `workspace_id`: 팀 워크스페이스 id(§14). 주면 그 팀에 공유된 세션만 근거로 쓰고, `session_id`도
+  그 팀에 공유된 세션이어야 한다. 멤버가 아니면 `404`.
 
 클라이언트는 여러 질문과 답변을 UI에 누적 표시할 수 있지만, 그 목록은 다음 요청 본문에 포함하지 않는다.
 
@@ -466,3 +469,62 @@ EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델�
 
 `folder_id: str | null` 필드를 추가한다(§11 superset 정책). 폴더 기능을 모르는
 클라이언트는 이 필드를 무시하면 그대로 동작한다.
+
+
+## 14. 팀 워크스페이스 (`/workspaces`) — 1단계 세션 공유형
+
+팀원이 각자 고른 세션을 한 공간에 공유해 함께 보고 검색·Ask 한다. 공유는 사본이 아니라 원본
+세션을 가리키는 **라이브 참조**라, 공유 뒤 Auto Session이 붙인 페이지도 팀에 보인다. 팀원은
+읽기만 하고, 세션을 고치는 일(이름·삭제·병합·재요약)은 소유자만 한다. 결정 근거는
+`DecisionLog.md` 2026-10-17 "팀 워크스페이스".
+
+| 메서드 | 경로 | 권한 | 설명 |
+|---|---|---|---|
+| `GET` | `/workspaces` | 로그인 | 내가 속한 팀. `{workspace_id, name, hue, role, member_count, created_at}` |
+| `POST` | `/workspaces` | 로그인 | `{name}`(앞뒤 공백 제거 후 1~60자). 만든 사람이 owner. 색은 폴더와 같은 팔레트 순환 |
+| `POST` | `/workspaces/join` | 로그인 | `{code}`. 이미 멤버면 아무것도 바꾸지 않고 그 팀을 돌려준다(역할 유지) |
+| `PATCH` | `/workspaces/{id}` | owner | `{name}` |
+| `DELETE` | `/workspaces/{id}` | owner | 팀·멤버십·공유 관계만 삭제. 원본 세션은 각자의 개인 기록에 남는다 |
+| `POST` | `/workspaces/{id}/invite-code` | owner | 새 초대 코드 `{code, expires_at}`(7일). 이전 코드는 즉시 무효 |
+| `GET` | `/workspaces/{id}/members` | member | `{user_id, name, email, picture, role, joined_at}`. owner 먼저, 그다음 참여 순. `email`은 owner와 본인에게만 채워지고 다른 멤버에게는 `null` |
+| `DELETE` | `/workspaces/{id}/members/{user_id}` | owner(남) / 본인(탈퇴) | 나간 사람이 그 팀에 건 공유가 모두 풀린다. owner 본인은 `409` |
+| `GET` | `/workspaces/{id}/sessions` | member | 공유된 세션 = `SessionDetail` + `shared_by{user_id, name, picture}` + `shared_at`. 병합으로 흡수된 세션 제외, 최근 활동순 |
+| `POST` | `/workspaces/{id}/sessions` | member | `{session_ids}`(1~200). 내 소유의 흡수되지 않은 세션만 공유 |
+| `DELETE` | `/workspaces/{id}/sessions/{session_id}` | 공유한 사람 / owner | 공유 해제 |
+
+### 14.1 권한과 오류
+
+- 멤버가 아니면 그 팀의 모든 경로가 `404`다 — `403`은 그 id의 존재를 알려준다(§13.2와 같은 정책).
+- 멤버가 owner 전용 작업을 하면 `403`. 멤버는 이미 팀의 존재를 안다.
+- 초대 코드가 없거나 만료됐거나 재발급으로 무효가 되면 `POST /workspaces/join`은 `400`이며
+  세 경우를 구분하지 않는다(코드 추측에 단서를 주지 않는다).
+- 서버는 초대 코드의 SHA-256 해시만 저장한다. 평문은 발급 응답에서 한 번만 보인다.
+- owner가 멤버를 내보내면 현재 초대 코드도 무효가 된다 — 내보낸 사람이 아직 유효한 같은 코드로
+  다시 들어오지 못하게. 스스로 나간 경우에는 코드를 그대로 둔다.
+- 공유는 **공유한 사람이 그 팀 멤버인 동안만** 유효하다. 탈퇴·내보내기와 같은 순간 들어온 공유 행이
+  남더라도 팀 목록·팀 검색·읽기 판정이 공유한 사람의 멤버십을 다시 확인해 걸러 낸다.
+
+### 14.2 공유의 부분 성공
+
+`POST /workspaces/{id}/sessions`는 §13.1 폴더 배정과 같은 규칙을 따른다. 남의·없는·흡수된
+세션이 섞여도 전체를 실패시키지 않는다. 이미 공유된 세션은 `shared`에 그대로 포함된다(멱등).
+
+```json
+{ "workspace_id": "...", "shared": ["s1", "s2"], "skipped": ["ghost"] }
+```
+
+### 14.3 기존 경로 변경
+
+- `SessionDetail`에 `shared_workspace_ids: string[]`를 추가한다(§11 superset). 이 세션이 공유된 팀
+  id이며 **`GET /sessions` 목록과 `GET /sessions/{id}`에서 소유자에게만** 채워진다. 다른 응답(PATCH·
+  merge·retry·검색·Ask)과 팀원이 받은 응답에서는 항상 빈 배열이라, 팀원은 그 세션이 다른 팀에도
+  공유됐는지 알 수 없다.
+- 팀원이 받은 응답(공유 세션 단건, 팀 목록, 팀 범위 검색·Ask 근거)은 `folder_id`도 `null`이다 —
+  폴더는 소유자의 개인 정리 정보다.
+- `GET /sessions/{id}`, `/sessions/{id}/events`, `/sessions/{id}/versions`: 읽기 권한을 "소유자 또는 그
+  세션이 공유된 팀의 멤버"로 넓힌다. 병합으로 흡수된 세션은 팀원에게 `404`다(팀 목록·검색에서 빠지는
+  것과 같게). 쓰기 경로(`PATCH`·`DELETE`·`merge`·`unmerge`·`retry-summary`)는 소유자 전용 그대로다.
+- `GET /search`: `workspace_id` 쿼리 파라미터. 주면 그 팀에 공유된 세션만 검색하고, `scope=memory`의
+  키워드 이벤트도 공유된 세션에 속한 방문만 돌려준다. 멤버가 아니면 `404`.
+- `POST /ask/stream`: `workspace_id`(§8.1).
+- `GET/PATCH /settings`: 사용자별 값이다. 이전의 전역 값은 읽지 않는다(`data-model-v2.md` §11).

@@ -85,6 +85,15 @@ uvicorn app.main:app --reload
 | POST | `/assistant/route` | Ask 입력을 탭 이동·세션 찾기·전체/특정 세션 내용 검색으로 판별 |
 | POST | `/ask/stream` | 의도별 세션 범위와 질문 관련 페이지를 근거로 SSE 답변 생성 |
 | POST | `/tab-actions/resolve` | 열린 탭 후보 중 이동 대상을 의미 검색하고 낮은 신뢰도는 실행 보류 |
+| GET·POST | `/workspaces` | 내 팀 목록·팀 만들기 (팀 워크스페이스 1단계, `docs/api-design-v2.md` §14) |
+| POST | `/workspaces/join` | 초대 코드로 팀 참여 |
+| PATCH·DELETE | `/workspaces/{id}` | 팀 이름 변경·삭제 (owner) |
+| POST | `/workspaces/{id}/invite-code` | 초대 코드 발급. 이전 코드는 무효 (owner) |
+| GET·DELETE | `/workspaces/{id}/members[/{user_id}]` | 팀원 목록·내보내기·탈퇴 |
+| GET·POST·DELETE | `/workspaces/{id}/sessions[/{session_id}]` | 팀 공유 세션 목록·공유·해제 |
+
+`GET /sessions/{id}`(와 `/events`·`/versions`)는 소유자 외에 그 세션이 공유된 팀의 멤버도 읽을 수 있다.
+`/search`와 `/ask/stream`은 `workspace_id`를 주면 그 팀에 공유된 세션만 대상으로 한다.
 
 검색 관련 설정:
 

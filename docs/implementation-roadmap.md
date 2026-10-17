@@ -269,6 +269,6 @@
 | Stage 1(이번 MVP) | M1~M5 | `exploration_events`가 Memory 원자 단위, `source`/`event_type` 필드로 확장 지점 확보(`docs/data-model-v2.md` §7) | 브라우저 방문 + 열린 탭까지 |
 | Stage 2 | 대회 후 | 스키마 변경 없음 — `source='bookmark'\|'pdf'\|'github'` 값만 추가 | 소스 어댑터를 같은 `POST /events`로 인제스트. `event_filter.py`에 소스별 정규화 로직 추가. 파이프라인(`grouper`/`intent_analyzer`/`session_updater`)·검색·Timeline은 무변경으로 새 소스를 흡수(설계상 이미 소스 불문으로 만들어져 있어야 함 — Stage 1 구현 시 이 전제를 깨지 않도록 주의) |
 | Stage 3 (P5) | 대회 후 | `source='chatgpt'`, `content_excerpt`에 질문/응답 요약 | ChatGPT/Gemini 대화를 이벤트로 흡수 — 대화와 방문이 한 세션 Timeline에 병렬 표시. 검색 Recall 측정 결과에 따라 이벤트 단위 임베딩 도입 여부 재검토 |
-| Stage 4 (P4) | 대회 후 | `user_id`가 이미 전 테이블에 존재 — 데이터 모델 변경 불필요 | 인증 + 권한 계층 추가만으로 Team Workspace 구현. 세션 단위 read-only 공유부터 시작 |
+| Stage 4 (P4) | 대회 후 | 신규 테이블 3개(`workspaces`·`workspace_members`·`workspace_sessions`) — 기존 테이블 컬럼 변경 없음(`docs/data-model-v2.md` §10). 당초 "모델 변경 불필요" 판단은 정정 | 1단계 세션 공유형(라이브 참조, read-only) 구현(2026-10-17). 2단계 팀 수집 모드는 처리량 측정 후 |
 
 이 확장 로드맵이 Stage 1 구현에 요구하는 유일한 제약은 "새 소스가 추가될 때 스키마 변경이 필요 없어야 한다"는 것이다 — M1-1에서 `source`/`event_type`을 문자열 컬럼으로 열어 둔 이유가 여기에 있다(`docs/data-model-v2.md` §7).

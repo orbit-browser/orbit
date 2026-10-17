@@ -241,3 +241,83 @@ CREATE INDEX ix_sessions_folder_id ON sessions (folder_id);
 병합으로 흡수된 세션(`status='merged'`)은 목록에서 빠지므로 폴더 소속을 따로
 정리하지 않는다. 생존 세션의 폴더는 그대로 유지되고, `session_count` 집계에서만
 흡수된 세션을 제외한다.
+
+
+## 10. 팀 워크스페이스 (신규 테이블 3개)
+
+1단계는 세션 공유형이다. 기존 테이블에는 컬럼을 추가하지 않고, 공유를 원본 세션에 대한 관계 행으로
+표현한다(라이브 참조). 신규 테이블이라 `create_all`이 생성한다.
+
+```sql
+CREATE TABLE workspaces (
+  id                VARCHAR(36) PRIMARY KEY,
+  name              VARCHAR(60) NOT NULL,
+  hue               VARCHAR(20) NOT NULL,
+  invite_code_hash  VARCHAR(64),          -- 초대 코드 SHA-256. 재발급하면 바뀐다
+  invite_expires_at TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL,
+  updated_at        TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX ix_workspaces_invite_code_hash ON workspaces (invite_code_hash);
+
+CREATE TABLE workspace_members (
+  workspace_id VARCHAR(36) NOT NULL REFERENCES workspaces(id),
+  user_id      VARCHAR(64) NOT NULL,
+  role         VARCHAR(20) NOT NULL,     -- 'owner' | 'member'
+  joined_at    TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (workspace_id, user_id)
+);
+CREATE INDEX ix_workspace_members_user_id ON workspace_members (user_id);
+
+CREATE TABLE workspace_sessions (
+  workspace_id VARCHAR(36) NOT NULL REFERENCES workspaces(id),
+  session_id   VARCHAR(36) NOT NULL REFERENCES sessions(id),
+  shared_by    VARCHAR(64) NOT NULL,     -- 공유는 소유자만 하므로 곧 세션 소유자
+  shared_at    TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (workspace_id, session_id)
+);
+CREATE INDEX ix_workspace_sessions_session_id ON workspace_sessions (session_id);
+```
+
+### 10.1 정리 규칙
+
+FK에 ON DELETE가 없다(`session_events`와 같다). 정리를 빠뜨리면 조용한 고아 행 대신 삭제 오류로
+드러나게 하려는 것이다. 애플리케이션이 같은 트랜잭션에서 먼저 지운다.
+
+- 세션 삭제: 그 세션의 `workspace_sessions`를 먼저 지운다.
+- 팀 삭제: `workspace_sessions` → `workspace_members` → `workspaces` 순.
+- 탈퇴·내보내기: 그 사람이 그 팀에 건 `workspace_sessions`(`shared_by`)와 멤버십을 지운다.
+  개인 세션은 남는다. 내보내기는 `invite_code_hash`·`invite_expires_at`도 비운다.
+- 읽는 쪽은 `workspace_members`를 `(workspace_id, shared_by)`로 조인해 **공유한 사람이 아직 멤버인
+  공유만** 센다. 탈퇴와 같은 순간 들어온 공유 행이 남아도 팀에 보이지 않는다.
+
+### 10.2 병합과의 관계
+
+공유된 세션이 흡수되면(`status='merged'`) 팀 목록·팀 검색·팀원의 단건 조회에서 빠지고 공유 행은
+남겨 둔다 — 되돌리면 그대로 다시 보인다. 흡수한 생존 세션은 자동으로 공유하지 않는다. 자동병합은 공유 중인 세션을
+건너뛴다. 사용자 모르게 팀에 보이는 범위가 바뀌지 않게 하기 위해서다.
+
+## 11. `user_settings` — 사용자별 설정 (신규 테이블)
+
+```sql
+CREATE TABLE user_settings (
+  user_id    VARCHAR(64) NOT NULL,
+  key        VARCHAR(64) NOT NULL,       -- 현재 'auto_merge_enabled' 만 사용
+  value      JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
+```
+
+단일 사용자 시절의 전역 `app_settings` 테이블을 대체한다. 그 테이블은 DB에 남지만 코드가 더는 읽지
+않는다 — 그 값은 누군가의 opt-in이라 다른 사용자에게 물려주면 파괴적 기능인 자동병합이 동의 없이
+켜진다. 기존에 자동병합을 켜 둔 사용자는 한 번 다시 켜야 한다.
+
+## 12. Qdrant payload `user_id`
+
+세션 포인트 payload에 `user_id`를 싣고 keyword index를 둔다. 개인 검색·배치 후보·병합 제안·추천은
+이 payload로 Qdrant 단계에서 범위를 좁히고(recall), 팀 검색은 공유 세션 id 목록(`HasIdCondition`)으로
+좁힌다. **보안 경계는 그대로 SQL 조건**이다.
+
+기동 시 `user_id`가 없는 기존 포인트를 세션 테이블에서 찾아 채운다(멱등, 실패 시 다음 기동에 재시도).
+DB에 없는 세션의 포인트는 그대로 두며, 소유자 필터에 걸리지 않으므로 검색에 나오지 않는다.

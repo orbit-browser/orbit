@@ -731,3 +731,352 @@
 - 온보딩을 이미 끝낸 사용자가 `?onboarding=1`을 직접 열면 즉시 홈으로 넘어간다(의도된 동작).
 - 안내 탭이 닫혀 있으면 이동 대상이 없어 아무 일도 일어나지 않는다. 알려진 한계로 남긴다.
 - 투어 완료 직후 안내 탭이 홈으로 바뀌고 드롭다운이 검색창에 붙어 열리면 완료다.
+
+# 2026-10-17 — 팀 Orbit: 팀 워크스페이스 (세션 공유형 MVP)
+
+**상태:** 구현 완료 (2026-10-17) — 실제 브라우저(Chrome 프로필 2개) UI 스모크 미실시, 커밋 전
+**브랜치:** `feat/team-workspace`
+
+## 작업 목표
+
+- 개인 전용 Orbit에 팀 워크스페이스를 추가한다. 팀원이 하나의 Orbit 공간에서 서로의 탐색
+  세션을 보고, 검색하고, Ask AI로 되짚을 수 있게 한다.
+- 단계형으로 진행한다. 이 계획의 구현 범위는 **0단계(다중 사용자 결함 수정)와 1단계(세션
+  공유형 MVP)**다. 개인 기록은 개인 것으로 두고, 사용자가 고른 세션만 팀에 **라이브 참조**로
+  공유한다. 팀 수집 모드(팀 단위 수집·Auto Session)는 2단계로 미룬다.
+
+## 현재 상태와 조사 결과
+
+- **데이터 격리** — 모든 조회·수정·삭제가 `user_id` 소유자 조건으로 제한된다
+  (DecisionLog 2026-08-07 "데이터 격리"). 세션 단건은 `_owned_session()`
+  (`backend/app/api/sessions.py`)이 남의 세션에 404를 준다. 팀 공유는 이 결정을 "읽기"에
+  한해 넓히는 변경이다.
+- **문서 전제 정정 필요** — `product-direction-v2.md` §7과 `implementation-roadmap.md`
+  Stage 4는 "`user_id`가 전 테이블에 있어 데이터 모델 변경 불필요"라고 적었다. 세션 공유에도
+  워크스페이스·멤버십·공유 관계를 담을 테이블이 필요하다. 다만 1단계는 **신규 테이블만**
+  추가하고 기존 테이블 컬럼은 바꾸지 않는다.
+- **다중 사용자 결함 1 — 벡터 검색에 소유자 범위가 없다.** Qdrant payload는
+  `session_id·title·overview·purpose`뿐이다(`services/embedding_sync.py:23`). `/search`
+  (`api/search.py:58`)와 배치 후보 검색(`sync_pipeline._fetch_candidates`)이 전체 top-k를
+  먼저 뽑고 SQL에서 내 세션만 거른다. 유출은 없지만 사용자가 늘면 남의 세션이 top-k를 채워
+  검색 결과와 append 후보가 빈다. 팀 검색은 이 위에 범위를 하나 더 얹으므로 먼저 고친다.
+- **다중 사용자 결함 2 — 설정이 전역이다.** `app_settings`는 `key`가 PK인 전역 key-value다
+  (`db/models.py:175`). 자동병합 토글(`services/app_settings.py:33`)이 모든 사용자에게 공통
+  적용된다.
+- **처리량** — 배치 락이 서버 전체에 하나, 배치당 사용자 한 명(`sync_pipeline.py:149`),
+  A.X-K1 3 RPS 전역 throttle. 1단계는 수집 경로를 바꾸지 않으므로 영향이 없다. 2단계에서 측정한다.
+- **서버** — 확장 `host_permissions`가 localhost만 허용하고(`extension/wxt.config.ts:80`),
+  `VITE_API_BASE_URL` 기본값도 localhost다. DecisionLog 열린 결정 "팀 다중 환경 백엔드 접속"이
+  미해결이다.
+- **인증 경계 테스트** — `test_auth_boundary.py`가 보호 경로 전체에 토큰 없음·위조 토큰을
+  실제 요청으로 검증한다. 새 라우터도 자동으로 포함된다.
+- **초대 경로 제약** — 확장 페이지(`chrome-extension://`)는 웹 링크로 바로 열리지 않는다.
+- **DB 변경 방식** — 신규 테이블은 `create_all`, 기존 테이블 컬럼 추가만
+  `db/migrations.py`의 멱등 ALTER가 담당한다. FK에 ON DELETE가 없어 삭제 시 자식 행을 앱이
+  먼저 지운다(`api/sessions.py` `delete_session`).
+- **데이터 접근이 없는 경로** — `/assistant/route`(`services/assistant_router.py`)는 세션
+  데이터를 조회하지 않는다. 팀 범위 변경 대상이 아니다.
+
+## 사용자 결정 사항 (확인 완료, 2026-10-17)
+
+- **공유 모델:** A(세션 공유) 후 B(팀 수집 모드) 단계형.
+- **공유 방식:** 라이브 참조. 공유한 뒤 Auto Session이 그 세션에 붙이는 페이지도 팀에 보이며,
+  '공유 중' 배지로 알린다.
+- **역할:** owner / member 2단계.
+- **서버:** 개발은 로컬 서버 하나에 Chrome 프로필·Google 계정 여러 개로 검증한다. 호스팅과
+  비용 결정은 MVP 이후로 미룬다.
+
+## 이 계획에서 정한 세부 (구현 전 이의 가능)
+
+- **초대는 코드 붙여넣기.** 확장 페이지를 웹 링크로 열 수 없어서다. 코드는 96비트 난수
+  (`secrets.token_urlsafe(12)`, 16자)이며 서버는 SHA-256 해시와 만료 시각(7일)만
+  `workspaces`에 둔다. 초대 테이블은 없다. owner가 재발급하면 해시가 바뀌어 이전 코드가 무효가 된다.
+  (구현 중 변경: 처음엔 `JWT_SECRET` 서명 토큰이었으나, 세션 토큰과 같은 키·발급자를 쓰면 토큰
+  혼동 위험이 생기고 코드가 150자 넘게 길어져 바꿨다.)
+- **본문 발췌 제외 토글은 두지 않는다.** 요약이 본문 발췌로 만들어지므로 발췌만 빼도 내용이
+  요약으로 드러난다. 거짓 안심을 주는 토글 대신 공유 다이얼로그에 "제목·요약·페이지 목록이
+  보이고, 본문 발췌가 팀 Ask 근거로 쓰인다"를 명시한다. 실제 통제 수단인 페이지 숨기기는 2단계.
+- **검색·Ask 범위는 활성 워크스페이스를 따른다.** 개인 모드는 개인 검색, 팀 모드는 그 팀의
+  공유 세션만. "개인+팀 전체" 범위는 2단계.
+- **팀에서는 읽기 전용.** 팀원은 공유 세션을 보고 검색·Ask만 한다. 제목·별칭·폴더·삭제·병합은
+  소유자만 가능하다(기존 `_owned_session` 유지). 공유 해제는 공유한 사람 또는 owner.
+- **병합과 공유:**
+  - 팀 목록에는 병합으로 흡수된(`status='merged'`) 세션만 빠진다(개인 목록·폴더와 같은 규칙).
+    공유한 세션이 다른 세션에 흡수되면 팀에서 사라지고, 되돌리면 다시 보인다. 흡수한 생존 세션은 자동으로 공유하지 않는다(동의 없이
+    공유 범위가 넓어지지 않게).
+  - 공유 중인 세션이 다른 세션을 흡수하면 흡수된 페이지도 팀에 보인다(라이브 참조의 append와
+    같은 규칙). 수동 병합 확인 UI에 "팀에 공유 중" 안내를 붙인다.
+  - **자동병합은 공유 중인 세션을 건드리지 않는다.** 사용자가 모르는 사이 공유 범위가 넓어지는
+    것을 막는다.
+- **탈퇴·내보내기:** 그 사람이 그 팀에 건 공유가 모두 해제되고 개인 세션은 그대로 남는다.
+  owner는 탈퇴할 수 없고(소유권 이전은 2단계) 팀 삭제만 가능하다.
+- **팀 삭제:** 멤버십·공유 관계만 지운다. 개인 세션은 그대로.
+- **개인 세션 삭제:** 그 세션의 공유 관계도 같은 트랜잭션에서 지운다.
+- **응답 코드:** 비멤버의 팀 접근, 접근 권한 없는 세션은 404(존재 여부를 숨긴다, 기존 규칙).
+  멤버가 owner 전용 작업을 하면 403.
+
+## 포함 범위
+
+### 0단계 — 다중 사용자 결함 수정
+
+- Qdrant payload에 `user_id`를 추가하고 쿼리 시 payload 필터를 건다. `user_id` payload
+  index를 만든다. 기존 포인트는 기동 시 세션 테이블 기준으로 `set_payload` 멱등 backfill한다.
+  **SQL 소유자 필터는 보안 경계로 그대로 둔다**(이중 방어).
+- 사용자별 설정: 신규 `user_settings(user_id, key, value)`. 사용자 값이 없으면 env 기본값을 쓰고,
+  **전역 `app_settings` 값은 읽지 않는다**(구현 중 변경, 2026-10-17). 그 값은 단일 사용자 시절
+  누군가의 opt-in이라 다른 사용자에게 물려주면 자동병합이 동의 없이 켜진다. 기존에 자동병합을
+  켜 둔 사용자는 한 번 다시 켜야 한다. 배치는 그 배치 주인의 값을 읽는다.
+
+### 1단계 — 세션 공유형 팀 MVP
+
+백엔드:
+
+- 신규 테이블 `workspaces`, `workspace_members`, `workspace_sessions`.
+- 워크스페이스·멤버·초대·공유 API(아래 계약).
+- 공유 세션 읽기 권한: `GET /sessions/{id}`, `/events`, `/versions`를 "소유자 또는 그 세션이
+  공유된 팀의 멤버"로 넓힌다. 판정은 한 함수(`_readable_session`)에 모으고, 쓰기 경로는
+  `_owned_session` 그대로 둔다.
+- 팀 검색·Ask: `workspace_id`가 오면 멤버십을 확인하고 그 팀 공유 세션만 대상으로 한다.
+  Qdrant는 공유 세션 id 목록(`HasIdCondition`)으로 거르고, 방문 기록 검색과 Ask 본문 근거는
+  **공유 세션에 속한 이벤트(`session_events` 조인)만** 쓴다. 팀원의 공유되지 않은 방문은
+  섞이지 않는다.
+- 자동병합 가드(공유 중인 세션 제외).
+
+확장:
+
+- 활성 워크스페이스 `activeWorkspaceId`(null = 개인)를 `lib/settings.ts`(chrome.storage)에 둬
+  사이드패널과 새 탭이 공유한다.
+- 사이드패널: `TopNavBar` 워크스페이스 스위처. 팀 모드에서는 세션 탭이 팀 공유 세션 목록
+  (공유자 아바타, 읽기 전용 메뉴)이 되고 기본 화면이 된다. 타임라인 탭은 개인 이벤트 스트림이라
+  팀 모드에서 숨긴다. 열린 탭 탭은 로컬 기능이라 그대로 둔다.
+- 세션 행·상세: "팀에 공유" / "공유 해제" 메뉴, 공유 다이얼로그(팀 선택, 포함 내용과 라이브
+  참조 안내), '공유 중' 배지.
+- 설정 화면 팀 섹션: 팀 만들기, 초대 코드 발급·복사·재발급, 코드로 참여, 멤버 목록·내보내기,
+  탈퇴, 팀 이름 변경·삭제.
+- Ask AI: 팀 모드에서 `workspace_id`를 전달한다. 탭 이동 의도는 그대로 로컬에서 처리한다.
+- 새 탭 아틀라스: 팀 모드에서 팀 공유 세션을 그리고, 세션 노드·상세에 공유자 아바타,
+  네비게이터에 멤버 필터(클라이언트 필터). 폴더는 개인 전용이라 팀 모드에서 숨긴다.
+
+## 제외 범위
+
+- 2단계: 팀 수집 모드(팀 활성 중 방문을 팀으로, 툴바 배지, 유휴 자동 해제, 팀 도메인 규칙),
+  팀 단위 Auto Session(후보를 팀 세션으로, 다중 기여자 요약, 페이지별 방문자), 공유 세션 페이지
+  숨기기, 팀 단위 수집 정책, 중복 조사 알림(recommender 재사용), 팀 폴더, 팀 타임라인,
+  개인+팀 전체 검색, 소유권 이전, 이메일 지정 초대. 착수 전 처리량 측정과 "팀 수집 이벤트의
+  탈퇴 시 처리" 결정이 필요하다.
+- 3단계: 코멘트·핀, 활동 피드·알림·실시간 갱신, 팀 인사이트, 역할 세분화, 팀별 LLM 사용량
+  상한, 감사 로그.
+- 비목표: 결제·요금제, SSO/SCIM, 공개 링크 공유, 팀 간 공유, 실시간 공동 브라우징.
+- 팀에 적용하지 않는 기존 기능: 추천, 분석, 병합 제안, 폴더, 이벤트·동기화, 탭 액션은 개인 전용으로 둔다.
+- 공용 서버 배포(`host_permissions`·`VITE_API_BASE_URL` 변경 포함).
+
+## API 계약 (1단계)
+
+워크스페이스·멤버:
+
+| 메서드 | 경로 | 권한 | 요청 → 응답 |
+|---|---|---|---|
+| GET | `/workspaces` | 로그인 | → `WorkspaceItem[]` `{id, name, hue, role, member_count, created_at}` |
+| POST | `/workspaces` | 로그인 | `{name(1~60)}` → 201 `WorkspaceItem` (생성자 owner, hue는 폴더와 같은 팔레트 순환) |
+| PATCH | `/workspaces/{id}` | owner | `{name}` → `WorkspaceItem` |
+| DELETE | `/workspaces/{id}` | owner | → 204 |
+| GET | `/workspaces/{id}/members` | member | → `WorkspaceMember[]` `{user_id, name, email, picture, role, joined_at}` |
+| DELETE | `/workspaces/{id}/members/{user_id}` | owner(남) / 본인(탈퇴) | → 204. owner 본인은 409 |
+| POST | `/workspaces/{id}/invite-code` | owner | 본문 없음 → `{code, expires_at}`. 매번 새 코드, 이전 코드 무효 |
+| POST | `/workspaces/join` | 로그인 | `{code}` → `WorkspaceItem`. 이미 멤버면 그대로 200, 무효·만료·재발급된 코드는 400 |
+
+공유:
+
+| 메서드 | 경로 | 권한 | 요청 → 응답 |
+|---|---|---|---|
+| GET | `/workspaces/{id}/sessions` | member | → `WorkspaceSessionItem[]` = `SessionDetail` + `shared_by{user_id, name, picture}` + `shared_at`. active만, 최근 활동순 |
+| POST | `/workspaces/{id}/sessions` | member | `{session_ids}` → `{workspace_id, shared, skipped}`. 폴더 배정과 같은 부분 성공 — 내 소유의 흡수되지 않은 세션만 공유, 이미 공유된 것도 `shared`(멱등) |
+| DELETE | `/workspaces/{id}/sessions/{session_id}` | 공유한 사람 / owner | → 204 |
+
+기존 경로 변경:
+
+- `SessionDetail`에 `shared_workspace_ids: string[]` 추가(기본 `[]`, 내 세션 목록의 배지용).
+- `GET /sessions/{id}`, `/sessions/{id}/events`, `/sessions/{id}/versions`: 읽기 권한 확장.
+- `GET /search`: `workspace_id` 쿼리 파라미터 추가. `POST /ask/stream`: `AskStreamRequest`에
+  `workspace_id` 추가. 비멤버는 404.
+
+## 데이터 모델 (신규 테이블, `create_all`)
+
+```sql
+CREATE TABLE workspaces (
+  id             VARCHAR(36) PRIMARY KEY,
+  name           VARCHAR(60) NOT NULL,
+  hue            VARCHAR(20) NOT NULL,
+  invite_code_hash  VARCHAR(64),   -- 초대 코드 SHA-256. 재발급하면 바뀐다
+  invite_expires_at TIMESTAMPTZ,
+  created_at     TIMESTAMPTZ NOT NULL,
+  updated_at     TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE workspace_members (
+  workspace_id VARCHAR(36) NOT NULL REFERENCES workspaces(id),
+  user_id      VARCHAR(64) NOT NULL,
+  role         VARCHAR(20) NOT NULL,  -- 'owner' | 'member'
+  joined_at    TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (workspace_id, user_id)
+);
+CREATE INDEX ix_workspace_members_user ON workspace_members (user_id);
+
+CREATE TABLE workspace_sessions (
+  workspace_id VARCHAR(36) NOT NULL REFERENCES workspaces(id),
+  session_id   VARCHAR(36) NOT NULL REFERENCES sessions(id),
+  shared_by    VARCHAR(64) NOT NULL,
+  shared_at    TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (workspace_id, session_id)
+);
+CREATE INDEX ix_workspace_sessions_session ON workspace_sessions (session_id);
+
+CREATE TABLE user_settings (
+  user_id    VARCHAR(64) NOT NULL,
+  key        VARCHAR(64) NOT NULL,
+  value      JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
+```
+
+- owner는 `workspace_members.role`로만 표현한다(`workspaces`에 owner 컬럼을 중복으로 두지 않는다).
+- FK는 `session_events`와 같이 ON DELETE 없이 건다. 정리를 빠뜨리면 조용한 고아 행 대신
+  삭제 오류로 드러나게 하기 위해서다.
+- Qdrant payload에 `user_id`를 추가하고 keyword index를 만든다.
+
+## 변경할 파일
+
+백엔드:
+
+- `app/db/models.py` — `Workspace`, `WorkspaceMember`, `WorkspaceSession`, `UserSetting`
+- `app/db/vector.py` — 검색 함수에 소유자·ID 필터 인자, payload index, backfill
+- `app/services/embedding_sync.py` — payload에 `user_id`
+- `app/main.py` — 라우터 등록, 기동 시 backfill
+- `app/services/app_settings.py`, `app/api/settings.py` — 사용자별 설정
+- `app/services/workspaces.py`(신규) — 멤버십 확인, 초대 코드 서명·검증, 공유 정리
+- `app/api/workspaces.py`(신규), `app/schemas/workspace.py`(신규)
+- `app/api/sessions.py`, `app/schemas/session.py` — 읽기 권한 확장, 삭제 시 공유 정리, `shared_workspace_ids`
+- `app/api/search.py`, `app/api/ask.py`, `app/schemas/ask.py`, `app/services/ask_service.py` — 팀 범위
+- `app/services/sync_pipeline.py` — 후보 검색 소유자 필터, 자동병합 사용자별 설정
+- `app/services/merge_service.py` 또는 `merge_suggester.py` — 자동병합 가드
+- `tests/` — `test_workspaces.py`(신규), 검색·Ask 팀 범위, 사용자별 설정, 벡터 필터 테스트
+
+확장:
+
+- `lib/types.ts`, `lib/api.ts`, `lib/settings.ts`(`activeWorkspaceId`)
+- `entrypoints/sidepanel/components/TopNavBar.tsx`, `SessionRow.tsx`,
+  `MergeSuggestionsSection.tsx`, 신규 공유 다이얼로그·팀 관리 컴포넌트
+- `entrypoints/sidepanel/views/SessionListView.tsx`, `SessionDetailView.tsx`, `SettingsView.tsx`
+- `entrypoints/shared/hooks/useAskConversation.ts` — `workspace_id` 전달
+- `entrypoints/newtab/pages/OrbitAtlasPage.tsx`와 `components/atlas/` — 팀 모드 데이터 소스,
+  공유자 아바타, 멤버 필터
+- `tests/unit/` — api, 활성 워크스페이스 저장·구독, 팀 모드 분기
+
+문서: `api-design-v2.md`, `data-model-v2.md`, `IA.md`, `UserScenarios.md`, `Personas.md`,
+`product-direction-v2.md` §7, `implementation-roadmap.md` Stage 4, `target-architecture.md`,
+`README.md`(기능, 데이터 처리와 프라이버시), `DecisionLog.md`, `WorkLog.md`.
+
+## 구현 순서
+
+1. 0단계-a: Qdrant 소유자 필터 + backfill + 테스트 (`fix(search): ...`)
+2. 0단계-b: 사용자별 설정 + 테스트 (`fix(settings): ...`)
+3. 계약 확정: 모델·스키마, `api-design-v2.md`·`data-model-v2.md` 갱신
+4. 백엔드 워크스페이스·멤버·초대 + 테스트
+5. 백엔드 공유·읽기 권한·팀 세션 목록 + 테스트
+6. 백엔드 팀 검색·Ask 범위, 자동병합 가드 + 테스트
+7. 확장 타입·API·활성 워크스페이스 상태
+8. 확장 설정 팀 섹션(생성·초대·참여·멤버)
+9. 확장 공유 다이얼로그·배지·사이드패널 팀 모드
+10. 확장 아틀라스 팀 모드, Ask 범위
+11. 문서 갱신, 다중 계정 스모크
+
+## 테스트 및 검증
+
+백엔드(DB·Qdrant·LLM 대역):
+
+- 비멤버의 팀 조회·공유·검색·Ask는 404, 멤버의 owner 전용 작업은 403.
+- 남의 세션 공유 시도는 404.
+- **공유되지 않은 세션·이벤트가 팀 검색 결과와 Ask 근거에 섞이지 않는다**(핵심 격리 테스트).
+- 라이브 참조: 공유 후 append된 이벤트가 팀원의 세션 상세에 보인다.
+- 탈퇴·내보내기 시 그 사람의 공유가 해제되고 개인 세션은 남는다. owner 탈퇴는 409.
+  팀 삭제 시 멤버십·공유 관계가 정리된다.
+- 초대 코드: 만료·재발급 이후의 이전 코드·위조 코드는 거부, 이미 멤버면 멱등.
+- 병합: 흡수된 공유 세션은 팀 목록에서 빠지고 unmerge 시 돌아온다. 자동병합은 공유 세션을 건너뛴다.
+- 개인 세션 삭제 시 공유 관계가 정리된다.
+- Qdrant 필터: 다른 사용자 세션이 top-k를 채워도 내 결과가 나온다. backfill은 멱등.
+- 사용자별 설정 격리. 다른 사용자 값과 전역 `app_settings` 값을 읽지 않는다.
+- 새 경로의 토큰 없음·위조 토큰은 `test_auth_boundary.py`가 자동 검증.
+
+확장: vitest(api 함수, 활성 워크스페이스 저장·구독, 팀 모드 분기), 타입 검사, 빌드.
+
+공식 명령:
+
+```bash
+cd backend && python -m pytest -p no:asyncio
+cd extension && pnpm test && pnpm compile && pnpm build
+```
+
+스모크: 로컬 서버 1개 + Chrome 프로필 2개(Google 계정 2개). A가 팀 생성·초대 코드 발급 →
+B 참여 → A 세션 공유 → B가 팀 목록·상세·아틀라스·Ask에서 확인 → A 공유 해제 후 B에서 사라짐
+확인 → B 탈퇴.
+
+## 위험
+
+- 라이브 참조라 공유 후 같은 세션에 append된 개인 탐색이 팀에 보인다(사용자 결정으로 수용).
+  '공유 중' 배지와 공유 다이얼로그 문구로 알리고, 페이지 숨기기는 2단계에서 제공한다.
+- 팀 Ask가 공유 세션의 본문 발췌를 근거로 쓰므로, 로그인이 필요한 페이지 내용이 팀원에게
+  드러날 수 있다. 민감 도메인은 이미 본문을 수집하지 않는다. 공유 다이얼로그에 명시한다.
+- 읽기 권한 확장은 "모든 조회를 소유자로 제한" 결정의 개정이다. 판정을 `_readable_session`
+  하나로 모으고 쓰기 경로에는 쓰지 않으며, 격리 테스트로 고정한다.
+- 팀 검색의 `HasIdCondition`은 공유 세션 id 목록을 매 쿼리에 보낸다. 팀 공유 세션이 수천 개를
+  넘으면 payload `workspace_ids` 배열로 전환한다(코드에 `ponytail:` 주석으로 남긴다).
+- 공용 서버가 없어서 실제 팀 사용은 호스팅 결정 전까지 불가능하다. 1단계 완료 기준은 로컬
+  다중 계정 검증이다.
+- 초대 코드가 유출되면 7일 안에는 누구나 참여할 수 있다. owner 재발급으로 무효화한다.
+
+## 완료 조건
+
+- 0단계 결함 2건이 수정되고 테스트로 고정됐다.
+- 위 API·테이블이 구현되고 비멤버·비공유 데이터 격리 테스트가 통과한다.
+- 확장에서 팀 생성·참여·공유·공유 해제·탈퇴, 팀 세션 보기(사이드패널·아틀라스), 팀 Ask가 동작한다.
+- 공식 검증 명령이 통과하고 다중 계정 스모크 결과가 `WorkLog.md`에 기록됐다.
+- 관련 문서가 코드와 일치한다.
+
+## 구현 결과 (2026-10-17)
+
+계획 대비 바뀐 점:
+
+- 초대 코드: JWT 대신 난수 코드 + 해시(위 "이 계획에서 정한 세부").
+- 사용자별 설정: 전역 `app_settings` 폴백 없음(위 0단계).
+- 공유 결과: 404 대신 폴더 배정과 같은 부분 성공(`skipped`).
+- 팀 목록·공유 대상: `active`만이 아니라 `merged`만 제외(개인 목록과 같은 규칙).
+- 확장에서 공유 다이얼로그는 팀마다 즉시 반영(저장 단계 없음). 범위 선택은 네이티브 select.
+- 새 탭 홈의 Ask는 범위와 무관하게 개인 기록을 쓴다. 범위는 사이드패널과 아틀라스만 따른다.
+- 팀 Ask 근거 카드(SessionCard)도 읽기 전용으로 바꿨다(재시도·삭제 숨김). 계획에 없던 누락 보완이다.
+- 독립 리뷰 반영: 내보내기 시 초대 코드 무효화, 공유는 공유한 사람이 멤버일 때만 유효(읽기 시
+  조인), 흡수된 공유 세션은 팀원이 id로도 못 읽음, 팀원 응답에서 `folder_id` 제거, 이름 길이를
+  공백 제거 뒤 검사, 다른 화면의 낡은 팀 목록이 방금 고른 팀을 지우던 문제(저장값을 지우지 않고
+  목록을 다시 받음), 로그아웃 시 쿼리 캐시 비우기, 팀 화면의 요약 재시도 버튼 숨김.
+- 팀원 이메일은 owner와 본인에게만 보인다(사용자 위임으로 추천안 채택).
+
+실제로 바꾼 파일(계획의 "변경할 파일" 외 추가분):
+
+- 백엔드: `app/services/merge_suggester.py`, `app/services/recommender/service.py`(벡터 검색 소유자
+  필터 전달), `app/main.py` 기동 시 backfill 호출.
+- 확장: `lib/useWorkspaces.ts`(활성 범위 공용 훅), `lib/session-groups.ts`(제네릭화), `lib/merge.ts`
+  (공유 세션 병합 안내), `entrypoints/sidepanel/App.tsx`, `components/AskDock.tsx`, `views/AskView.tsx`,
+  `components/SessionCard.tsx`, `components/team/*`(신규 4개), `hooks/useWorkspaces.ts`(신규),
+  `entrypoints/newtab/components/VariantAtlasReplica.tsx`, `components/atlas/AtlasHeader.tsx`·
+  `AtlasNavigator.tsx`·`AtlasDetail.tsx`·`data.ts`, `hooks/useAtlasData.ts`, `styles/atlas.css`.
+
+검증 결과:
+
+- `cd backend && python -m pytest -p no:asyncio` → 558 passed (기존 488 + 신규·인증 경계 자동 확장).
+- `cd extension && pnpm test && pnpm compile && pnpm build` → 217 passed, tsc 통과, 빌드 성공.
+- 실제 DB 스모크: 별도 `orbit_smoke` DB + 8011 포트 서버(LLM·임베딩 키 비움)에 사용자 3명을 넣고
+  팀 생성·초대·참여·공유·읽기 격리·병합 상호작용·탈퇴·내보내기 후 재가입 차단·비멤버 공유 행
+  무시·폴더 비노출·삭제·설정 격리 63개 확인 통과. 끝난 뒤 스모크 DB는 지웠다.
+- Qdrant 스모크: 임시 컬렉션에서 소유자 index·backfill·소유자 필터·팀 id 필터 확인 통과(개발
+  컬렉션은 건드리지 않음).
+- 미실시: Chrome 프로필 2개로 확장 UI 스모크(구글 로그인이 필요해 사용자가 해야 한다).
