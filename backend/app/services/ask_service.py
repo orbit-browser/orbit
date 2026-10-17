@@ -14,6 +14,7 @@ from ..db.models import ExplorationEvent, Session as SessionModel, SessionEvent
 from ..schemas.assistant import AssistantRetrievalIntent
 from ..schemas.session import SessionDetail
 from .tab_action_resolver import cosine_similarity
+from .workspaces import session_scope_clause
 
 MAX_SOURCES = 3
 MAX_EVENTS_PER_SESSION = 4
@@ -126,15 +127,16 @@ async def _load_context_records(
     db: AsyncSession,
     session_ids: list[str],
     user_id: str,
+    shared_ids: list[str] | None = None,
 ) -> tuple[dict[str, SessionModel], list[tuple[SessionEvent, ExplorationEvent]]]:
     if not session_ids:
         return {}, []
 
-    # 소유자 조건은 이중 방어다 — 호출측이 이미 걸렀더라도 여기서 한 번 더 막는다.
+    # 소유자(팀 범위면 공유 세션) 조건은 이중 방어다 — 호출측이 이미 걸렀더라도 여기서 한 번 더 막는다.
     session_result = await db.execute(
         select(SessionModel).where(
             SessionModel.id.in_(session_ids),
-            SessionModel.user_id == user_id,
+            session_scope_clause(user_id, shared_ids),
         )
     )
     session_models = {session.id: session for session in session_result.scalars().all()}
@@ -212,6 +214,7 @@ async def prepare_ask_context(
     sources: list[SessionDetail],
     user_id: str,
     intent: AssistantRetrievalIntent = "search_memory",
+    shared_ids: list[str] | None = None,
 ) -> AskContext:
     source_limit = 5 if intent == "find_sessions" else MAX_SOURCES
     limited_sources = sources[:source_limit]
@@ -219,7 +222,7 @@ async def prepare_ask_context(
         return AskContext(sources=limited_sources, prompt="", intent=intent)
 
     session_ids = [source.session_id for source in limited_sources]
-    session_models, event_rows = await _load_context_records(db, session_ids, user_id)
+    session_models, event_rows = await _load_context_records(db, session_ids, user_id, shared_ids)
     try:
         events_by_session = await rank_context_events(query, event_rows)
     except Exception:

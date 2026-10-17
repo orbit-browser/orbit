@@ -26,9 +26,11 @@ from .api.sessions import router as sessions_router
 from .api.settings import router as settings_router
 from .api.sync import router as sync_router
 from .api.tab_actions import router as tab_actions_router
+from .api.workspaces import router as workspaces_router
 from .config import settings
 from .db.session import init_db
 from .db.vector import init_collection
+from .services.embedding_sync import backfill_owner_payload
 from .services.sync_pipeline import periodic_sync_loop
 
 
@@ -36,6 +38,7 @@ from .services.sync_pipeline import periodic_sync_loop
 async def lifespan(app: FastAPI):
     await init_db()
     await init_collection()
+    await backfill_owner_payload()
     await recover_pending_sessions()
 
     periodic_task: asyncio.Task | None = None
@@ -80,6 +83,8 @@ app.include_router(ask_router, dependencies=_authenticated)
 # 열린 탭 제목·URL과 의도 임베딩도 사용자 입력이므로 인증된 확장에서만 호출한다.
 app.include_router(tab_actions_router, dependencies=_authenticated)
 app.include_router(assistant_router, dependencies=_authenticated)
+# 팀 워크스페이스 — 멤버십 검사는 각 엔드포인트가 하지만 인증은 여기서 먼저 건다.
+app.include_router(workspaces_router, dependencies=_authenticated)
 
 
 @app.get("/health")

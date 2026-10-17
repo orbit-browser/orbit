@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db.models import ExplorationEvent, Session as SessionModel, SessionEvent
 from .merge_suggester import _normalize_tokens, find_merge_suggestions
+from .workspaces import shared_workspaces
 
 logger = logging.getLogger(__name__)
 
@@ -250,9 +251,16 @@ async def auto_merge_duplicates(db: AsyncSession, user_id: str) -> list[tuple[st
     재요약/재임베딩·흡수 세션 Qdrant 포인트 삭제는 호출측이 반환 목록으로 처리한다.
     """
     suggestions = await find_merge_suggestions(db, user_id)
+    shared = await shared_workspaces(
+        db, list({sid for s in suggestions for sid in (s.survivor_id, s.absorbed_id)})
+    )
     consumed: set[str] = set()
     merged: list[tuple[str, str]] = []
     for s in suggestions:
+        # 팀에 공유 중인 세션은 자동 병합하지 않는다 — 흡수된 페이지가 사용자 모르게 팀에
+        # 보이거나, 공유한 세션이 팀에서 사라진다. 수동 병합은 확인 UI에서 알린다.
+        if s.survivor_id in shared or s.absorbed_id in shared:
+            continue
         if not is_auto_merge_candidate(
             s.score,
             s.survivor_title,

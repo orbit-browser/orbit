@@ -1,5 +1,5 @@
 import logging
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,8 +18,10 @@ from ..db.session import get_db
 from ..db.vector import search_similar
 from ..schemas.event import MemorySearchEventItem, MemorySearchResponse
 from ..schemas.session import SessionDetail
+from ..services.workspaces import session_scope_clause
 from .deps import current_user_id
 from .sessions import _to_detail
+from .workspaces import team_shared_ids
 
 router = APIRouter(tags=["search"])
 logger = logging.getLogger(__name__)
@@ -33,9 +35,19 @@ _KEYWORD_QUERY_FETCH_CAP = 200
 
 
 async def _search_sessions_by_vector(
-    q: str, limit: int, rerank: bool, db: AsyncSession, user_id: str
+    q: str,
+    limit: int,
+    rerank: bool,
+    db: AsyncSession,
+    user_id: str,
+    shared_ids: list[str] | None = None,
 ) -> list[SessionDetail]:
-    """기존 세션 벡터 검색 경로 — scope 무관하게(sessions/memory 둘 다) 그대로 재사용."""
+    """기존 세션 벡터 검색 경로 — scope 무관하게(sessions/memory 둘 다) 그대로 재사용.
+
+    shared_ids 가 있으면 팀 범위다(그 팀에 공유된 세션만).
+    """
+    if shared_ids is not None and not shared_ids:
+        return []  # 공유된 세션이 없는 팀 — 임베딩을 부를 필요가 없다
     # 리랭킹 시 후보를 더 많이 가져와 선택지를 넓힌다
     fetch_limit = min(limit * 2, 20) if rerank else limit
 
@@ -55,7 +67,9 @@ async def _search_sessions_by_vector(
         raise HTTPException(status_code=502, detail="Embedding service returned an invalid response")
 
     try:
-        session_ids = await search_similar(query_vector, limit=fetch_limit)
+        session_ids = await search_similar(
+            query_vector, limit=fetch_limit, user_id=user_id, session_ids=shared_ids
+        )
     except Exception:
         logger.exception("Qdrant 검색 실패")
         raise HTTPException(status_code=503, detail="Vector search service unavailable")
@@ -63,17 +77,22 @@ async def _search_sessions_by_vector(
     if not session_ids:
         return []
 
-    # Qdrant 포인트에는 소유자 정보가 없으므로 SQL 단계에서 반드시 거른다.
+    # Qdrant 범위 필터는 recall용이다. 보안 경계는 이 SQL 조건이므로 빼지 않는다.
     result = await db.execute(
         select(SessionModel).where(
             SessionModel.id.in_(session_ids),
-            SessionModel.user_id == user_id,
+            session_scope_clause(user_id, shared_ids),
         )
     )
     sessions_by_id = {s.id: s for s in result.scalars().all()}
 
     # Qdrant 유사도 순서(높은 순)를 유지
-    candidates = [_to_detail(sessions_by_id[sid]) for sid in session_ids if sid in sessions_by_id]
+    # 팀 범위 결과에는 소유자 개인 정보(폴더·공유된 팀)를 싣지 않는다.
+    candidates = [
+        _to_detail(sessions_by_id[sid], include_private=shared_ids is None)
+        for sid in session_ids
+        if sid in sessions_by_id
+    ]
 
     if rerank and candidates:
         candidates = await llm_rerank(q.strip(), candidates)
@@ -132,16 +151,29 @@ async def _fetch_session_relevance_events(db: AsyncSession, session_ids: list[st
 
 
 async def _fetch_keyword_matched_events(
-    db: AsyncSession, q: str, exclude_ids: set[str], user_id: str
+    db: AsyncSession,
+    q: str,
+    exclude_ids: set[str],
+    user_id: str,
+    shared_ids: list[str] | None = None,
 ) -> list[dict]:
-    """title/search_query/domain ILIKE 직접 매칭 — 세션 미할당 이벤트까지 커버(§8)."""
+    """title/search_query/domain ILIKE 직접 매칭 — 세션 미할당 이벤트까지 커버(§8).
+
+    팀 범위(shared_ids)에서는 공유된 세션에 속한 이벤트만 본다. 팀원의 세션에 묶이지 않은
+    방문이나 공유하지 않은 세션의 방문은 절대 섞지 않는다.
+    """
     like = f"%{q}%"
+    owner_clause = (
+        SessionEvent.session_id.in_(shared_ids)
+        if shared_ids is not None
+        else ExplorationEvent.user_id == user_id
+    )
     result = await db.execute(
         select(ExplorationEvent, SessionEvent.session_id, SESSION_DISPLAY_TITLE)
         .outerjoin(SessionEvent, SessionEvent.event_id == ExplorationEvent.id)
         .outerjoin(SessionModel, SessionEvent.session_id == SessionModel.id)
         .where(
-            ExplorationEvent.user_id == user_id,
+            owner_clause,
             ExplorationEvent.sync_status != "discarded",
             or_(
                 ExplorationEvent.title.ilike(like),
@@ -177,12 +209,16 @@ async def _fetch_keyword_matched_events(
 
 
 async def _search_memory_events(
-    db: AsyncSession, q: str, sessions: list[SessionDetail], user_id: str
+    db: AsyncSession,
+    q: str,
+    sessions: list[SessionDetail],
+    user_id: str,
+    shared_ids: list[str] | None = None,
 ) -> list[MemorySearchEventItem]:
     session_ids = [s.session_id for s in sessions]
     relevance_rows = await _fetch_session_relevance_events(db, session_ids)
     exclude_ids = {r["event_id"] for r in relevance_rows}
-    keyword_rows = await _fetch_keyword_matched_events(db, q, exclude_ids, user_id)
+    keyword_rows = await _fetch_keyword_matched_events(db, q, exclude_ids, user_id, shared_ids)
 
     def _to_item(row: dict, matched_by: Literal["session", "keyword"]) -> MemorySearchEventItem:
         return MemorySearchEventItem(
@@ -210,14 +246,18 @@ async def search_sessions(
     scope: Literal["sessions", "memory"] = Query("sessions", description="검색 범위(sessions|memory)"),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
+    workspace_id: Annotated[
+        str | None, Query(description="팀 워크스페이스 id. 주면 그 팀에 공유된 세션만 검색")
+    ] = None,
 ) -> list[SessionDetail] | MemorySearchResponse:
-    sessions = await _search_sessions_by_vector(q, limit, rerank, db, user_id)
+    shared_ids = await team_shared_ids(db, user_id, workspace_id)
+    sessions = await _search_sessions_by_vector(q, limit, rerank, db, user_id, shared_ids)
 
     if scope != "memory":
         return sessions
 
     try:
-        events = await _search_memory_events(db, q.strip(), sessions, user_id)
+        events = await _search_memory_events(db, q.strip(), sessions, user_id, shared_ids)
     except Exception:
         # DB 조회만 실패한 경우 sessions는 그대로 반환 — 전체 실패로 위장하지 않는다(§12, CLAUDE.md §10).
         logger.exception("Memory 검색의 이벤트 조회 실패 (q=%s)", q)

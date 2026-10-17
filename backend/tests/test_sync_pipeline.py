@@ -193,7 +193,8 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
     async def fake_complete(batch_id, event_count, model=None):
         calls["complete"].append((batch_id, event_count, model))
 
-    async def fake_auto_merge_enabled():
+    async def fake_auto_merge_enabled(user_id):
+        assert user_id == "u1"  # 배치 주인의 설정을 읽는다
         return False
 
     monkeypatch.setattr(sync_pipeline, "dedupe_events", fake_dedupe)
@@ -224,7 +225,8 @@ def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
     async def fake_complete(*_a, **_k):
         pass
 
-    async def fake_auto_merge_enabled():
+    async def fake_auto_merge_enabled(user_id):
+        assert user_id == "u1"  # 배치 주인의 설정을 읽는다
         return False
 
     monkeypatch.setattr(sync_pipeline, "dedupe_events", fake_dedupe)
@@ -429,7 +431,8 @@ def test_fetch_candidates_returns_empty_when_no_candidates_found(monkeypatch):
 
 
 def test_fetch_candidates_threads_vector_scores(monkeypatch):
-    async def search(*_a, **_k):
+    async def search(*_a, user_id, **_k):
+        assert user_id == "u1"  # 벡터 후보도 그 사용자 포인트로만 뽑는다
         return [("sess-v", 0.63)]
 
     monkeypatch.setattr(sync_pipeline, "search_similar_with_scores", search)

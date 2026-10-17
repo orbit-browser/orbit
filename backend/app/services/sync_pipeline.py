@@ -236,7 +236,10 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
     """
     try:
         scored = await search_similar_with_scores(
-            vector, limit=_CANDIDATE_VECTOR_LIMIT, score_threshold=settings.search_score_threshold
+            vector,
+            limit=_CANDIDATE_VECTOR_LIMIT,
+            score_threshold=settings.search_score_threshold,
+            user_id=user_id,
         )
         vector_ids = [session_id for session_id, _score in scored]
         scores_by_id = {session_id: score for session_id, score in scored}
@@ -447,9 +450,9 @@ async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> No
             except Exception as exc:
                 logger.warning("세션 재요약 실패(session_id=%s): %s", session_id, exc)
 
-        # opt-in 자동 병합(기본 OFF) — 사용자 토글(app_settings, DB) 우선, 없으면 env 기본값.
+        # opt-in 자동 병합(기본 OFF) — 그 사용자의 토글(user_settings, DB) 우선, 없으면 env 기본값.
         # '명백한 중복'만 배치 후 자동 병합(merge-design §2, DecisionLog 2026-08-07).
-        if await is_auto_merge_enabled():
+        if await is_auto_merge_enabled(user_id):
             await _run_auto_merge(user_id)
 
         # 세션이 바뀌었으므로 추천을 낡은 것으로 표시한다 — 다음 새 탭에서 재계산된다.

@@ -47,7 +47,7 @@ def test_search_maps_embedding_upstream_error(monkeypatch):
 
 
 def test_search_maps_vector_store_failure(monkeypatch):
-    async def failing_search(_vector, *, limit):
+    async def failing_search(_vector, *, limit, user_id, session_ids):
         raise RuntimeError(f"qdrant unavailable for limit={limit}")
 
     monkeypatch.setattr(search, "search_similar", failing_search)
@@ -59,8 +59,10 @@ def test_search_maps_vector_store_failure(monkeypatch):
 
 
 def test_search_returns_empty_when_no_points_match(monkeypatch):
-    async def empty_search(_vector, *, limit):
+    async def empty_search(_vector, *, limit, user_id, session_ids):
         assert limit == 5
+        assert user_id == "u1"
+        assert session_ids is None  # workspace_id 없음 = 개인 범위
         return []
 
     monkeypatch.setattr(search, "search_similar", empty_search)
@@ -211,7 +213,7 @@ def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch)
             }
         ]
 
-    async def fake_keyword(_db, _q, exclude_ids, _user_id):
+    async def fake_keyword(_db, _q, exclude_ids, _user_id, _shared_ids=None):
         assert exclude_ids == {"e1"}
         return [
             {
@@ -238,10 +240,10 @@ def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch)
 def test_search_sessions_scope_memory_wraps_sessions_and_events(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None):
         return [session]
 
-    async def fake_memory_events(_db, _q, _sessions, _user_id):
+    async def fake_memory_events(_db, _q, _sessions, _user_id, _shared_ids=None):
         return []
 
     monkeypatch.setattr(search, "_search_sessions_by_vector", fake_by_vector)
@@ -258,7 +260,7 @@ def test_search_sessions_scope_memory_wraps_sessions_and_events(monkeypatch):
 def test_search_sessions_scope_memory_event_query_failure_still_returns_sessions(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None):
         return [session]
 
     async def failing_memory_events(_db, _q, _sessions):
@@ -278,7 +280,7 @@ def test_search_sessions_scope_memory_event_query_failure_still_returns_sessions
 def test_search_sessions_scope_sessions_default_returns_bare_list(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None):
         return [session]
 
     monkeypatch.setattr(search, "_search_sessions_by_vector", fake_by_vector)

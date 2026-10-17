@@ -75,6 +75,9 @@ class SessionDetail(BaseModel):
     last_activity_at: str | None = None
     # 사용자 폴더 소속. null=미정리(docs/api-design-v2.md §13).
     folder_id: str | None = None
+    # 이 세션이 공유된 팀 id(라이브 참조). 목록·단건 조회에서 소유자에게만 채워진다 — 다른 응답과
+    # 팀원 응답에서는 항상 빈 배열이다(팀원 응답은 folder_id 도 null).
+    shared_workspace_ids: list[str] = []
 
 
 class SessionEventItem(BaseModel):

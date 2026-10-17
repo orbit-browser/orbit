@@ -20,6 +20,7 @@ from ..services.ask_service import (
 from .deps import current_user_id
 from .search import _search_sessions_by_vector
 from .sessions import _owned_session, _to_detail
+from .workspaces import team_shared_ids
 
 router = APIRouter(prefix="/ask", tags=["ask"])
 logger = logging.getLogger(__name__)
@@ -34,19 +35,30 @@ async def _resolve_sources(
     body: AskStreamRequest,
     db: AsyncSession,
     user_id: str,
+    shared_ids: list[str] | None = None,
 ) -> list[SessionDetail]:
-    """답변 근거로 쓸 세션을 고른다. **반드시 요청자 소유 세션만** 대상으로 한다."""
+    """답변 근거로 쓸 세션을 고른다. **반드시 요청자 소유 세션만** 대상으로 한다.
+
+    팀 범위(shared_ids)에서는 그 팀에 공유된 세션만 대상으로 한다.
+    """
     if body.session_id:
         # 소유권 확인을 거친다 — 남의 세션 id 로 그 내용을 요약해 받아갈 수 있으면 안 된다.
-        session = await _owned_session(db, body.session_id, user_id)
-        if session.status == "merged":
+        if shared_ids is None:
+            session = await _owned_session(db, body.session_id, user_id)
+        elif body.session_id in shared_ids:
+            session = await db.get(SessionModel, body.session_id)
+        else:
+            session = None
+        if session is None or session.status == "merged":
             raise HTTPException(status_code=404, detail="Session not found")
-        return [_to_detail(session)]
+        return [_to_detail(session, include_private=shared_ids is None)]
 
     limit = (
         5 if body.intent == "find_sessions" else 1 if body.intent == "search_session" else 3
     )
-    return await _search_sessions_by_vector(body.query, limit, body.rerank, db, user_id)
+    return await _search_sessions_by_vector(
+        body.query, limit, body.rerank, db, user_id, shared_ids
+    )
 
 
 async def _answer_events(
@@ -111,8 +123,11 @@ async def stream_answer(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> StreamingResponse:
-    sources = await _resolve_sources(body, db, user_id)
-    context = await prepare_ask_context(db, body.query, sources, user_id, body.intent)
+    shared_ids = await team_shared_ids(db, user_id, body.workspace_id)
+    sources = await _resolve_sources(body, db, user_id, shared_ids)
+    context = await prepare_ask_context(
+        db, body.query, sources, user_id, body.intent, shared_ids
+    )
     return StreamingResponse(
         _answer_events(request, context),
         media_type="text/event-stream",

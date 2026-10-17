@@ -8,6 +8,8 @@ class AskStreamRequest(BaseModel):
     session_id: str | None = Field(default=None, min_length=1)
     rerank: bool = True
     intent: AssistantRetrievalIntent = "search_memory"
+    # 팀 워크스페이스 id. 주면 그 팀에 공유된 세션만 근거로 쓴다.
+    workspace_id: str | None = Field(default=None, min_length=1)
 
     @field_validator("query")
     @classmethod

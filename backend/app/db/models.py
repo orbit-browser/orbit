@@ -172,14 +172,17 @@ class SessionEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
-class AppSetting(Base):
-    """앱 전역 설정(단일 사용자 개인앱) — key-value. 런타임에 사용자가 토글하는 선호값을 저장한다.
+class UserSetting(Base):
+    """사용자별 설정 — key-value. 런타임에 사용자가 토글하는 선호값을 저장한다.
 
     env(config)는 기본값, 이 테이블 값이 있으면 우선. 신규 테이블이라 create_all이 생성한다.
+    단일 사용자 시절의 전역 `app_settings` 테이블은 읽지 않는다 — 그 값은 누군가의 opt-in이라
+    다른 사용자에게 물려주면 자동병합 같은 파괴적 기능이 동의 없이 켜진다.
     """
 
-    __tablename__ = "app_settings"
+    __tablename__ = "user_settings"
 
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[object] = mapped_column(JSONB, default=dict)
     updated_at: Mapped[datetime] = mapped_column(
@@ -266,3 +269,57 @@ class RecommendationCache(Base):
     #: [{session_id, title, kind, reason, score}, ...]
     items: Mapped[list] = mapped_column(JSONB, default=list)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Workspace(Base):
+    """팀 워크스페이스. 팀원이 서로의 세션을 공유해 함께 보는 공간이다.
+
+    소유자는 `WorkspaceMember.role='owner'` 로만 표현한다 — 여기 컬럼으로 중복해 두지 않는다.
+    초대 코드는 평문을 저장하지 않고 해시만 둔다(DB가 새도 코드가 드러나지 않게). 재발급하면
+    해시가 바뀌어 이전 코드가 무효가 된다.
+    """
+
+    __tablename__ = "workspaces"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    name: Mapped[str] = mapped_column(String(60))
+    hue: Mapped[str] = mapped_column(String(20))
+    invite_code_hash: Mapped[str | None] = mapped_column(String(64), default=None, index=True)
+    invite_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
+class WorkspaceMember(Base):
+    """워크스페이스 멤버십. role 은 'owner' | 'member'."""
+
+    __tablename__ = "workspace_members"
+
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class WorkspaceSession(Base):
+    """세션 공유 — 원본 세션을 가리키는 라이브 참조다.
+
+    사본을 만들지 않으므로 공유 뒤 Auto Session이 붙인 페이지도 팀에 보인다. 공유는 세션 소유자만
+    할 수 있어 `shared_by` 는 곧 세션 소유자다. FK에 ON DELETE가 없어 세션·워크스페이스를 지울 때
+    이 행을 먼저 지운다.
+    """
+
+    __tablename__ = "workspace_sessions"
+
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), primary_key=True
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("sessions.id"), primary_key=True, index=True
+    )
+    shared_by: Mapped[str] = mapped_column(String(64))
+    shared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

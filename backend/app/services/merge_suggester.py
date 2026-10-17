@@ -133,7 +133,7 @@ async def find_merge_suggestions(db: AsyncSession, user_id: str) -> list[MergeSu
             continue
         # limit은 상한 여유를 두고 조회, 자기 자신은 제외
         neighbors = await search_similar_with_scores(
-            vector, limit=10, score_threshold=floor
+            vector, limit=10, score_threshold=floor, user_id=user_id
         )
         for other_id, score in neighbors:
             if other_id == session.id or other_id not in metas:
