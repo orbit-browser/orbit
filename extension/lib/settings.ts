@@ -15,6 +15,11 @@ export interface OrbitSettings {
   idleSyncMin: number;
   countThreshold: number;
   rerankEnabled: boolean;
+  /**
+   * 지금 보고 있는 팀 워크스페이스. null 이면 개인 기록이다.
+   * 사이드패널·새 탭 아틀라스·Ask 가 같은 범위를 보도록 여기 둔다.
+   */
+  activeWorkspaceId: string | null;
 }
 
 export const DEFAULT_SETTINGS: OrbitSettings = {
@@ -27,6 +32,7 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
   idleSyncMin: 10,
   countThreshold: 20,
   rerankEnabled: false,
+  activeWorkspaceId: null,
 };
 
 const STORAGE_KEY = 'orbit:settings';

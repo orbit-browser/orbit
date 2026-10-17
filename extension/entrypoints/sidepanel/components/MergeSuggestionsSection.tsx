@@ -1,13 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ArrowRight, GitMerge, Loader2 } from 'lucide-react';
 import type { MergeSuggestion } from '../../../lib/types';
 import type { MergePair } from '../../../lib/merge';
-import { isMergePairAvailable, markMergePairConsumed } from '../../../lib/merge';
+import { isMergePairAvailable, markMergePairConsumed, sharedMergeNotice } from '../../../lib/merge';
 import {
   useMergeSessions,
   useMergeSuggestions,
   useUnmergeSessions,
 } from '../hooks/useMergeSuggestions';
+import { useSessions } from '../hooks/useSessions';
 import { useUIStore } from '../store/ui';
 
 export function MergeSuggestionsSection() {
@@ -16,6 +17,11 @@ export function MergeSuggestionsSection() {
   const unmerge = useUnmergeSessions();
   const showToast = useUIStore((s) => s.showToast);
   const [bulkRunning, setBulkRunning] = useState(false);
+  const { data: sessions } = useSessions();
+  const sharedIds = useMemo(
+    () => new Set((sessions ?? []).filter((s) => s.sharedWorkspaceIds?.length).map((s) => s.id)),
+    [sessions],
+  );
 
   const suggestions = data ?? [];
   if (isLoading || isError || suggestions.length === 0) return null;
@@ -30,8 +36,10 @@ export function MergeSuggestionsSection() {
   }
 
   function handleMerge(suggestion: MergeSuggestion) {
+    const notice = sharedMergeNotice(suggestion, sharedIds);
     const confirmed = window.confirm(
-      `"${suggestion.absorbedTitle}" 세션을 "${suggestion.survivorTitle}"에 병합할까요?`,
+      `"${suggestion.absorbedTitle}" 세션을 "${suggestion.survivorTitle}"에 병합할까요?` +
+        (notice ? `\n\n${notice}` : ''),
     );
     if (!confirmed) return;
 
@@ -62,8 +70,12 @@ export function MergeSuggestionsSection() {
   }
 
   async function handleMergeAll() {
+    const touchesShared = suggestions.some((suggestion) => sharedMergeNotice(suggestion, sharedIds));
     const confirmed = window.confirm(
-      `제안된 ${suggestions.length}개 쌍을 모두 병합할까요? 각 병합은 되돌릴 수 있어요.`,
+      `제안된 ${suggestions.length}개 쌍을 모두 병합할까요? 각 병합은 되돌릴 수 있어요.` +
+        (touchesShared
+          ? '\n\n팀에 공유 중인 세션이 포함돼 있어요. 병합하면 팀에 보이는 페이지가 달라져요.'
+          : ''),
     );
     if (!confirmed) return;
 

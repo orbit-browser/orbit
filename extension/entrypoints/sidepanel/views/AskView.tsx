@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { RotateCcw, Sparkles } from 'lucide-react';
 import { useAskConversation } from '../../shared/hooks/useAskConversation';
+import { useActiveWorkspace } from '../../../lib/useWorkspaces';
 import { SessionCard } from '../components/SessionCard';
 import { useSettingsStore } from '../store/settings';
 import { useUIStore } from '../store/ui';
@@ -23,8 +24,10 @@ function tabLocation(url: string): string {
 export function AskView() {
   const askOpen = useUIStore((state) => state.askOpen);
   const rerankEnabled = useSettingsStore((state) => state.rerankEnabled);
+  const { scopeId } = useActiveWorkspace();
   const { turns, ask, isStreaming, selectTabCandidate } = useAskConversation({
     rerank: rerankEnabled,
+    workspaceId: scopeId ?? undefined,
   });
   const conversationRef = useRef<HTMLDivElement>(null);
 
@@ -52,7 +55,9 @@ export function AskView() {
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 pb-24 text-center text-xs text-orbit-muted">
             <Sparkles size={22} className="text-orbit-primary" />
             <p className="leading-relaxed">
-              저장된 탐색 기록을 바탕으로 질문에 답하고 관련 세션을 함께 보여드려요.
+              {scopeId
+                ? '팀에 공유된 세션을 바탕으로 질문에 답하고 관련 세션을 함께 보여드려요.'
+                : '저장된 탐색 기록을 바탕으로 질문에 답하고 관련 세션을 함께 보여드려요.'}
             </p>
             <p className="text-orbit-muted/70">아래 입력창에 물어보세요.</p>
           </div>
@@ -139,7 +144,7 @@ export function AskView() {
                           <span className="absolute -left-1 -top-1 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border border-orbit-border bg-orbit-bg px-1 text-[10px] font-bold text-orbit-primary shadow-2xs">
                             {index + 1}
                           </span>
-                          <SessionCard session={session} showRestoreButton />
+                          <SessionCard session={session} showRestoreButton readOnly={!!scopeId} />
                         </div>
                       ))}
                     </div>

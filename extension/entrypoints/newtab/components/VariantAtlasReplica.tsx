@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '../styles/atlas.css';
 import { AtlasHeader } from './atlas/AtlasHeader';
 import { AtlasNavigator } from './atlas/AtlasNavigator';
@@ -9,11 +9,14 @@ import {
   buildFolderScene,
   buildNavRows,
   buildSessionScene,
+  filterBySharer,
+  sessionSharers,
   sortSessions,
   stepNavRow,
   type NavRow,
 } from './atlas/data';
 import { useAtlasData } from '../hooks/useAtlasData';
+import { useActiveWorkspace } from '../../../lib/useWorkspaces';
 import { readAtlasTarget } from '../lib/navigation';
 import { getNavState, useSharedNavState } from '../lib/nav-state';
 
@@ -21,10 +24,23 @@ const cx = (...classes: (string | false | undefined | null)[]) => classes.filter
 const TRAY_INSET = 250;
 
 export function VariantAtlasReplica() {
-  const atlasQuery = useAtlasData();
-  const sessions = atlasQuery.data?.sessions ?? [];
+  // 팀을 보고 있으면 그 팀에 공유된 세션을 읽기 전용으로 그린다(폴더 없음).
+  const { workspaces, scopeId, select: selectScope } = useActiveWorkspace();
+  const readOnly = !!scopeId;
+  const atlasQuery = useAtlasData(scopeId);
+  const [sharerFilter, setSharerFilter] = useState<string | null>(null);
+  const sharers = useMemo(() => sessionSharers(atlasQuery.data?.sessions ?? []), [atlasQuery.data]);
+  // 고른 사람이 더는 목록에 없으면(범위를 바꿨거나 공유가 풀림) 필터를 풀어 빈 화면을 막는다.
+  const activeSharer = sharers.some((sharer) => sharer.userId === sharerFilter) ? sharerFilter : null;
+  const sessions = useMemo(
+    () => filterBySharer(atlasQuery.data?.sessions ?? [], activeSharer),
+    [atlasQuery.data, activeSharer],
+  );
   const folders = atlasQuery.data?.folders ?? [];
-  const unfiled = atlasQuery.data?.unfiled ?? [];
+  const unfiled = useMemo(
+    () => filterBySharer(atlasQuery.data?.unfiled ?? [], activeSharer),
+    [atlasQuery.data, activeSharer],
+  );
   const { nav, patch, toggleIn, expandIn } = useSharedNavState();
   const searchRef = useRef<HTMLInputElement>(null);
   const initializedRef = useRef(false);
@@ -276,7 +292,19 @@ export function VariantAtlasReplica() {
       className={cx('atlas-page', !nav.open && 'atlas-page--nav-closed')}
       style={{ '--atlas-nav-w': `${nav.open ? nav.width : 0}px` } as React.CSSProperties}
     >
-      <AtlasHeader navOpen={nav.open} onToggleNav={toggleNav} />
+      <AtlasHeader
+        navOpen={nav.open}
+        onToggleNav={toggleNav}
+        workspaces={workspaces}
+        scopeId={scopeId}
+        onScopeChange={(workspaceId) => {
+          setSharerFilter(null);
+          selectScope(workspaceId);
+        }}
+        sharers={sharers}
+        sharerFilter={activeSharer}
+        onSharerFilterChange={setSharerFilter}
+      />
 
       <AtlasNavigator
         folders={sortedFolders}
@@ -304,6 +332,7 @@ export function VariantAtlasReplica() {
         searchInputRef={searchRef}
         sort={nav.sessionSort}
         onSortChange={(sessionSort) => patch({ sessionSort })}
+        readOnly={readOnly}
       />
 
       <main className="atlas-canvas">
@@ -344,6 +373,7 @@ export function VariantAtlasReplica() {
         page={selectedPage}
         onSelectPage={(pageId) => patch({ selectedPageId: pageId })}
         onSelectSession={openTrack}
+        readOnly={readOnly}
       />
     </div>
   );

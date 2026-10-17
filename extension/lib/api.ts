@@ -8,6 +8,7 @@ import type {
   AssistantRouteResult,
   Folder,
   FolderAssignResult,
+  InviteCode,
   MemoryEvent,
   MemorySearchResult,
   MergeSuggestion,
@@ -17,8 +18,12 @@ import type {
   ServerSettings,
   OpenTabItem,
   TabActionResolveResult,
+  ShareResult,
   TabItem,
   TodayEvent,
+  Workspace,
+  WorkspaceMember,
+  WorkspaceSession,
 } from './types';
 
 import { AuthRequiredError, clearSession, getToken } from './auth';
@@ -57,6 +62,38 @@ interface BackendSession {
   updated_at: string;
   last_activity_at: string | null;
   folder_id: string | null;
+  /** 소유자에게만 채워진다. 이전 서버는 이 필드가 없을 수 있다. */
+  shared_workspace_ids?: string[];
+}
+
+interface BackendWorkspace {
+  workspace_id: string;
+  name: string;
+  hue: string;
+  role: 'owner' | 'member';
+  member_count: number;
+  created_at: string;
+}
+
+interface BackendWorkspaceMember {
+  user_id: string;
+  name: string | null;
+  /** owner 와 본인에게만 온다. */
+  email: string | null;
+  picture: string | null;
+  role: 'owner' | 'member';
+  joined_at: string;
+}
+
+interface BackendWorkspaceSession extends BackendSession {
+  shared_by: { user_id: string; name: string | null; picture: string | null };
+  shared_at: string;
+}
+
+interface BackendShareResult {
+  workspace_id: string;
+  shared: string[];
+  skipped: string[];
 }
 
 interface BackendFolder {
@@ -180,6 +217,28 @@ function mapSession(b: BackendSession): Session {
     summary: mapSummary(b.summary),
     summaryStatus: b.summary_status,
     folderId: b.folder_id ?? undefined,
+    sharedWorkspaceIds: b.shared_workspace_ids ?? [],
+  };
+}
+
+function mapWorkspace(b: BackendWorkspace): Workspace {
+  return {
+    id: b.workspace_id,
+    name: b.name,
+    hue: b.hue,
+    role: b.role,
+    memberCount: b.member_count,
+    createdAt: b.created_at,
+  };
+}
+
+function mapWorkspaceSession(b: BackendWorkspaceSession): WorkspaceSession {
+  return {
+    ...mapSession(b),
+    // 공유한 사람의 개인 폴더 — 팀 화면에서 쓰면 남의 폴더 id 로 정리 상태를 잘못 그린다.
+    folderId: undefined,
+    sharedBy: { userId: b.shared_by.user_id, name: b.shared_by.name, picture: b.shared_by.picture },
+    sharedAt: b.shared_at,
   };
 }
 
@@ -335,6 +394,90 @@ export async function removeSessionFromFolder(
   sessionId: string,
 ): Promise<void> {
   await request<void>(`/folders/${folderId}/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+// ── 팀 워크스페이스 (docs/api-design-v2.md §14) ───────
+
+export async function fetchWorkspaces(): Promise<Workspace[]> {
+  const data = await request<BackendWorkspace[]>('/workspaces');
+  return data.map(mapWorkspace);
+}
+
+export async function createWorkspace(name: string): Promise<Workspace> {
+  const data = await request<BackendWorkspace>('/workspaces', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return mapWorkspace(data);
+}
+
+export async function renameWorkspace(workspaceId: string, name: string): Promise<Workspace> {
+  const data = await request<BackendWorkspace>(`/workspaces/${workspaceId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return mapWorkspace(data);
+}
+
+/** 팀과 공유 관계만 지운다 — 공유됐던 세션은 각자의 개인 기록에 남는다. */
+export async function deleteWorkspace(workspaceId: string): Promise<void> {
+  await request<void>(`/workspaces/${workspaceId}`, { method: 'DELETE' });
+}
+
+/** 초대 코드로 참여한다. 무효·만료 코드는 400 으로 거절된다. */
+export async function joinWorkspace(code: string): Promise<Workspace> {
+  const data = await request<BackendWorkspace>('/workspaces/join', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  return mapWorkspace(data);
+}
+
+/** 새 초대 코드를 발급한다. 이전 코드는 즉시 무효가 된다. */
+export async function issueInviteCode(workspaceId: string): Promise<InviteCode> {
+  const data = await request<{ code: string; expires_at: string }>(
+    `/workspaces/${workspaceId}/invite-code`,
+    { method: 'POST' },
+  );
+  return { code: data.code, expiresAt: data.expires_at };
+}
+
+export async function fetchWorkspaceMembers(workspaceId: string): Promise<WorkspaceMember[]> {
+  const data = await request<BackendWorkspaceMember[]>(`/workspaces/${workspaceId}/members`);
+  return data.map((m) => ({
+    userId: m.user_id,
+    name: m.name,
+    email: m.email,
+    picture: m.picture,
+    role: m.role,
+    joinedAt: m.joined_at,
+  }));
+}
+
+/** 멤버 내보내기, 또는 내 user id 를 넘기면 탈퇴. 나간 사람의 공유는 모두 풀린다. */
+export async function removeWorkspaceMember(workspaceId: string, userId: string): Promise<void> {
+  await request<void>(`/workspaces/${workspaceId}/members/${userId}`, { method: 'DELETE' });
+}
+
+export async function fetchWorkspaceSessions(workspaceId: string): Promise<WorkspaceSession[]> {
+  const data = await request<BackendWorkspaceSession[]>(`/workspaces/${workspaceId}/sessions`);
+  return data.map(mapWorkspaceSession);
+}
+
+export async function shareSessions(workspaceId: string, sessionIds: string[]): Promise<ShareResult> {
+  const data = await request<BackendShareResult>(`/workspaces/${workspaceId}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_ids: sessionIds }),
+  });
+  return { workspaceId: data.workspace_id, shared: data.shared, skipped: data.skipped };
+}
+
+export async function unshareSession(workspaceId: string, sessionId: string): Promise<void> {
+  await request<void>(`/workspaces/${workspaceId}/sessions/${sessionId}`, { method: 'DELETE' });
 }
 
 export async function fetchSession(id: string): Promise<Session | undefined> {
@@ -661,6 +804,7 @@ export async function* streamAsk(
         session_id: body.sessionId ?? null,
         rerank: body.rerank ?? true,
         intent: body.intent ?? 'search_memory',
+        workspace_id: body.workspaceId ?? null,
       }),
       signal,
     }),

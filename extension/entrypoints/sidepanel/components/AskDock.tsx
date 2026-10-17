@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
 import { useAskConversation } from '../../shared/hooks/useAskConversation';
+import { useActiveWorkspace } from '../../../lib/useWorkspaces';
 import { useSettingsStore } from '../store/settings';
 import { useUIStore } from '../store/ui';
 
@@ -26,7 +27,11 @@ export function AskDock() {
 
   const rerankEnabled = useSettingsStore((state) => state.rerankEnabled);
   const openAsk = useUIStore((state) => state.openAsk);
-  const { ask, cancel, isStreaming } = useAskConversation({ rerank: rerankEnabled });
+  const { scopeId } = useActiveWorkspace();
+  const { ask, cancel, isStreaming } = useAskConversation({
+    rerank: rerankEnabled,
+    workspaceId: scopeId ?? undefined,
+  });
 
   useEffect(() => {
     const timer = setInterval(() => {

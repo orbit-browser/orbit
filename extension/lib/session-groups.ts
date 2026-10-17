@@ -1,9 +1,9 @@
 import type { Session } from './types';
 
-export interface SessionGroup {
+export interface SessionGroup<T extends Session = Session> {
   key: string;
   label: string;
-  sessions: Session[];
+  sessions: T[];
 }
 
 /**
@@ -27,9 +27,12 @@ const DAY_MS = 86_400_000;
  * 최근순 묶음. 날짜별로 쪼개면 하루 한 개짜리 그룹이 줄줄이 생겨 목록이 더 산만해지므로,
  * 굵은 구간 다섯 개로만 나눈다.
  */
-export function groupSessionsByRecency(sessions: Session[], now = new Date()): SessionGroup[] {
+export function groupSessionsByRecency<T extends Session>(
+  sessions: T[],
+  now = new Date(),
+): SessionGroup<T>[] {
   const today = startOfDay(now.getTime());
-  const buckets: SessionGroup[] = [
+  const buckets: SessionGroup<T>[] = [
     { key: 'today', label: '오늘', sessions: [] },
     { key: 'yesterday', label: '어제', sessions: [] },
     { key: 'week', label: '지난 7일', sessions: [] },

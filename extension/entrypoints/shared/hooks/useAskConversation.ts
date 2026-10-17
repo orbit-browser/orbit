@@ -219,7 +219,13 @@ async function routeAskRequest(
 export function useAskConversation({
   rerank = true,
   sessionId,
-}: { rerank?: boolean; sessionId?: string } = {}) {
+  workspaceId,
+}: {
+  rerank?: boolean;
+  sessionId?: string;
+  /** 주면 그 팀에 공유된 세션만 근거로 답한다. 열린 탭 이동은 범위와 무관하게 내 브라우저에서 한다. */
+  workspaceId?: string;
+} = {}) {
   const turns = useAskConversationStore((state) => state.turns);
   const isStreaming = useAskConversationStore((state) => state.isStreaming);
 
@@ -284,6 +290,7 @@ export function useAskConversation({
         rerank,
         sessionId,
         intent: routed.intent,
+        workspaceId,
       }, controller.signal)) {
         if (event.type === 'sources') {
           updateTurn(id, (turn) => ({ ...turn, sources: event.sessions }));
@@ -327,7 +334,7 @@ export function useAskConversation({
         useAskConversationStore.setState({ isStreaming: false });
       }
     }
-  }, [rerank, sessionId]);
+  }, [rerank, sessionId, workspaceId]);
 
   const selectTabCandidate = useCallback(async (turnId: string, tabId: string) => {
     updateTurn(turnId, (turn) => ({ ...turn, tabCandidateError: null }));

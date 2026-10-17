@@ -13,6 +13,7 @@ import { AskView } from './views/AskView';
 import { SessionDetailView } from './views/SessionDetailView';
 import { SettingsView } from './views/SettingsView';
 import { useOnboarding } from '../../lib/useOnboarding';
+import { useActiveWorkspace } from '../../lib/useWorkspaces';
 
 function CurrentView() {
   const view = useUIStore((s) => s.activeView);
@@ -32,8 +33,15 @@ function CurrentView() {
 
 function SignedInPanel() {
   const activeView = useUIStore((s) => s.activeView);
+  const setView = useUIStore((s) => s.setView);
   const showAsk = isAskDockView(activeView);
   const { state, loading } = useOnboarding();
+  const { scopeId } = useActiveWorkspace();
+
+  // 팀 화면에는 타임라인 탭이 없다 — 팀을 보던 채로 열었거나 방금 팀으로 바꿨으면 세션으로 옮긴다.
+  useEffect(() => {
+    if (scopeId && activeView === 'timeline') setView('sessions');
+  }, [scopeId, activeView, setView]);
 
   if (loading) return <div className="h-full w-full bg-orbit-bg" />;
   if (state.status !== 'complete') return <OnboardingPrototype initialStep={state.step} />;

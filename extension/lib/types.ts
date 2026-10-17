@@ -89,6 +89,67 @@ export interface Session {
   summaryStatus: 'pending' | 'done' | 'failed';
   /** 사용자가 넣은 폴더. 없으면 미정리(단일 소속). */
   folderId?: string;
+  /**
+   * 이 세션이 공유된 팀 id. 목록·단건 조회에서 소유자에게만 채워진다 — 다른 응답과 팀원이 받은
+   * 응답에서는 비어 있다. 공유 배지는 목록 응답을 기준으로 그린다.
+   */
+  sharedWorkspaceIds?: string[];
+}
+
+// ── 팀 워크스페이스 (docs/api-design-v2.md §14) ────────────────────────
+
+export type WorkspaceRole = 'owner' | 'member';
+
+/** 내가 속한 팀. 1단계는 세션 공유형 — 공유된 세션을 함께 보고 검색·Ask 한다. */
+export interface Workspace {
+  id: string;
+  name: string;
+  hue: string;
+  role: WorkspaceRole;
+  memberCount: number;
+  /** ISO 8601 */
+  createdAt: string;
+}
+
+export interface WorkspaceMember {
+  userId: string;
+  name: string | null;
+  /** owner 와 본인에게만 채워진다 — 팀원끼리는 이름·사진만 본다. */
+  email: string | null;
+  picture: string | null;
+  role: WorkspaceRole;
+  /** ISO 8601 */
+  joinedAt: string;
+}
+
+export interface MemberBrief {
+  userId: string;
+  name: string | null;
+  picture: string | null;
+}
+
+/**
+ * 팀에 공유된 세션 — 원본 세션을 가리키는 라이브 참조다. 공유 뒤 붙은 페이지도 보인다.
+ * `folderId` 는 공유한 사람의 개인 폴더라 팀 화면에서는 쓰지 않는다.
+ */
+export interface WorkspaceSession extends Session {
+  sharedBy: MemberBrief;
+  /** ISO 8601 */
+  sharedAt: string;
+}
+
+/** 초대 코드는 발급 응답에서 한 번만 보인다 — 서버는 해시만 저장한다. */
+export interface InviteCode {
+  code: string;
+  /** ISO 8601 */
+  expiresAt: string;
+}
+
+/** 공유 결과 — 폴더 배정과 같이 건너뛴 세션을 그대로 돌려준다. */
+export interface ShareResult {
+  workspaceId: string;
+  shared: string[];
+  skipped: string[];
 }
 
 // ── 사용자 폴더 (docs/api-design-v2.md §13) ────────────────────────────
@@ -198,6 +259,8 @@ export interface AskStreamRequest {
   sessionId?: string;
   rerank?: boolean;
   intent?: AssistantRetrievalIntent;
+  /** 주면 그 팀에 공유된 세션만 근거로 쓴다. */
+  workspaceId?: string;
 }
 
 export type AskStreamEvent =

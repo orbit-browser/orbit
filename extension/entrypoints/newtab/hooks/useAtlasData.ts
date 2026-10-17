@@ -1,5 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchFolders, fetchSessionEvents, fetchSessions } from '../../../lib/api';
+import {
+  fetchFolders,
+  fetchSessionEvents,
+  fetchSessions,
+  fetchWorkspaceSessions,
+} from '../../../lib/api';
 import type { FolderNode, SessionNode } from '../components/atlas/data';
 import { buildAtlasSessions, buildFolderNodes } from '../components/atlas/data';
 
@@ -27,11 +32,12 @@ async function fetchEventsInBatches(sessionIds: string[]) {
   return eventsBySession;
 }
 
-export async function fetchAtlasData(): Promise<AtlasData> {
+/** workspaceId 가 있으면 그 팀에 공유된 세션을 그린다. 폴더는 개인 정리 수단이라 팀에는 없다. */
+export async function fetchAtlasData(workspaceId: string | null = null): Promise<AtlasData> {
   // 폴더 조회가 실패해도 세션은 보여준다 — 정리 기능이 없다고 기록 자체를 감출 이유는 없다.
   const [sessions, folders] = await Promise.all([
-    fetchSessions(),
-    fetchFolders().catch(() => []),
+    workspaceId ? fetchWorkspaceSessions(workspaceId) : fetchSessions(),
+    workspaceId ? [] : fetchFolders().catch(() => []),
   ]);
   const eventsBySession = await fetchEventsInBatches(sessions.map((session) => session.id));
   const nodes = buildAtlasSessions(sessions, eventsBySession);
@@ -40,9 +46,10 @@ export async function fetchAtlasData(): Promise<AtlasData> {
 
 export const ATLAS_QUERY_KEY = ['newtab', 'atlas-data'] as const;
 
-export function useAtlasData() {
+export function useAtlasData(workspaceId: string | null = null) {
   return useQuery({
-    queryKey: ATLAS_QUERY_KEY,
-    queryFn: fetchAtlasData,
+    // 범위마다 따로 캐시한다. ATLAS_QUERY_KEY 로 무효화하면 모든 범위가 함께 갱신된다.
+    queryKey: [...ATLAS_QUERY_KEY, workspaceId],
+    queryFn: () => fetchAtlasData(workspaceId),
   });
 }

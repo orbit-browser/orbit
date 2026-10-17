@@ -2706,3 +2706,33 @@ body.atlas-resizing .atlas-nav__resizer::after {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── 팀 범위 (팀 워크스페이스 1단계) ─────────────────────────────── */
+
+.atlas-header__scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.atlas-header__select {
+  max-width: 180px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.atlas-row__avatar {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+}

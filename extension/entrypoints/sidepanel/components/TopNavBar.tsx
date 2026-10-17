@@ -1,6 +1,8 @@
 import { ChevronLeft, Settings, Trash2, X } from 'lucide-react';
 import { useAskConversation } from '../../shared/hooks/useAskConversation';
+import { useActiveWorkspace } from '../../../lib/useWorkspaces';
 import { useUIStore } from '../store/ui';
+import { WorkspaceSwitcher } from './team/WorkspaceSwitcher';
 
 export function TopNavBar() {
   const activeView = useUIStore((s) => s.activeView);
@@ -8,6 +10,7 @@ export function TopNavBar() {
   const closeAsk = useUIStore((s) => s.closeAsk);
   const setView = useUIStore((s) => s.setView);
   const { turns, startNewConversation } = useAskConversation();
+  const { scopeId } = useActiveWorkspace();
 
   // Ask 답변 화면이 올라와 있는 동안에는 탭 대신 그 화면의 헤더 역할을 한다.
   if (askOpen) {
@@ -50,9 +53,10 @@ export function TopNavBar() {
     );
   }
 
+  // 타임라인은 내 방문 기록 스트림이라 팀 화면에는 없다(팀 타임라인은 2단계).
   const tabs = [
-    { view: 'timeline' as const, label: '타임라인' },
-    { view: 'sessions' as const, label: '세션' },
+    ...(scopeId ? [] : [{ view: 'timeline' as const, label: '타임라인' }]),
+    { view: 'sessions' as const, label: scopeId ? '팀 세션' : '세션' },
     { view: 'tabs' as const, label: '열린 탭' },
   ];
 
@@ -81,7 +85,9 @@ export function TopNavBar() {
       </div>
 
       {/* Quick Actions */}
-      <div className="flex items-center gap-0.5">
+      <div className="flex min-w-0 items-center gap-0.5">
+        {/* 범위를 바꾸면 이전 범위의 답변이 섞이지 않게 대화를 비운다. */}
+        <WorkspaceSwitcher onChange={startNewConversation} />
         <button
           type="button"
           title="설정"

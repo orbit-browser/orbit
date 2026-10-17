@@ -5,6 +5,7 @@ import { useUIStore } from '../store/ui';
 import { useSettingsStore } from '../store/settings';
 import type { OrbitSettings } from '../../../lib/settings';
 import { useServerSettings, useUpdateServerSettings } from '../hooks/useServerSettings';
+import { TeamSettingsSection } from '../components/team/TeamSettingsSection';
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -353,6 +354,8 @@ export function SettingsView() {
           />
         </div>
       </section>
+
+      <TeamSettingsSection />
 
       <section className="space-y-2">
         <p className="text-xs font-semibold text-orbit-muted">계정</p>

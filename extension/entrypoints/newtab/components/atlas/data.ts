@@ -1,5 +1,11 @@
 import { hueForSession } from '../../../../lib/session-hue';
-import type { Folder, Session, SessionTimelineEvent } from '../../../../lib/types';
+import type {
+  Folder,
+  MemberBrief,
+  Session,
+  SessionTimelineEvent,
+  WorkspaceSession,
+} from '../../../../lib/types';
 
 export interface PageNode {
   id: string;
@@ -36,6 +42,8 @@ export interface SessionNode {
   pages: PageNode[];
   /** 사용자가 넣은 폴더. 없으면 미정리. */
   folderId?: string;
+  /** 팀 화면에서만 있다 — 이 세션을 공유한 팀원. */
+  sharedBy?: MemberBrief;
 }
 
 /** 폴더 하나와 그 안에 정리된 세션들. */
@@ -245,7 +253,7 @@ function sessionStatus(date: Date, now: Date): SessionNode['status'] {
 }
 
 export function toSessionNode(
-  session: Session,
+  session: Session | WorkspaceSession,
   events: SessionTimelineEvent[],
   now = new Date(),
 ): SessionNode {
@@ -270,6 +278,7 @@ export function toSessionNode(
     },
     pages,
     folderId: session.folderId,
+    sharedBy: 'sharedBy' in session ? session.sharedBy : undefined,
   };
 }
 
@@ -461,6 +470,24 @@ export function buildFolderNodes(
     (a, b) => a.position - b.position || a.name.localeCompare(b.name),
   );
   return { folders: ordered, unfiled };
+}
+
+// ── 팀 화면: 공유한 사람 ──────────────────────────────────────────────
+
+/** 팀 화면에서 세션을 공유한 사람들 — 처음 나온 순서로 한 번씩. 개인 화면이면 빈 배열. */
+export function sessionSharers(sessions: SessionNode[]): MemberBrief[] {
+  const seen = new Map<string, MemberBrief>();
+  sessions.forEach((session) => {
+    if (session.sharedBy && !seen.has(session.sharedBy.userId)) {
+      seen.set(session.sharedBy.userId, session.sharedBy);
+    }
+  });
+  return [...seen.values()];
+}
+
+/** userId 가 공유한 세션만. null 이면 그대로 돌려준다. */
+export function filterBySharer(sessions: SessionNode[], userId: string | null): SessionNode[] {
+  return userId ? sessions.filter((session) => session.sharedBy?.userId === userId) : sessions;
 }
 
 // ── 네비게이터 정렬 ───────────────────────────────────────────────────

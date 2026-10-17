@@ -40,7 +40,26 @@ describe('Ask AI request', () => {
       session_id: null,
       rerank: false,
       intent: 'search_memory',
+      workspace_id: null,
     });
+  });
+
+  it('팀을 보고 있으면 workspace_id 를 함께 보내 팀 공유 세션만 근거로 쓴다', async () => {
+    let requestBody = '';
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = String(init?.body ?? '');
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      }), { status: 200 });
+    }));
+
+    for await (const _event of streamAsk({ query: '팀 질문', workspaceId: 'ws-1' })) {
+      // 빈 스트림
+    }
+
+    expect(JSON.parse(requestBody).workspace_id).toBe('ws-1');
   });
 
   it('컴포넌트가 다시 마운트돼도 누적 답변을 유지하고 새 대화에서만 비운다', async () => {

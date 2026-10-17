@@ -10,9 +10,12 @@ import { Favicon } from './Favicon';
 export function SessionCard({
   session,
   showRestoreButton = false,
+  readOnly = false,
 }: {
   session: Session;
   showRestoreButton?: boolean;
+  /** 팀 범위 답변의 근거 카드 — 남의 세션일 수 있어 재시도·삭제를 감춘다. */
+  readOnly?: boolean;
 }) {
   const openSession = useUIStore((s) => s.openSession);
   const showToast = useUIStore((s) => s.showToast);
@@ -55,7 +58,7 @@ export function SessionCard({
           </h3>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          {isFailed && (
+          {isFailed && !readOnly && (
             <button
               type="button"
               onClick={(e) => {
@@ -143,14 +146,18 @@ export function SessionCard({
                 },
               },
               { label: '상세 보기', onClick: () => openSession(session.id) },
-              {
-                label: '삭제',
-                danger: true,
-                onClick: () =>
-                  deleteSession(session.id, {
-                    onSuccess: () => showToast('세션을 삭제했어요'),
-                  }),
-              },
+              ...(readOnly
+                ? []
+                : [
+                    {
+                      label: '삭제',
+                      danger: true,
+                      onClick: () =>
+                        deleteSession(session.id, {
+                          onSuccess: () => showToast('세션을 삭제했어요'),
+                        }),
+                    },
+                  ]),
             ]}
           />
         </div>

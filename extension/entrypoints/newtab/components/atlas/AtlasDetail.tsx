@@ -23,6 +23,8 @@ interface AtlasDetailProps {
   page: PageNode | null;
   onSelectPage: (pageId: string) => void;
   onSelectSession: (sessionId: string) => void;
+  /** 팀 화면 — 공유받은 세션이라 이름을 고칠 수 없다. */
+  readOnly?: boolean;
 }
 
 interface Stat {
@@ -36,6 +38,7 @@ export function AtlasDetail({
   page,
   onSelectPage,
   onSelectSession,
+  readOnly = false,
 }: AtlasDetailProps) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -54,7 +57,7 @@ export function AtlasDetail({
   }, [editing]);
 
   const startEditing = () => {
-    if (!session) return;
+    if (!session || readOnly) return;
     setDraftTitle(session.title);
     setActionError(null);
     setEditing(true);
@@ -98,7 +101,9 @@ export function AtlasDetail({
     level === 'page'
       ? `${page!.domain} · ${page!.minutes}분 체류`
       : level === 'session'
-      ? `${session!.date} · ${formatMinutes(session!.minutes)}`
+      ? `${session!.date} · ${formatMinutes(session!.minutes)}${
+          session!.sharedBy ? ` · ${session!.sharedBy.name ?? '팀원'} 님이 공유` : ''
+        }`
       : level === 'folder'
       ? `폴더 · 세션 ${totals!.sessionCount}개`
       : '세션을 선택해 주세요';
@@ -152,7 +157,7 @@ export function AtlasDetail({
         <div className="atlas-detail__head-top">
           <span className="atlas-detail__heading">세부 정보</span>
           {/* 이름 편집은 세션에만 있다. 폴더 이름은 왼쪽 네비게이터에서 고친다. */}
-          {session && (
+          {session && !readOnly && (
             <div className="atlas-detail__head-actions">
               <button
                 type="button"
@@ -238,7 +243,7 @@ export function AtlasDetail({
                 <div
                   className="atlas-detail__topic-title"
                   onDoubleClick={startEditing}
-                  title={session ? '더블클릭해 이름 변경' : undefined}
+                  title={session && !readOnly ? '더블클릭해 이름 변경' : undefined}
                 >
                   {title}
                 </div>
