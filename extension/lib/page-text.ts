@@ -9,7 +9,7 @@ export const MIN_READABLE_LENGTH = 500;
 /** 공백 연속·빈 줄을 접는다 — 원문 공백이 상한을 잡아먹지 않게(백엔드 split_passages와 같은 규칙). */
 export function normalizeText(text: string): string {
   return text
-    .replace(/​/g, '')
+    .replace(/\u200b/g, '')
     .replace(/[^\S\n]+/g, ' ')
     .replace(/\s*\n\s*/g, '\n')
     .trim();
