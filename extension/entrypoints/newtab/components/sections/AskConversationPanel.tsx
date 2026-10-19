@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { RotateCcw, Sparkles, Square, Trash2 } from 'lucide-react';
 import type { AskTurn } from '../../../shared/hooks/useAskConversation';
+import { cleanAnswerText } from '../../../../lib/ask-answer';
 import type { Session } from '../../../../lib/types';
 
 interface AskConversationPanelProps {
@@ -68,7 +69,7 @@ export function AskConversationPanel({
                 <Sparkles size={14} /> Orbit AI
               </div>
               <p>
-                {turn.answer}
+                {cleanAnswerText(turn.answer, turn.sources.length)}
                 {turn.status === 'streaming' && <span className="ask-turn__cursor" />}
               </p>
               {turn.tabCandidates.length > 0 && (
