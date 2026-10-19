@@ -1,6 +1,15 @@
 import asyncio
 
+import pytest
+
 from app.ai import embedding
+
+
+@pytest.fixture(autouse=True)
+def _empty_cache():
+    embedding.clear_cache()
+    yield
+    embedding.clear_cache()
 
 
 class _FakeResponse:
@@ -79,3 +88,62 @@ def test_embed_many_splits_over_provider_batch_limit(monkeypatch):
 
     assert [len(batch) for batch in sent] == [100, 100, 50]
     assert result == [[float(i)] for i in range(250)]
+
+
+class _CountingClient(_FakeClient):
+    def __init__(self, sent):
+        super().__init__(None, {})
+        self._sent = sent
+
+    async def post(self, _url, headers=None, json=None):
+        inputs = json["input"] if isinstance(json["input"], list) else [json["input"]]
+        self._sent.append(inputs)
+        data = [{"index": i, "embedding": [float(len(t))]} for i, t in enumerate(inputs)]
+        return _FakeResponse({"data": data})
+
+
+def test_embed_many_reuses_cached_vectors_and_requests_only_misses(monkeypatch):
+    sent: list[list[str]] = []
+    monkeypatch.setattr(embedding.httpx, "AsyncClient", lambda *a, **k: _CountingClient(sent))
+
+    first = asyncio.run(embedding.embed_many(["a", "bb"], model="m"))
+    second = asyncio.run(embedding.embed_many(["bb", "ccc", "a", "ccc"], model="m"))
+
+    assert sent == [["a", "bb"], ["ccc"]]
+    assert first == [[1.0], [2.0]]
+    assert second == [[2.0], [3.0], [1.0], [3.0]]
+
+
+def test_cache_is_keyed_by_model_and_shared_with_embed(monkeypatch):
+    sent: list[list[str]] = []
+    monkeypatch.setattr(embedding.httpx, "AsyncClient", lambda *a, **k: _CountingClient(sent))
+
+    asyncio.run(embedding.embed("질문", model="query"))
+    asyncio.run(embedding.embed_many(["질문"], model="query"))
+    asyncio.run(embedding.embed_many(["질문"], model="passage"))
+
+    assert sent == [["질문"], ["질문"]]
+
+
+def test_cache_evicts_least_recently_used(monkeypatch):
+    sent: list[list[str]] = []
+    monkeypatch.setattr(embedding.httpx, "AsyncClient", lambda *a, **k: _CountingClient(sent))
+    monkeypatch.setattr(embedding, "_CACHE_MAX", 2)
+
+    asyncio.run(embedding.embed_many(["a", "b"], model="m"))
+    asyncio.run(embedding.embed("a", model="m"))  # a를 최근으로
+    asyncio.run(embedding.embed("c", model="m"))  # b가 밀려난다
+    asyncio.run(embedding.embed_many(["a", "b"], model="m"))
+
+    assert sent == [["a", "b"], ["c"], ["b"]]
+
+
+def test_embed_many_rejects_short_provider_response(monkeypatch):
+    class _ShortClient(_FakeClient):
+        async def post(self, _url, headers=None, json=None):
+            return _FakeResponse({"data": [{"index": 0, "embedding": [1.0]}]})
+
+    monkeypatch.setattr(embedding.httpx, "AsyncClient", lambda *a, **k: _ShortClient(None, {}))
+
+    with pytest.raises(ValueError):
+        asyncio.run(embedding.embed_many(["a", "b"], model="m"))
