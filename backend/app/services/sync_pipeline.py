@@ -18,7 +18,7 @@ from ..ai.embedding import embed_many
 from ..config import settings
 from ..db.models import ExplorationEvent, Session as SessionModel, SyncBatch, SyncBatchEvent
 from ..db.session import AsyncSessionLocal
-from ..db.vector import delete_point, search_similar_with_scores
+from ..db.vector import delete_point, score_sessions, search_similar_with_scores
 from ..services import intent_analyzer
 from ..services.event_filter import is_system_url
 from ..services.intent_analyzer import Assignment
@@ -112,7 +112,7 @@ def _sessions_to_candidates(
                 "keywords": s.keywords or [],
                 # LLM이 "이어지는 탐색"인지 판단할 때 참고할 경과일 — 프롬프트에 표기됨
                 "last_activity_days_ago": max(0, (now - last_activity).days) if last_activity else None,
-                # 벡터 매치 점수(append 게이팅용). 최근-only 후보는 매치가 아니므로 None.
+                # 유사도 점수(append 게이팅용). 임베딩 전 세션이거나 Qdrant 실패면 None.
                 "score": scores.get(s.id),
             }
         )
@@ -264,6 +264,15 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
         )
         recent_ids = list(recent_result.scalars().all())
 
+        # 최근 후보도 같은 벡터로 점수를 매긴다. 점수가 없으면 append 게이트가 유사도 판정을 건너뛰어,
+        # 방금 끝난 무관한 세션(예: 강아지 접종 → 로봇청소기)에 LLM append가 그대로 통과했다(실데이터 평가).
+        unscored = [sid for sid in recent_ids if sid not in scores_by_id]
+        if unscored:
+            try:
+                scores_by_id.update(await score_sessions(vector, unscored, user_id=user_id))
+            except Exception as exc:
+                logger.warning("최근 후보 점수 계산 실패(%s) — 해당 후보는 recency로만 게이트", exc)
+
         combined_ids: list[str] = []
         seen: set[str] = set()
         for session_id in [*vector_ids, *recent_ids]:
@@ -300,13 +309,36 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
 def _append_blocked(candidate: dict) -> bool:
     """append 게이트 — 후보가 유사도 하한 미달이거나 시간 근접을 벗어나면 True(강등 대상)."""
     score = candidate.get("score")
-    # 벡터 매치 후보만 유사도로 판정(최근-only 후보는 score None → 유사도 게이트 우회, recency로만).
+    # 점수가 없는 후보(임베딩 전 세션·Qdrant 실패)는 유사도 판정 없이 recency로만 본다.
     if isinstance(score, (int, float)) and score < settings.append_score_floor:
         return True
     days_ago = candidate.get("last_activity_days_ago")
     if isinstance(days_ago, int) and days_ago > settings.append_max_age_days:
         return True
     return False
+
+
+def _merge_split_topic(assignments: list[Assignment]) -> list[Assignment]:
+    """한 서브클러스터 안에서 LLM이 여러 세션으로 나눈 것을 하나로 합친다(순수 함수).
+
+    서브클러스터는 임베딩상 한 주제로 묶인 이벤트다. 실데이터(2026-10-19)에서 선분리는 여정 6개를
+    정확히 나눴지만, LLM(K-EXAONE·A.X 모두)이 그 안을 다시 KTX·숙소·관광지처럼 세부 항목별 세션으로
+    쪼갰다. create끼리, 또는 create와 append(대상 하나)를 묶는다. 서로 다른 기존 세션에 이어 붙이는
+    판단은 LLM이 주제를 구분한 근거가 있으므로 건드리지 않는다. hold·discard도 그대로 둔다.
+    병합 뒤 append는 _gate_appends가 다시 검사한다(대상 유사도 미달이면 create로 강등).
+    """
+    sessions = [a for a in assignments if a.action in ("append", "create")]
+    if len(sessions) <= 1:
+        return assignments
+    if len({a.target for a in sessions if a.action == "append"}) > 1:
+        return assignments
+    keeper = next((a for a in sessions if a.action == "append"), sessions[0])
+    merged = replace(
+        keeper,
+        event_indices=sorted(i for a in sessions for i in a.event_indices),
+        relevance=max(a.relevance for a in sessions),
+    )
+    return [merged, *(a for a in assignments if a.action not in ("append", "create"))]
 
 
 def _gate_appends(assignments: list[Assignment], candidates: list[dict]) -> list[Assignment]:
@@ -374,7 +406,7 @@ async def _process_group(
         centroid = _centroid([embeddings[i] for i in idx_group])
         candidates = await _fetch_candidates(centroid, user_id)
         assignments = await intent_analyzer.analyze(cluster_events, candidates)
-        assignments = _gate_appends(assignments, candidates)
+        assignments = _gate_appends(_merge_split_topic(assignments), candidates)
         pending.append((cluster_events, assignments))
         models_used.extend(a.model for a in assignments if a.model)
 

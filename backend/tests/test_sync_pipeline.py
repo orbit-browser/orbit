@@ -304,7 +304,7 @@ def test_append_blocked_by_stale_recency():
 
 
 def test_append_not_blocked_when_score_none_and_recent():
-    # 최근-only 후보(score None)는 유사도 판정을 우회하고 recency로만 본다
+    # 점수가 없는 후보(임베딩 전 세션·Qdrant 실패)는 유사도 판정을 우회하고 recency로만 본다
     assert sync_pipeline._append_blocked({"score": None, "last_activity_days_ago": 0}) is False
 
 
@@ -383,6 +383,7 @@ def test_fetch_candidates_falls_back_when_vector_search_fails(monkeypatch):
         raise RuntimeError("qdrant down")
 
     monkeypatch.setattr(sync_pipeline, "search_similar_with_scores", failing_search)
+    monkeypatch.setattr(sync_pipeline, "score_sessions", failing_search)
 
     recent_session = SimpleNamespace(
         id="sess-recent",
@@ -409,7 +410,7 @@ def test_fetch_candidates_falls_back_when_vector_search_fails(monkeypatch):
             "overview": "ov",
             "keywords": ["k"],
             "last_activity_days_ago": 0,
-            # 벡터 검색이 실패해 최근-only로 잡힌 후보 → score None(게이트 유사도 판정 우회)
+            # Qdrant 실패로 점수를 못 매긴 최근 후보 → score None(게이트 유사도 판정 우회)
             "score": None,
         }
     ]
@@ -455,6 +456,34 @@ def test_fetch_candidates_threads_vector_scores(monkeypatch):
 
     assert candidates[0]["session_id"] == "sess-v"
     assert candidates[0]["score"] == 0.63
+
+
+def test_fetch_candidates_scores_recent_only_sessions(monkeypatch):
+    async def search(*_a, **_k):
+        return []
+
+    scored_ids = []
+
+    async def score(_vector, session_ids, *, user_id):
+        scored_ids.append((list(session_ids), user_id))
+        return {"sess-recent": 0.21}
+
+    monkeypatch.setattr(sync_pipeline, "search_similar_with_scores", search)
+    monkeypatch.setattr(sync_pipeline, "score_sessions", score)
+
+    now = datetime.now(timezone.utc)
+    recent_session = SimpleNamespace(
+        id="sess-recent", title="최근 무관 세션", summary={}, keywords=[], last_activity_at=now, created_at=now
+    )
+    db = _QueuedDB([_ScalarsResult(["sess-recent"]), _ScalarsResult([recent_session])])
+    monkeypatch.setattr(sync_pipeline, "AsyncSessionLocal", lambda: _FakeSessionLocalCtx(db))
+
+    candidates = asyncio.run(sync_pipeline._fetch_candidates([0.1, 0.2], "u1"))
+
+    assert scored_ids == [(["sess-recent"], "u1")]
+    assert candidates[0]["score"] == 0.21
+    # 점수가 붙었으니 게이트가 하한(0.35) 미달 append를 막는다
+    assert sync_pipeline._append_blocked(candidates[0]) is True
 
 
 # ── _process_group ──────────────────────────────────────────────

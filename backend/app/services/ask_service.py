@@ -26,6 +26,10 @@ MAX_SOURCES = 3
 MAX_CANDIDATE_SOURCES = 5
 CANDIDATE_FLOOR = 0.15
 EVIDENCE_MARGIN = 0.15
+# 후보 세션 점수가 모두 검색 임계값(0.28) 미만이어도 본문 조각이 이 점수 이상이면 근거로 쓴다. 세션이
+# 여정 단위로 커지면 요약 벡터가 넓어져 세부 질문("정동진역 기네스 기록")의 세션 점수가 0.20까지 내려간다.
+# ponytail: 실측(2026-10-19) 무관 질문 조각 최고 0.348, 세션 기준에 걸린 정답 질문 0.496 사이 — 데이터가 늘면 재조정.
+PASSAGE_EVIDENCE_FLOOR = 0.40
 # 1위가 아닌 출처는 본문 근거가 이 점수 이상일 때만 남긴다(무관한 세션 카드가 붙는 것 방지).
 SECONDARY_EVIDENCE_FLOOR = 0.30
 # 단, 1위와 거의 같은 점수면 하한과 무관하게 남긴다. 막연한 질문은 모든 점수가 낮게 나와 같은 주제가
@@ -225,6 +229,18 @@ async def score_passages(
             (cosine_similarity(query_vector, vector), order, index, event, passage)
         )
     return scored
+
+
+def _session_relevant(source: SessionDetail) -> bool:
+    # vector_score가 없으면 후보 검색 밖에서 온 세션(직전 턴 출처·지정 세션)이라 관련성을 따지지 않는다.
+    return source.vector_score is None or source.vector_score >= settings.search_score_threshold
+
+
+def has_evidence(sources: list[SessionDetail], scored: dict[str, list[ScoredPassage]]) -> bool:
+    """세션 벡터 점수나 본문 조각 점수 중 하나라도 기준을 넘으면 답할 근거가 있다고 본다."""
+    if any(_session_relevant(source) for source in sources):
+        return True
+    return any(item[0] >= PASSAGE_EVIDENCE_FLOOR for entries in scored.values() for item in entries)
 
 
 def select_sources(
@@ -466,6 +482,8 @@ async def prepare_ask_context(
     )
     try:
         scored = await score_passages(retrieval_query or query, event_rows)
+        if not has_evidence(candidates, scored):
+            return AskContext(sources=[], prompt="", intent=intent)
         selected = select_sources(candidates, scored)
         budget = _session_budget(len(selected))
         evidence = {
@@ -475,7 +493,7 @@ async def prepare_ask_context(
         }
     except Exception:
         logger.warning("Ask 본문 조각 의미 랭킹 실패, 기존 relevance 랭킹 사용", exc_info=True)
-        selected = candidates[:MAX_SOURCES]
+        selected = [source for source in candidates if _session_relevant(source)][:MAX_SOURCES]
         evidence = {
             session_id: [
                 PageEvidence(event, [(event.content_excerpt or "").strip()[:MAX_EXCERPT_CHARS]])

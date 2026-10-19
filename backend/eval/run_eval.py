@@ -2,7 +2,8 @@
 
 처리 흐름: 골든셋 로드 → event_filter로 정규화 → dedupe_events/group_by_time_gap → split_noise
 → embed_many+subcluster로 그룹 내 주제 선분리(실 파이프라인과 동일한 순수 함수 재사용) →
-클러스터별 intent_analyzer.analyze() 호출(실 LLM/임베딩 또는 기록 재생) → 지표 계산 → 리포트.
+클러스터별 intent_analyzer.analyze() 호출(실 LLM/임베딩 또는 기록 재생) + 클러스터 안 세션 병합
+(_merge_split_topic) → 지표 계산 → 리포트.
 
 실행 (backend 디렉터리에서):
     python -m eval.run_eval
@@ -34,7 +35,7 @@ from app.services.grouper import dedupe_events, group_by_time_gap
 from app.services.intent_analyzer import Assignment
 from app.services.noise_filter import split_noise
 from app.services.subclusterer import subcluster
-from app.services.sync_pipeline import _event_embedding_text
+from app.services.sync_pipeline import _event_embedding_text, _merge_split_topic
 
 from . import metrics
 
@@ -220,12 +221,14 @@ async def evaluate_scenario(
         for cluster_index, idx_group in enumerate(clusters_idx):
             cluster_events = [group[i] for i in idx_group]
             call_key = f"{name}::{group_index}::{cluster_index}"
-            assignments = await _analyze_group(
-                cluster_events,
-                existing_sessions,
-                call_key,
-                record_sink=llm_record,
-                replay_map=llm_replay,
+            assignments = _merge_split_topic(
+                await _analyze_group(
+                    cluster_events,
+                    existing_sessions,
+                    call_key,
+                    record_sink=llm_record,
+                    replay_map=llm_replay,
+                )
             )
 
             for assignment in assignments:

@@ -393,6 +393,60 @@ def test_select_sources_keeps_unscorable_legacy_sessions():
     assert {s.session_id for s in selected} == {"legacy", "loan"}
 
 
+def _scored_source(session_id, vector_score):
+    source = _source(session_id, session_id)
+    source.vector_score = vector_score
+    return source
+
+
+def test_has_evidence_accepts_strong_passage_when_session_scores_are_low():
+    # 여정 단위로 커진 세션은 세부 질문의 세션 점수가 낮다(0.20) — 본문 조각이 강하면 근거로 쓴다
+    trip = _scored_source("trip", 0.20)
+
+    assert ask_service.has_evidence([trip], _scored("trip", 0.49)) is True
+    assert ask_service.has_evidence([trip], _scored("trip", 0.35)) is False
+    assert ask_service.has_evidence([_scored_source("trip", 0.30)], _scored("trip", 0.1)) is True
+    # 직전 턴 출처처럼 후보 검색 밖에서 온 세션은 관련성을 따지지 않는다
+    assert ask_service.has_evidence([trip, _source("previous")], {}) is True
+
+
+def test_prepare_context_returns_no_sources_without_evidence(monkeypatch):
+    async def fake_load(_db, _session_ids, _user_id):
+        return {}, []
+
+    async def fake_score(_query, _rows):
+        return _scored("weak", 0.27)
+
+    monkeypatch.setattr(ask_service, "_load_context_records", fake_load)
+    monkeypatch.setattr(ask_service, "score_passages", fake_score)
+
+    context = asyncio.run(
+        ask_service.prepare_ask_context(SimpleNamespace(), "제주 렌터카?", [_scored_source("weak", 0.21)], "u1")
+    )
+
+    assert context.sources == [] and context.prompt == ""
+
+
+def test_prepare_context_fallback_skips_weak_candidates(monkeypatch):
+    async def fake_load(_db, _session_ids, _user_id):
+        return {}, []
+
+    async def fail_rank(*_args):
+        raise RuntimeError("embedding unavailable")
+
+    monkeypatch.setattr(ask_service, "_load_context_records", fake_load)
+    monkeypatch.setattr(ask_service, "score_passages", fail_rank)
+
+    sources = [_scored_source("weak", 0.2), _scored_source("strong", 0.4)]
+    context = asyncio.run(ask_service.prepare_ask_context(SimpleNamespace(), "질문", sources, "u1"))
+
+    assert [s.session_id for s in context.sources] == ["strong"]
+
+
+def test_vector_score_is_not_serialized():
+    assert "vector_score" not in _scored_source("s", 0.5).model_dump()
+
+
 def test_prepare_context_numbers_only_selected_sources(monkeypatch):
     sources = [_source("loan", "전세대출"), _source("rtx", "그래픽카드")]
 

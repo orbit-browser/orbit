@@ -44,9 +44,8 @@ async def _search_sessions_by_vector(
 ) -> list[SessionDetail]:
     """기존 세션 벡터 검색 경로 — scope 무관하게(sessions/memory 둘 다) 그대로 재사용.
 
-    candidate_floor를 주면 가장 가까운 세션이 기본 임계값을 넘을 때에 한해 그보다 낮은 점수의
-    세션까지 후보로 돌려준다. Ask가 두 주제를 함께 묻는 질문에서 두 번째 세션을 놓치지 않도록
-    후보를 넓히고, 최종 선택은 본문 근거 점수로 한다(ask_service.select_sources).
+    candidate_floor를 주면 그 점수 이상의 세션을 vector_score와 함께 후보로 돌려준다. 관련성 판단
+    (세션 점수 또는 본문 조각 점수)과 최종 선택은 Ask가 본문 근거로 한다(ask_service.prepare_ask_context).
     """
     # 리랭킹 시 후보를 더 많이 가져와 선택지를 넓힌다
     fetch_limit = min(limit * 2, 20) if rerank else limit
@@ -94,13 +93,9 @@ async def _search_sessions_by_vector(
 
     # Qdrant 유사도 순서(높은 순)를 유지
     owned_ids = [sid for sid in session_ids if sid in sessions_by_id]
-    # 넓힌 후보는 요청자 소유 세션 중 1위가 기본 임계값을 넘을 때만 쓴다. Qdrant 결과 전체의 1위는
-    # 다른 사용자 세션일 수 있어 소유자 필터 뒤에 판단한다.
-    if candidate_floor is not None and (
-        not owned_ids or scores[owned_ids[0]] < settings.search_score_threshold
-    ):
-        return []
     candidates = [_to_detail(sessions_by_id[sid]) for sid in owned_ids]
+    for candidate, sid in zip(candidates, owned_ids):
+        candidate.vector_score = scores.get(sid)
 
     if rerank and candidates:
         candidates = await llm_rerank(q.strip(), candidates)
