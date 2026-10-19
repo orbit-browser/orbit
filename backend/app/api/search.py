@@ -66,6 +66,7 @@ async def _search_sessions_by_vector(
         logger.error("검색 임베딩 응답 형식 오류")
         raise HTTPException(status_code=502, detail="Embedding service returned an invalid response")
 
+    scores: dict[str, float] = {}
     try:
         if candidate_floor is None:
             session_ids = await search_similar(query_vector, limit=fetch_limit)
@@ -73,8 +74,8 @@ async def _search_sessions_by_vector(
             scored = await search_similar_with_scores(
                 query_vector, limit=fetch_limit, score_threshold=candidate_floor
             )
-            relevant = bool(scored) and scored[0][1] >= settings.search_score_threshold
-            session_ids = [session_id for session_id, _score in scored] if relevant else []
+            scores = dict(scored)
+            session_ids = [session_id for session_id, _score in scored]
     except Exception:
         logger.exception("Qdrant 검색 실패")
         raise HTTPException(status_code=503, detail="Vector search service unavailable")
@@ -92,7 +93,14 @@ async def _search_sessions_by_vector(
     sessions_by_id = {s.id: s for s in result.scalars().all()}
 
     # Qdrant 유사도 순서(높은 순)를 유지
-    candidates = [_to_detail(sessions_by_id[sid]) for sid in session_ids if sid in sessions_by_id]
+    owned_ids = [sid for sid in session_ids if sid in sessions_by_id]
+    # 넓힌 후보는 요청자 소유 세션 중 1위가 기본 임계값을 넘을 때만 쓴다. Qdrant 결과 전체의 1위는
+    # 다른 사용자 세션일 수 있어 소유자 필터 뒤에 판단한다.
+    if candidate_floor is not None and (
+        not owned_ids or scores[owned_ids[0]] < settings.search_score_threshold
+    ):
+        return []
+    candidates = [_to_detail(sessions_by_id[sid]) for sid in owned_ids]
 
     if rerank and candidates:
         candidates = await llm_rerank(q.strip(), candidates)

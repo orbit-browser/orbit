@@ -9,7 +9,6 @@ from app.services.ask_service import (
     AskContext,
     build_event_passage,
     build_answer_prompt,
-    rank_context_events,
     select_context_events,
 )
 from app.services import ask_service
@@ -29,6 +28,16 @@ def _source(session_id="session-1", title="보험 비교") -> SessionDetail:
         created_at="2026-08-01T00:00:00+00:00",
         updated_at="2026-08-01T01:00:00+00:00",
     )
+
+
+async def rank_context_events(query, rows, budgets=None):
+    scored = await ask_service.score_passages(query, rows)
+    return {
+        session_id: ask_service._pick_evidence(
+            entries, (budgets or {}).get(session_id, ask_service.MIN_SESSION_BUDGET_CHARS)
+        )
+        for session_id, entries in scored.items()
+    }
 
 
 def test_select_context_events_caps_each_session_and_prefers_score():
@@ -394,3 +403,17 @@ def test_prepare_context_numbers_only_selected_sources(monkeypatch):
     assert [s.session_id for s in context.sources] == ["loan"]
     assert "근거 번호: [1]" in context.prompt
     assert "그래픽카드" not in context.prompt
+
+
+def test_candidate_dedupe_prefers_visit_with_captured_content():
+    def visit(order: int, duration: int, excerpt: str):
+        return (
+            SimpleNamespace(session_id="s1", relevance_score=1.0, sequence_order=order),
+            SimpleNamespace(url="https://example.com/same", content_excerpt=excerpt, active_duration_ms=duration),
+        )
+
+    limited = ask_service._limit_event_candidates(
+        [visit(0, 600_000, ""), visit(1, 5_000, "필요서류: 재직증명서")]
+    )
+
+    assert [event.content_excerpt for _se, event in limited] == ["필요서류: 재직증명서"]

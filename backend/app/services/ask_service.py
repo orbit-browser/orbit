@@ -3,10 +3,9 @@ import logging
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 from urllib.parse import unquote, urlsplit
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,7 +40,9 @@ EVIDENCE_BUDGET_CHARS = 8000
 MIN_SESSION_BUDGET_CHARS = 2400
 MAX_CONTEXT_CHARS = 16_000
 # 사용자 질문의 "지난주", "어제"를 해석할 기준. 서비스 사용자가 한국 사용자라 KST로 표시한다.
-_KST = ZoneInfo("Asia/Seoul")
+# 한국은 서머타임이 없어 고정 오프셋이 정확하다. ZoneInfo("Asia/Seoul")는 tzdata가 없는
+# Windows에서 import 시점에 실패해 백엔드 전체가 뜨지 않는다.
+_KST = timezone(timedelta(hours=9), "KST")
 _WEEKDAYS = "월화수목금토일"
 logger = logging.getLogger(__name__)
 
@@ -139,17 +140,20 @@ def _limit_event_candidates(
         grouped[session_event.session_id].append((session_event, event))
     limited: list[tuple[SessionEvent, ExplorationEvent]] = []
     for items in grouped.values():
-        items.sort(key=lambda item: _event_score(*item), reverse=True)
-        # 같은 페이지를 여러 번 방문하면 같은 본문이 후보 자리를 반복해서 차지한다.
-        seen_urls: set[str] = set()
-        unique = []
+        # 같은 페이지를 여러 번 방문하면 같은 본문이 후보 자리를 반복해서 차지한다. URL당 하나만
+        # 남기되 본문이 수집된 방문을 대표로 고른다(오래 머문 본문 없는 방문이 밀어내지 않도록).
+        by_url: dict[str, tuple[SessionEvent, ExplorationEvent]] = {}
         for item in items:
-            if item[1].url in seen_urls:
-                continue
-            seen_urls.add(item[1].url)
-            unique.append(item)
+            current = by_url.get(item[1].url)
+            if current is None or _representative_key(item) > _representative_key(current):
+                by_url[item[1].url] = item
+        unique = sorted(by_url.values(), key=lambda item: _event_score(*item), reverse=True)
         limited.extend(unique[:MAX_EVENT_CANDIDATES_PER_SESSION])
     return limited
+
+
+def _representative_key(item: tuple[SessionEvent, ExplorationEvent]) -> tuple[bool, float]:
+    return bool((item[1].content_excerpt or "").strip()), _event_score(*item)
 
 
 def _pick_evidence(
@@ -203,19 +207,6 @@ async def score_passages(
             (cosine_similarity(query_vector, vector), order, index, event, passage)
         )
     return scored
-
-
-async def rank_context_events(
-    query: str,
-    rows: Iterable[tuple[SessionEvent, ExplorationEvent]],
-    budgets: dict[str, int] | None = None,
-) -> dict[str, list[PageEvidence]]:
-    scored = await score_passages(query, rows)
-    budgets = budgets or {}
-    return {
-        session_id: _pick_evidence(entries, budgets.get(session_id, MIN_SESSION_BUDGET_CHARS))
-        for session_id, entries in scored.items()
-    }
 
 
 def select_sources(

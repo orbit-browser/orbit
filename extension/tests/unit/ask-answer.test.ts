@@ -18,5 +18,15 @@ describe('cleanAnswerText', () => {
   it('코드 표기는 건드리지 않는다', () => {
     const code = 'def f(*args, **kwargs):\n    return __name__';
     expect(cleanAnswerText(code, 1)).toBe(code);
+    expect(cleanAnswerText('첫 결과는 results[0]이고 포트는 ports = [8000] [1]', 1)).toBe(
+      '첫 결과는 results[0]이고 포트는 ports = [8000] [1]',
+    );
+    const fenced = '설정 [2]\n```python\n# 주석\nitems[2] = **x**\n```';
+    expect(cleanAnswerText(fenced, 1)).toBe('설정\n```python\n# 주석\nitems[2] = **x**\n```');
+    expect(cleanAnswerText('`arr[3]` 를 보세요 [3]', 1)).toBe('`arr[3]` 를 보세요');
+  });
+
+  it('한글 바로 뒤에 붙은 근거 번호도 범위를 확인한다', () => {
+    expect(cleanAnswerText('무료[2] 유료[1]', 1)).toBe('무료 유료[1]');
   });
 });
