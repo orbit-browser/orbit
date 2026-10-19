@@ -86,6 +86,18 @@ def test_sensitive_domain_is_detected():
     assert event_filter.is_sensitive_url("https://www.nhis.or.kr/") is True
 
 
+def test_government_personal_services_stay_sensitive_but_public_pages_do_not():
+    assert event_filter.is_sensitive_url("https://www.gov.kr/portal/rcvfvrSvc/dtlEx/1") is True
+    assert event_filter.is_sensitive_url("https://hometax.go.kr/websquare/websquare.html") is True
+    assert event_filter.is_sensitive_url("https://www.wetax.go.kr/main.do") is True
+    assert event_filter.is_sensitive_url("https://ecfs.scourt.go.kr/ecf/index.jsp") is True
+    # 복지로·지자체 공지 같은 공공 정보 페이지는 본문을 수집한다
+    assert event_filter.is_sensitive_url("https://www.bokjiro.go.kr/ssis-tbu/cms/pc/customer/notice/130") is False
+    assert event_filter.is_sensitive_url("https://soco.seoul.go.kr/youth/bbs/BMSR00013/view.do") is False
+    # 로그인 경로 규칙은 공공 사이트에도 그대로 적용된다
+    assert event_filter.is_sensitive_url("https://www.bokjiro.go.kr/login") is True
+
+
 def test_sensitive_path_is_detected():
     assert event_filter.is_sensitive_url("https://shop.example.com/checkout") is True
     assert event_filter.is_sensitive_url("https://app.example.com/mypage/password") is True
