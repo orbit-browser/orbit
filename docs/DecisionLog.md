@@ -11,6 +11,28 @@
 - 대안:
 - 근거와 영향:
 
+## 2026-10-19 — LLM 공급 경로 교체: A.X-K2, K-EXAONE dedicated endpoint
+
+- 상태: 승인
+- 배경: 실키 호출로 두 공급자가 모두 막힌 것을 확인했다. SKT 게이트웨이는 같은 키로 `A.X-K1`에
+  `401: API-KEY cannot be used for this serving model`을 주고 `A.X-K2`에는 200을 준다.
+  FriendliAI serverless는 2026-08-20에 `LGAI-EXAONE/K-EXAONE-236B-A23B` 제공을 끝냈고(changelog),
+  serverless 모델 목록에 EXAONE이 없다. 코드 기본값으로는 요약·의도분석·Ask가 전부 실패했다.
+- 결정: `AXK1_MODEL` 기본값을 `A.X-K2`로 바꾼다. EXAONE은 팀 dedicated endpoint로 호출한다
+  (`FRIENDLI_BASE_URL=https://api.friendli.ai/dedicated/v1`, `EXAONE_MODEL=depmkuykpfon9lg`).
+  환경변수 이름과 단계별 primary/fallback 배정은 그대로 둔다.
+- 대안: Upstage Solar 임시 폴백(국내 모델이지만 SKT·LG 2종 구성이 깨진다), 대회 측에
+  A.X-K1 권한 재요청(답을 기다리는 동안 기능이 멈춘다).
+- 근거와 영향: 2026-10-19 실측. endpoint는 이름 `K-EXAONE`, B200×2, RUNNING 상태다.
+  thinking을 끈 호출이 0.4초 걸렸다(8월의 dedicated ~60초 문제는 재현되지 않음).
+  env만 바꿔 `chat_completion_with_meta`·`chat_completion_light`·`chat_completion_intent`·
+  스트리밍 4경로가 모두 primary로 0.2~0.8초에 응답했다.
+  - endpoint의 autoscaling이 min=max=1이라 호출이 없어도 과금된다.
+  - endpoint ID는 팀 전용이라 다른 Friendli 팀의 키로는 403이 난다.
+  - 단계별 모델 배정(2026-08-05)은 A.X-K1 기준으로 측정했고 K2로는 다시 평가하지 않았다.
+    3 RPS 제한도 K1 시절 안내 값이며, 리미터는 그대로 유지한다.
+  - 감사 필드의 EXAONE 라벨은 `exaone/<endpoint ID>`로 남는다. UI에는 노출되지 않는다.
+
 ## 2026-08-12 — 온보딩 투어가 끝나면 안내 탭을 새 탭 홈으로 돌려놓는다
 
 - 상태: 승인
@@ -633,7 +655,7 @@
 
 ## 2026-08-05 — EXAONE dedicated → serverless 전환
 
-- 상태: 승인
+- 상태: 대체 (2026-10-19 — serverless K-EXAONE 제공 종료로 dedicated endpoint 복귀)
 - 배경: dedicated endpoint가 웜 상태에서도 호출당 54~70초(첫 바이트까지 55초 — 전부 서버측 지연, 네트워크 정상)로 25초 타임아웃에 항상 걸려 클러스터링이 A.X로만 폴백되고 있었다.
 - 결정: FriendliAI serverless `LGAI-EXAONE/K-EXAONE-236B-A23B`로 전환(base_url/model 기본값 변경). 종량제 $0.2/$0.8 per M tokens.
 - 대안: dedicated 인스턴스 사양 상향(콘솔 확인·비용 증가), 클러스터링 A.X 회귀(모델 다양성 상실)

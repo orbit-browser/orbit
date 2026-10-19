@@ -10,18 +10,19 @@ _ENV_FILE = Path(__file__).parent.parent / ".env"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
-    # A.X-K1 (SKT) — 요약·의도분석·리랭킹·채팅 primary (DecisionLog 2026-08-05)
+    # SKT A.X — 요약·리랭킹·채팅 primary (DecisionLog 2026-08-05).
+    # 발급 키는 A.X-K2만 서빙 권한이 있다 — A.X-K1은 401(DecisionLog 2026-10-19).
     axk1_api_key: str = ""
     axk1_base_url: str = "https://awf-gw.adot.ai/v1"
-    axk1_model: str = "A.X-K1"
+    axk1_model: str = "A.X-K2"
 
-    # LG EXAONE (FriendliAI serverless, OpenAI 호환) — 클러스터링 primary.
-    # dedicated endpoint는 웜 상태에서도 ~60초/호출로 부적합해 serverless 채택(DecisionLog 2026-08-05).
+    # LG K-EXAONE (FriendliAI dedicated endpoint, OpenAI 호환) — 의도분석·클러스터링 primary.
+    # serverless는 2026-08-20 K-EXAONE 제공 종료. model 자리에 팀 endpoint ID를 넣는다(DecisionLog 2026-10-19).
     friendli_api_key: str = ""
-    friendli_base_url: str = "https://api.friendli.ai/serverless/v1"
-    exaone_model: str = "LGAI-EXAONE/K-EXAONE-236B-A23B"
+    friendli_base_url: str = "https://api.friendli.ai/dedicated/v1"
+    exaone_model: str = "depmkuykpfon9lg"
 
-    # Upstage — embedding 전용 (채팅 경로는 A.X-K1 ↔ EXAONE 상호 폴백으로 대체)
+    # Upstage — embedding 전용 (채팅 경로는 A.X ↔ EXAONE 상호 폴백으로 대체)
     upstage_api_key: str = ""
     upstage_base_url: str = "https://api.upstage.ai/v1"
     embedding_model: str = "embedding-query"       # 검색 쿼리 임베딩
