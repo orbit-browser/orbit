@@ -60,3 +60,22 @@ def test_embed_many_preserves_order_even_if_response_shuffled(monkeypatch):
     assert result == [[1.0], [2.0], [3.0]]
     # 배열 입력을 그대로 보냈는지 확인
     assert capture["json"]["input"] == ["a", "b", "c"]
+
+
+def test_embed_many_splits_over_provider_batch_limit(monkeypatch):
+    sent: list[list[str]] = []
+
+    class _EchoClient(_FakeClient):
+        async def post(self, _url, headers=None, json=None):
+            sent.append(json["input"])
+            return _FakeResponse(
+                {"data": [{"index": i, "embedding": [float(t)]} for i, t in enumerate(json["input"])]}
+            )
+
+    monkeypatch.setattr(embedding.httpx, "AsyncClient", lambda *a, **k: _EchoClient(None, {}))
+    texts = [str(i) for i in range(250)]
+
+    result = asyncio.run(embedding.embed_many(texts))
+
+    assert [len(batch) for batch in sent] == [100, 100, 50]
+    assert result == [[float(i)] for i in range(250)]

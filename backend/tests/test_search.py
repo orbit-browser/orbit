@@ -286,3 +286,33 @@ def test_search_sessions_scope_sessions_default_returns_bare_list(monkeypatch):
     response = asyncio.run(search.search_sessions(q="query", limit=5, rerank=False, db=None, user_id="u1"))
 
     assert response == [session]
+
+
+def test_widened_candidates_require_owned_top_above_threshold(monkeypatch):
+    """넓힌 후보에서 '관련 있음' 판단은 소유자 필터 뒤의 1위로 한다(다른 사용자 세션 제외)."""
+    import asyncio
+    from types import SimpleNamespace
+
+    async def fake_embed(_q):
+        return [0.1]
+
+    async def fake_scores(_vector, limit, score_threshold):
+        return [("other-user", 0.9), ("mine", 0.2)]
+
+    class _Result:
+        def scalars(self):
+            return SimpleNamespace(all=lambda: [SimpleNamespace(id="mine")])
+
+    class _DB:
+        async def execute(self, _stmt):
+            return _Result()
+
+    monkeypatch.setattr(search, "embed", fake_embed)
+    monkeypatch.setattr(search, "search_similar_with_scores", fake_scores)
+    monkeypatch.setattr(search, "_to_detail", lambda s: s)
+
+    result = asyncio.run(
+        search._search_sessions_by_vector("질문", 5, False, _DB(), "me", candidate_floor=0.15)
+    )
+
+    assert result == []

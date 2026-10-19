@@ -1,5 +1,10 @@
+import asyncio
+
 import httpx
 from ..config import settings
+
+# Upstage 임베딩 요청 1회의 입력 개수 상한 — 101개부터 400(`$.input is invalid`)으로 거부된다.
+_MAX_BATCH = 100
 
 
 async def embed(text: str, *, model: str | None = None) -> list[float]:
@@ -24,16 +29,29 @@ async def embed_many(texts: list[str], *, model: str | None = None) -> list[list
 
     서브클러스터링처럼 그룹 내 이벤트별 임베딩이 여럿 필요할 때 HTTP 왕복을 1회로 줄인다.
     입력 순서와 반환 순서를 보장한다(Upstage가 index를 섞어 보낼 경우 대비해 정렬). 빈 입력은 [].
+    상한(100개)을 넘으면 나눠서 동시에 요청한다.
     """
     if not texts:
         return []
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{settings.upstage_base_url}/embeddings",
-            headers={"Authorization": f"Bearer {settings.upstage_api_key}"},
-            json={"model": model or settings.embedding_model, "input": texts},
+        batches = await asyncio.gather(
+            *(
+                _embed_batch(client, texts[start : start + _MAX_BATCH], model)
+                for start in range(0, len(texts), _MAX_BATCH)
+            )
         )
-        resp.raise_for_status()
-        data = resp.json()
-        items = sorted(data["data"], key=lambda item: item["index"])
-        return [item["embedding"] for item in items]
+    return [vector for batch in batches for vector in batch]
+
+
+async def _embed_batch(
+    client: httpx.AsyncClient, texts: list[str], model: str | None
+) -> list[list[float]]:
+    resp = await client.post(
+        f"{settings.upstage_base_url}/embeddings",
+        headers={"Authorization": f"Bearer {settings.upstage_api_key}"},
+        json={"model": model or settings.embedding_model, "input": texts},
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    items = sorted(data["data"], key=lambda item: item["index"])
+    return [item["embedding"] for item in items]

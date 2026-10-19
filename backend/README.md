@@ -122,6 +122,10 @@ Qdrant 검색 장애는 503으로 반환하며 내부 예외 상세는 API 응�
   끄지 않으면 출력 토큰을 추론 트레이스가 소진해 content가 비어 온다.
 - Ask 스트리밍은 첫 토큰 전 실패에만 폴백한다. 토큰을 이미 보낸 뒤 끊기면 다른 모델로
   이어붙일 수 없어 `StreamInterruptedError`로 호출자에게 부분 실패를 알린다.
+- 폴백 대상 상태 코드는 401·403·404·429·5xx다(`llm._should_fallback`). 401/403은 그 공급자의
+  키·모델 권한 문제라 다른 공급자는 정상일 수 있다. 400·422 같은 요청 오류는 그대로 던진다.
+- Ask 출처·컨텍스트 선택 규칙은 `docs/api-design-v2.md` §8.1, 품질 평가는
+  `python -m eval.run_ask_eval`(eval/README.md).
 
 세션 저장 흐름: 저장 요청 → 규칙 기반 제목으로 즉시 DB 저장(`summary_status=pending`) 및 응답 →
 백그라운드에서 LLM 요약 생성(`summary_status=done|failed`) → 요약 텍스트를 embedding-passage로

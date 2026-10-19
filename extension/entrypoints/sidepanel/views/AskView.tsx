@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { RotateCcw, Sparkles } from 'lucide-react';
+import { cleanAnswerText } from '../../../lib/ask-answer';
 import { useAskConversation } from '../../shared/hooks/useAskConversation';
 import { SessionCard } from '../components/SessionCard';
 import { useSettingsStore } from '../store/settings';
@@ -72,7 +73,7 @@ export function AskView() {
                     <Sparkles size={12} className="text-orbit-primary" /> Orbit AI
                   </div>
                   <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-orbit-text">
-                    {turn.answer}
+                    {cleanAnswerText(turn.answer, turn.sources.length)}
                     {turn.status === 'streaming' && (
                       <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-orbit-primary align-middle" />
                     )}

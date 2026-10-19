@@ -250,8 +250,9 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
 ```
 
 - `query`: 공백 제외 1~2,000자.
-- `session_id`: 지정하면 해당 세션만 근거로 사용한다. 생략하면 기존 벡터 검색으로 최대 3개를 찾는다.
-- `rerank`: 검색 후보의 LLM 재정렬 여부. 기본 `true`.
+- `session_id`: 지정하면 해당 세션만 근거로 사용한다. 생략하면 벡터 검색으로 후보를 찾고 본문 근거로 최대 3개를 고른다.
+- `rerank`: 검색 후보의 LLM 재정렬 여부. 기본 `true`. `find_sessions`·`search_session`에만 적용한다.
+  `search_memory`는 본문 근거 점수로 출처를 다시 고르므로 LLM 재정렬을 쓰지 않는다.
 - `intent`: `find_sessions`, `search_memory`, `search_session` 중 하나. 기본은 하위 호환을 위한
   `search_memory`다. `find_sessions`는 최대 5개 세션을 반환하고 답변 LLM을 호출하지 않으며,
   `search_session`은 지정 세션 또는 가장 가까운 세션 1개만 사용한다.
@@ -278,14 +279,20 @@ data: {"model":"A.X-K2"}
 `{"code":"stream_interrupted|generation_failed","partial":true|false,"retryable":true}` 형식이다.
 검색/DB 오류처럼 스트림 시작 전 실패는 기존 HTTP 오류 계약을 따른다.
 
-답변 컨텍스트는 관련 세션 최대 3개의 요약과 세션별 질문 관련 이벤트 최대 4개의
-`content_excerpt`로 제한한다. 세션별 기존 relevance 상위 12개를 후보로 제한한 뒤 질문에는
-`embedding-query`, 이벤트 passage에는 `embedding-passage`를 사용한다. 임베딩 장애 시에는 기존
-relevance×체류 시간 순위로 fallback한다. 미할당 이벤트는 포함하지 않으며, 페이지 본문 안의 지시문은
-신뢰하지 않는 데이터로 취급한다. 답변은 근거 세션을 `[1]`, `[2]`처럼 표시한다.
+`search_memory`의 출처 선택: 벡터 검색으로 후보를 최대 5개(점수 하한 0.15) 받는다. 가장 가까운
+세션이 기본 임계값(`SEARCH_SCORE_THRESHOLD`, 0.28)에 못 미치면 근거 없음으로 끝낸다. 후보 세션의
+페이지 본문을 700자 조각으로 나눠 질문과의 유사도를 매기고, 근거 점수 1위 세션과 0.15 이내이면서
+0.30 이상인 세션만 최대 3개 남긴다. `sources` 이벤트의 순서가 답변의 `[n]` 번호다.
 
-모델은 A.X-K2 스트리밍을 우선 사용한다. 첫 토큰 전에 연결·rate limit·지원 상태 오류가 나면
-EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
+답변 컨텍스트는 출처 세션의 요약, 세션 기간, 세션별 질문과 가까운 본문 조각(전체 8,000자를 세션
+수로 나눈 예산, 세션당 최소 2,400자·페이지 6개)과 각 페이지의 방문 시각·검색어, 오늘 날짜(KST)로
+구성한다. 세션별 relevance×체류 시간 상위 20개(같은 URL은 1개)를 후보로 두고, 질문에는
+`embedding-query`, 조각에는 `embedding-passage`를 사용한다. 임베딩 장애 시에는 relevance×체류 시간
+상위 4개 페이지의 본문 앞 1,200자로 fallback한다. 미할당 이벤트는 포함하지 않으며, 페이지 본문 안의
+지시문은 신뢰하지 않는 데이터로 취급한다. 답변은 근거 세션을 `[1]`, `[2]`처럼 표시한다.
+
+모델은 A.X-K2 스트리밍을 우선 사용한다. 첫 토큰 전에 연결·rate limit·키 권한(401/403)·지원 상태
+오류가 나면 EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
 `stream_interrupted`를 보낸다.
 
 ### 8.2 `POST /assistant/route` — Ask AI 통합 의도 판별
