@@ -14,6 +14,8 @@ from ..schemas.ask import AskStreamRequest
 from ..schemas.session import SessionDetail
 from ..services.ask_service import (
     ASK_SYSTEM_PROMPT,
+    CANDIDATE_FLOOR,
+    MAX_CANDIDATE_SOURCES,
     AskContext,
     prepare_ask_context,
 )
@@ -43,10 +45,20 @@ async def _resolve_sources(
             raise HTTPException(status_code=404, detail="Session not found")
         return [_to_detail(session)]
 
-    limit = (
-        5 if body.intent == "find_sessions" else 1 if body.intent == "search_session" else 3
+    if body.intent == "find_sessions":
+        return await _search_sessions_by_vector(body.query, 5, body.rerank, db, user_id)
+    if body.intent == "search_session":
+        return await _search_sessions_by_vector(body.query, 1, body.rerank, db, user_id)
+    # 후보를 넓게 받고 최종 출처는 prepare_ask_context가 본문 근거 점수로 다시 고른다.
+    # 요약 60자만 보는 LLM 리랭크는 그 재정렬과 겹치고 첫 토큰을 ~1.2초 늦춰 쓰지 않는다.
+    return await _search_sessions_by_vector(
+        body.query,
+        MAX_CANDIDATE_SOURCES,
+        False,
+        db,
+        user_id,
+        candidate_floor=CANDIDATE_FLOOR,
     )
-    return await _search_sessions_by_vector(body.query, limit, body.rerank, db, user_id)
 
 
 async def _answer_events(

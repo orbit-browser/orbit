@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.embedding import embed
 from ..ai.reranker import rerank as llm_rerank
+from ..config import settings
 from ..db.models import (
     ExplorationEvent,
     SESSION_DISPLAY_TITLE,
@@ -15,7 +16,7 @@ from ..db.models import (
     SessionEvent,
 )
 from ..db.session import get_db
-from ..db.vector import search_similar
+from ..db.vector import search_similar, search_similar_with_scores
 from ..schemas.event import MemorySearchEventItem, MemorySearchResponse
 from ..schemas.session import SessionDetail
 from .deps import current_user_id
@@ -33,9 +34,20 @@ _KEYWORD_QUERY_FETCH_CAP = 200
 
 
 async def _search_sessions_by_vector(
-    q: str, limit: int, rerank: bool, db: AsyncSession, user_id: str
+    q: str,
+    limit: int,
+    rerank: bool,
+    db: AsyncSession,
+    user_id: str,
+    *,
+    candidate_floor: float | None = None,
 ) -> list[SessionDetail]:
-    """기존 세션 벡터 검색 경로 — scope 무관하게(sessions/memory 둘 다) 그대로 재사용."""
+    """기존 세션 벡터 검색 경로 — scope 무관하게(sessions/memory 둘 다) 그대로 재사용.
+
+    candidate_floor를 주면 가장 가까운 세션이 기본 임계값을 넘을 때에 한해 그보다 낮은 점수의
+    세션까지 후보로 돌려준다. Ask가 두 주제를 함께 묻는 질문에서 두 번째 세션을 놓치지 않도록
+    후보를 넓히고, 최종 선택은 본문 근거 점수로 한다(ask_service.select_sources).
+    """
     # 리랭킹 시 후보를 더 많이 가져와 선택지를 넓힌다
     fetch_limit = min(limit * 2, 20) if rerank else limit
 
@@ -55,7 +67,14 @@ async def _search_sessions_by_vector(
         raise HTTPException(status_code=502, detail="Embedding service returned an invalid response")
 
     try:
-        session_ids = await search_similar(query_vector, limit=fetch_limit)
+        if candidate_floor is None:
+            session_ids = await search_similar(query_vector, limit=fetch_limit)
+        else:
+            scored = await search_similar_with_scores(
+                query_vector, limit=fetch_limit, score_threshold=candidate_floor
+            )
+            relevant = bool(scored) and scored[0][1] >= settings.search_score_threshold
+            session_ids = [session_id for session_id, _score in scored] if relevant else []
     except Exception:
         logger.exception("Qdrant 검색 실패")
         raise HTTPException(status_code=503, detail="Vector search service unavailable")

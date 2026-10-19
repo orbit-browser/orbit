@@ -107,7 +107,7 @@ def test_vector_search_receives_requesting_user(monkeypatch):
     """세션을 지목하지 않으면 벡터 검색으로 근거를 찾는데, 그 검색도 소유자 범위여야 한다."""
     captured = {}
 
-    async def fake_search(query, limit, rerank, db, user_id):
+    async def fake_search(query, limit, rerank, db, user_id, **_kwargs):
         captured.update(query=query, limit=limit, rerank=rerank, user_id=user_id)
         return []
 
