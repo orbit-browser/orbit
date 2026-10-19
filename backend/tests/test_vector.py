@@ -96,6 +96,20 @@ def test_backfill_sets_payload_and_deletes_orphans(monkeypatch):
     assert state.deleted == ["orphan"]
 
 
+def test_backfill_groups_payload_updates_by_owner(monkeypatch):
+    from app.db import session as db_session
+
+    state, client = _backfill_client([
+        ([SimpleNamespace(id="a"), SimpleNamespace(id="b"), SimpleNamespace(id="c")], None),
+    ])
+    monkeypatch.setattr(vector, "get_qdrant", lambda: client)
+    monkeypatch.setattr(db_session, "AsyncSessionLocal", lambda: _FakeDBCtx({"a": "u1", "b": "u2", "c": "u1"}))
+
+    asyncio.run(vector.backfill_user_ids())
+
+    assert state.set_calls == [(["a", "c"], {"user_id": "u1"}), (["b"], {"user_id": "u2"})]
+
+
 def test_backfill_swallows_errors(monkeypatch):
     class Boom:
         async def scroll(self, **_kwargs):

@@ -93,14 +93,18 @@ async def backfill_user_ids(page_size: int = 256) -> None:
                         select(SessionModel.id, SessionModel.user_id).where(SessionModel.id.in_(ids))
                     )
                     owners = {sid: uid for sid, uid in rows.all()}
+                # 소유자별로 묶어 set_payload 호출 수를 줄인다(포인트마다 호출하면 기동이 느려진다).
+                by_owner: dict[str, list[str]] = {}
                 for sid in ids:
                     if sid in owners:
-                        await client.set_payload(
-                            collection_name=COLLECTION,
-                            payload={"user_id": owners[sid]},
-                            points=[sid],
-                        )
-                        updated += 1
+                        by_owner.setdefault(owners[sid], []).append(sid)
+                for uid, owned_ids in by_owner.items():
+                    await client.set_payload(
+                        collection_name=COLLECTION,
+                        payload={"user_id": uid},
+                        points=owned_ids,
+                    )
+                    updated += len(owned_ids)
                 orphans = [sid for sid in ids if sid not in owners]
                 if orphans:
                     await client.delete(

@@ -11,7 +11,10 @@
   검색·후보 조회·추천·병합 제안 호출부 모두 소유자를 전달하고 SQL 소유권 필터는 다층 방어로 유지한다.
   `init_collection()`이 `user_id` keyword 인덱스를 보장하고, 기동 시 `backfill_user_ids()`가 `user_id` 없는 기존 포인트를
   채우거나(세션 없는 고아 포인트는 삭제) 실패해도 기동을 막지 않는다.
-- 검증: 신규·갱신 테스트 포함 `python -m pytest -p no:asyncio` 518 passed. 실제 Qdrant/PostgreSQL 대상 검증은 하지 않았다.
+- 백필은 소유자별로 묶어 `set_payload`를 호출한다(포인트마다 호출하면 기동이 느려진다).
+- 검증: `python -m pytest -p no:asyncio` 519 passed. 로컬 Qdrant 실측 — 기동 시 `user_id` keyword 인덱스 생성,
+  새 포인트 payload에 `user_id` 포함, `user_id`를 지운 포인트는 백필로 복구(`IsEmptyCondition`이 키가 없는
+  포인트도 잡음), 세션 없는 고아 포인트 삭제, 같은 질의로 본인 5건·다른 사용자 0건.
 
 ## 2026-10-19 — 이벤트 개별 삭제가 동기화된 이벤트에서 500으로 실패
 
