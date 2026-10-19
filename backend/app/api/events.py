@@ -39,7 +39,7 @@ from .deps import current_user_id
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["events"])
 
-_MAX_EXCERPT_LEN = 5000
+_MAX_EXCERPT_LEN = 16000  # 확장 MAX_CONTENT_EXCERPT_LENGTH·DB VARCHAR(16000)과 같은 값
 _MAX_TITLE_LEN = 500
 _EVENTS_LIST_CAP = 500
 

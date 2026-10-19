@@ -3,7 +3,7 @@
 
 export interface PageContent {
   title: string;
-  /** Readability가 추출한 순수 텍스트 (임베딩 입력용, 최대 8000자) */
+  /** 정규화한 본문 텍스트 (Readability, 실패 시 iframe·화면 텍스트 폴백, 최대 MAX_CONTENT_EXCERPT_LENGTH자) */
   textContent: string;
   /** 짧은 발췌문 (UI 미리보기 / LLM 요약용) */
   excerpt: string;

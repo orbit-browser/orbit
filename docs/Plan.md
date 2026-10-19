@@ -1,3 +1,60 @@
+# 본문 수집 폴백과 상한 상향
+
+**상태:** 구현 완료 (2026-10-19)
+**브랜치:** `feat/content-capture-fallback`
+
+## 작업 목표
+
+- Readability가 본문을 못 찾거나 짧게 뽑는 페이지에서도 본문을 남긴다(네이버 블로그 0자, 리멤버 211자).
+- 4,000자 상한 때문에 긴 페이지의 뒷부분 사실(비용·FAQ)이 빠지는 문제를 줄인다.
+
+## 현재 상태와 조사 결과 (실제 크롬, load / +3초 / +6초)
+
+- 네이버 블로그: 최상위 문서는 비어 있고(Readability null) 본문은 same-origin iframe `#mainFrame`에 있다.
+  iframe 문서에 Readability를 돌리면 본문 1,202자가 나온다. content script는 최상위 프레임에서만 돈다.
+- 리멤버: Readability가 엉뚱한 블록(211자)을 고른다. 화면 텍스트는 2,912자.
+- 복지로·경남바로서비스·서울 청년몽땅정보통: Readability는 850~1,569자를 뽑는다. 0자는 `.go.kr` 민감 도메인 정책
+  (확장·백엔드 모두 본문 제거)의 의도된 결과다 — 이번 범위 밖.
+- 정부24: 헤드리스 크롬을 `/mbuster/Mbuster_T.html`("비정상 서비스 접속으로 차단")로 돌려보낸다. 고칠 수 없다.
+- 늦게 렌더링돼 load 시점에 비어 있던 페이지는 이번 55개에는 없었다(네이버 검색은 시점마다 길이가 흔들림).
+- Readability 원문에 공백이 많아 4,000자 중 상당 부분이 공백이었다(koreacharts 원문 60,246자 → 정규화 3,755자).
+- 정규화 후 54개(1개 타임아웃) 길이: 중앙값 3,574, p75 6,770, p90 11,760, 최대 29,976. 상한별 온전히 남는
+  페이지: 4,000 31개, 8,000 43개, 12,000 49개, 16,000 51개.
+
+## 포함 범위
+
+- content script 추출 폴백: Readability → (짧으면) same-origin iframe 문서의 Readability → 화면 텍스트
+  (`document.body.innerText`). 공백·빈 줄 정규화. 결과가 짧으면 3초 뒤 한 번 더 추출해 더 길 때만 다시 보낸다.
+- 상한 16,000자: 확장 `MAX_CONTENT_EXCERPT_LENGTH`·content script, 백엔드 `_MAX_EXCERPT_LEN`, DB `String(16000)`.
+- 기동 마이그레이션에 `exploration_events.content_excerpt` 폭 확장(현재 길이가 작을 때만 ALTER).
+
+## 제외 범위
+
+- `.go.kr` 민감 도메인 정책 변경(보안 정책 — 사용자 결정 필요), 모든 프레임 주입(`all_frames`), `backend/app/services/*`.
+
+## 변경 파일
+
+- `extension/lib/page-text.ts`(신규, 순수 함수), `extension/entrypoints/content.ts`, `extension/lib/events/types.ts`,
+  `extension/lib/types.ts`(주석), 테스트 `tests/unit/page-text.test.ts`·`queue.test.ts`.
+- `backend/app/api/events.py`, `backend/app/db/models.py`, `backend/app/db/migrations.py`, 테스트.
+
+## 테스트 및 검증
+
+- `pnpm test && pnpm compile && pnpm build`, `python -m pytest -p no:asyncio`.
+- 포트 8007 백엔드 + 확장 빌드로 실패 URL과 일반 기사 3개를 재생해 DB에 저장된 길이를 확인한다.
+
+## 위험
+
+- 화면 텍스트 폴백은 메뉴·푸터가 섞인다. Readability가 500자 이상이면 쓰지 않는다.
+- 상한 상향으로 배치(50건) 최악 크기 약 2.3MB(한글 3바이트), 평균 저장 길이 2,771 → 4,824자(+74%).
+
+## 완료 조건
+
+- 네이버 블로그·리멤버가 실제 재생에서 500자 이상 저장되고, 긴 페이지가 16,000자까지 저장된다.
+- 전체 테스트·타입 검사·빌드 통과, 문서·WorkLog·DecisionLog 갱신.
+
+---
+
 # 실제 데이터 기준 세션화·Ask 근거 판단 개선
 
 **상태:** 구현 완료 (2026-10-19)
