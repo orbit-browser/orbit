@@ -26,7 +26,7 @@ CREATE TABLE exploration_events (
     previous_event_id   UUID,   -- 소프트 참조(FK 없음): 대상이 필터 제외/미동기화일 수 있어 FK 시 배치 인제스트가 깨짐
     referrer_url        TEXT,
     event_type          VARCHAR(20)  NOT NULL DEFAULT 'visit',  -- visit | spa_nav (§4 확장 설계)
-    content_excerpt      VARCHAR(5000),
+    content_excerpt      VARCHAR(16000),
     content_hash        VARCHAR(64),                    -- 중복 병합 키(§5)
     sync_status         VARCHAR(20)  NOT NULL DEFAULT 'pending', -- pending|processing|processed|discarded
     hold_count          INTEGER      NOT NULL DEFAULT 0,
@@ -41,7 +41,8 @@ CREATE INDEX ix_exploration_events_normalized_url ON exploration_events (normali
 ```
 
 - PK가 클라이언트 생성 UUID인 이유: 인제스트 삽입을 `ON CONFLICT (id) DO NOTHING`으로 멱등 처리하기 위함(전송 후 SW가 죽어도 재전송이 중복 레코드를 만들지 않음).
-- `content_excerpt` 5000자 캡은 요약 프롬프트(`services/summarizer.py`의 `_MAX_CHARS_PER_TAB=2000`)보다 넉넉하게 잡아 원본을 보존하고, 실제 LLM 전송 시점에 별도로 자른다(§target-architecture.md §6 "LLM 전송 전 제외" 참고).
+- `content_excerpt` 16,000자 캡(2026-10-19, 이전 5,000자 — 확장은 4,000자에서 잘랐다)은 확장 `MAX_CONTENT_EXCERPT_LENGTH`, 인제스트 `_MAX_EXCERPT_LEN`과 같은 값이다. 실제 사이트 55페이지를 공백 정규화 후 재 보니 중앙값 3,574자·p90 11,760자였고, 4,000자에서는 57%만 온전히 남아 예방접종 가격·FAQ 같은 뒷부분 사실이 빠졌다. 16,000자면 94%가 온전히 남고(12,000자 91%), 평균 저장 길이는 4,824자, Ask의 700자 조각은 페이지당 평균 7.4개다. 요약·Ask 프롬프트는 LLM 전송 시점에 따로 자른다(§target-architecture.md §6 "LLM 전송 전 제외" 참고). 기존 DB는 기동 마이그레이션(`db/migrations.py` `_VARCHAR_WIDTHS`)이 현재 길이가 작을 때만 `ALTER COLUMN ... TYPE VARCHAR(16000)`으로 넓힌다(Postgres varchar 확장은 테이블을 다시 쓰지 않는다).
+- 본문은 확장 content script가 Readability로 뽑고, 500자 미만이면 same-origin iframe 문서의 Readability(네이버 블로그) → 화면 전체 텍스트(`innerText`) 순으로 폴백한다. 공백·빈 줄은 접어서 저장한다(`extension/lib/page-text.ts`).
 - `event_type`은 Stage 1에서 `visit`/`spa_nav` 두 값만 쓰지만, 문자열 컬럼으로 열어 두어 Stage 2·3(북마크/PDF/GitHub/ChatGPT) 소스별 고유 이벤트 유형을 스키마 변경 없이 추가할 수 있게 한다(§4).
 
 ### 1.1 상태 전이도 (`sync_status`)

@@ -74,12 +74,12 @@ def test_non_sensitive_url_keeps_content_excerpt_and_hash():
     assert rows[0]["content_hash"] == content_hash("some article body")
 
 
-def test_content_excerpt_is_capped_at_5000_chars():
-    long_text = "a" * 6000
+def test_content_excerpt_is_capped_at_16000_chars():
+    long_text = "a" * 17000
     events = [_event(content_excerpt=long_text)]
     rows, _ = _build_event_rows(events, batch_device_id=None, user_id="u1")
-    assert len(rows[0]["content_excerpt"]) == 5000
-    assert rows[0]["content_excerpt"] == "a" * 5000
+    assert len(rows[0]["content_excerpt"]) == 16000
+    assert rows[0]["content_excerpt"] == "a" * 16000
 
 
 def test_title_is_capped_at_500_chars():

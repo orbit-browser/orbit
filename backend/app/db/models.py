@@ -108,7 +108,7 @@ class ExplorationEvent(Base):
     referrer_url: Mapped[str | None] = mapped_column(Text, default=None)
     # visit | spa_nav (Stage 2·3 확장 지점 — docs/data-model-v2.md §7)
     event_type: Mapped[str] = mapped_column(String(20), default="visit")
-    content_excerpt: Mapped[str | None] = mapped_column(String(5000), default=None)
+    content_excerpt: Mapped[str | None] = mapped_column(String(16000), default=None)
     content_hash: Mapped[str | None] = mapped_column(String(64), default=None)
     # pending | processing | processed | discarded
     sync_status: Mapped[str] = mapped_column(String(20), default="pending", index=True)

@@ -1,6 +1,6 @@
-"""멱등 ALTER 러너 (docs/migration-plan.md §3). 기존 테이블에 컬럼 추가만 담당한다.
+"""멱등 ALTER 러너 (docs/migration-plan.md §3). 기존 테이블에 컬럼 추가와 VARCHAR 폭 확장만 담당한다.
 
-신규 테이블은 create_all이 생성하므로 대상이 아니다. 컬럼 삭제·타입 변경은 범위 밖.
+신규 테이블은 create_all이 생성하므로 대상이 아니다. 컬럼 삭제·축소·그 밖의 타입 변경은 범위 밖.
 """
 
 import logging
@@ -31,6 +31,11 @@ _TABLE_COLUMNS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
+# {(테이블, 컬럼): VARCHAR 길이} — 현재 길이가 더 작을 때만 넓힌다. Postgres는 varchar 확장에 테이블을 다시 쓰지 않는다.
+_VARCHAR_WIDTHS: dict[tuple[str, str], int] = {
+    ("exploration_events", "content_excerpt"): 16000,  # 본문 상한 5000 → 16000 (docs/data-model-v2.md §1)
+}
+
 
 async def run_migrations(conn: AsyncConnection) -> None:
     """이미 존재하는 컬럼은 건너뛰고, 없는 컬럼만 추가한다.
@@ -51,3 +56,17 @@ async def run_migrations(conn: AsyncConnection) -> None:
                 continue
             await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
             logger.info("%s.%s column added", table, column)
+
+    for (table, column), length in _VARCHAR_WIDTHS.items():
+        current = await conn.scalar(
+            text(
+                "SELECT character_maximum_length FROM information_schema.columns "
+                "WHERE table_name = :table AND column_name = :column"
+            ),
+            {"table": table, "column": column},
+        )
+        # None: 컬럼 없음(create_all 몫) 또는 길이 제한 없는 타입
+        if current is None or current >= length:
+            continue
+        await conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {column} TYPE VARCHAR({length})"))
+        logger.info("%s.%s widened to VARCHAR(%d)", table, column, length)

@@ -85,6 +85,14 @@ describe('attachContent', () => {
     expect(stored!.contentExcerpt).toHaveLength(MAX_CONTENT_EXCERPT_LENGTH);
   });
 
+  it('같은 open 이벤트에 다시 부착하면 나중 본문으로 덮어쓴다(지연 재추출)', async () => {
+    const event = await addEvent(makeInput());
+    await attachContent(event.eventId, '짧은 본문');
+    await attachContent(event.eventId, '늦게 렌더링된 더 긴 본문');
+    const stored = await getEvent(event.eventId);
+    expect(stored!.contentExcerpt).toBe('늦게 렌더링된 더 긴 본문');
+  });
+
   it('finalize된 이벤트에는 부착하지 않는다(다른 페이지 DOM 오염 방지)', async () => {
     const event = await addPendingEvent();
     await attachContent(event.eventId, '늦게 도착한 본문');
