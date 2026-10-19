@@ -2,6 +2,15 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-10-19 — 이벤트 개별 삭제가 동기화된 이벤트에서 500으로 실패
+
+- 증상: Ask 평가 데이터를 `DELETE /events/{id}`로 정리하다 첫 건에서 연결이 끊겼다. 로그는
+  `ForeignKeyViolationError ... sync_batch_events_event_id_fkey`.
+- 원인: 동기화된 이벤트는 모두 배치 감사 로그(`sync_batch_events`)가 참조하는데, FK에 ON DELETE가
+  없고 삭제 경로가 그 행을 지우지 않았다. 개인정보 통제용 개별 삭제가 동기화 이후에는 항상 실패하는 상태였다.
+- 수정: 이벤트 삭제 전에 `sync_batch_events`의 해당 행을 지운다(세션 삭제가 자식 행을 먼저 지우는 방식과 동일).
+- 검증: `tests/test_events_api.py` 27 passed, 전체 508 passed. 실행 중인 백엔드에서 동기화된 이벤트 68건 삭제 모두 204.
+
 ## 2026-10-19 — Ask AI 답변 품질 개선
 
 ### LLM 키 상태 (먼저 발견)

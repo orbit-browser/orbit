@@ -15,6 +15,7 @@ from ..db.models import (
     Session as SessionModel,
     SessionEvent,
     SyncBatch,
+    SyncBatchEvent,
 )
 from ..db.session import get_db
 from ..schemas.event import (
@@ -298,6 +299,9 @@ async def delete_event(
     affected_session_ids = set(affected_result.scalars().all())
 
     await db.execute(delete(SessionEvent).where(SessionEvent.event_id == event_id))
+    # 동기화된 이벤트는 배치 감사 로그가 참조한다. FK에 ON DELETE가 없어 먼저 지우지 않으면
+    # 삭제가 외래키 위반(500)으로 실패한다.
+    await db.execute(delete(SyncBatchEvent).where(SyncBatchEvent.event_id == event_id))
     await db.delete(event)
 
     for session_id in affected_session_ids:

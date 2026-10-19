@@ -250,12 +250,14 @@ class _FakeDeleteDB:
         self._event = event
         self._affected = affected_session_ids or []
         self.deleted = []
+        self.executed = []
         self.committed = False
 
     async def get(self, _model, _id):
         return self._event
 
-    async def execute(self, _stmt):
+    async def execute(self, stmt):
+        self.executed.append(str(stmt))
         return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: self._affected))
 
     async def delete(self, obj):
@@ -288,6 +290,22 @@ def test_delete_event_removes_event_and_recomputes_each_affected_session(monkeyp
     assert db.deleted == [event]
     assert recompute_calls == ["sess-1"]
     assert db.committed is True
+
+
+def test_delete_event_removes_sync_batch_audit_rows_first(monkeypatch):
+    """동기화된 이벤트는 sync_batch_events가 참조하므로 이벤트보다 먼저 지워야 한다."""
+    event = SimpleNamespace(id="e1", user_id="u1")
+    db = _FakeDeleteDB(event=event)
+
+    async def fake_recompute(_db, _session_id):
+        return None
+
+    monkeypatch.setattr(events, "_recompute_session_after_event_removed", fake_recompute)
+
+    asyncio.run(events.delete_event(event_id="e1", db=db, user_id="u1"))
+
+    assert any(stmt.startswith("DELETE FROM sync_batch_events") for stmt in db.executed)
+    assert db.deleted == [event]
 
 
 def test_delete_event_skips_recompute_when_event_unassigned(monkeypatch):
