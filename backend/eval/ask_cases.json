@@ -430,7 +430,7 @@
    "type": "cross_session",
    "expected_facts": [
     "9,500만원",
-    "1억 2천만원"
+    "1억 2천만원|1억2천만원|1.2억"
    ],
    "expected_topic": "job+loan"
   },
