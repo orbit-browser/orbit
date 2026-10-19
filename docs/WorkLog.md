@@ -2,6 +2,15 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-10-19 — K-EXAONE 응답의 날것 개행으로 의도 분석이 실패해 세션이 안 만들어짐
+
+- 증상: Ask 평가 데이터를 실제 모델로 세션화하자 `의도 분석 실패 (Invalid control character at: line 33 ...)
+  — 그룹 전체 hold`가 나고 제주 여행 이벤트 6개가 pending으로 남아 그 주제 세션이 생기지 않았다.
+- 원인: K-EXAONE dedicated 응답의 JSON 문자열(reason 등) 안에 줄바꿈이 이스케이프 없이 들어온다.
+  `json.loads` 기본(strict=True)은 문자열 안의 제어 문자를 거부한다.
+- 수정: 공용 `extract_json`에서 `strict=False`로 파싱한다(의도 분석·요약·리랭크·클러스터링·추천 리랭크 5곳 공통).
+- 검증: 새 테스트가 수정 전 실패·수정 후 통과. `tests/test_json_utils.py` 6 passed.
+
 ## 2026-10-19 — Qdrant 검색을 사용자 단위로 필터
 
 - 문제: `orbit_sessions` 컬렉션은 모든 사용자가 공유하고 포인트 payload에 소유자가 없어, 전역 top-k를 가져온 뒤
