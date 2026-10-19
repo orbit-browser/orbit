@@ -335,7 +335,7 @@
    "query": "대한항공이랑 제주항공 위탁수하물 규정 뭐가 달라?",
    "type": "compare",
    "expected_facts": [
-    "15kg 무료|15kg을 무료|15kg이 무료|15kg까지 무료|15kg이 무료로",
+    "15kg 무료|15kg을 무료|15kg이 무료|15kg까지 무료|15kg이 무료로|무료 위탁수하물 15kg|15kg 무료",
     "15kg 8,000원|15kg에 8,000원"
    ],
    "expected_topic": "jeju"
@@ -461,6 +461,52 @@
    "type": "negative",
    "expected_facts": [],
    "expected_topic": null
+  },
+  {
+   "id": "q21",
+   "query": "이직 공고 세 곳 연봉 범위 각각 알려줘",
+   "type": "summary_detail",
+   "expected_topic": "job",
+   "expected_facts": [
+    "6,000만원 ~ 8,500만원|6,000~8,500만원|6,000만~8,500만",
+    "5,500만원 ~ 7,500만원|5,500~7,500만원|5,500만~7,500만",
+    "7,000만원 ~ 9,500만원|7,000~9,500만원|7,000만~9,500만"
+   ]
+  },
+  {
+   "id": "q22",
+   "query": "내가 본 백엔드 공고들 기술 스택 비교해줘",
+   "type": "summary_detail",
+   "expected_topic": "job",
+   "expected_facts": [
+    "Kotlin",
+    "FastAPI",
+    "gRPC"
+   ]
+  },
+  {
+   "id": "q23",
+   "query": "제주 숙소 두 곳 무료 취소 기한 비교해줘",
+   "type": "summary_detail",
+   "expected_topic": "jeju",
+   "expected_facts": [
+    "3일 전",
+    "7일 전"
+   ]
+  },
+  {
+   "id": "q24",
+   "query": "공고 세 곳 마감일이랑 연봉 상한 한 번에 정리해줘",
+   "type": "summary_detail",
+   "expected_topic": "job",
+   "expected_facts": [
+    "2026-10-25|10월 25일|10/25",
+    "2026-10-31|10월 31일|10/31",
+    "2026-11-08|11월 8일|11/8|11/08",
+    "8,500만원|8,500만",
+    "7,500만원|7,500만",
+    "9,500만원|9,500만"
+   ]
   }
  ],
  "conversations": [

@@ -35,15 +35,17 @@ TIE_MARGIN = 0.05
 MAX_EVENTS_PER_SESSION = 4
 MAX_EXCERPT_CHARS = 1200
 MAX_EVENT_CANDIDATES_PER_SESSION = 20
-MAX_PAGES_PER_SESSION = 6
+MAX_PAGES_PER_SESSION = 10
 # 본문을 조각으로 나눠 질문과 가까운 조각만 넣는다. 앞 1200자만 넣던 방식은 페이지 뒤쪽의
 # 사실(가격표·필요서류 등)을 놓쳐 모델이 상식으로 채웠다(docs/WorkLog.md 2026-10-19).
 PASSAGE_CHARS = 700
 PASSAGE_OVERLAP = 120
 # 출처 세션들이 나눠 쓰는 본문 예산. 출처가 1개면 그 세션에 몰아준다.
-EVIDENCE_BUDGET_CHARS = 8000
-MIN_SESSION_BUDGET_CHARS = 2400
-MAX_CONTEXT_CHARS = 16_000
+# A.X-K2 실측: 프롬프트 8,000자와 16,000자의 첫 토큰이 같고(0.72s) 32,000자부터 1.9s로 늘어난다.
+# 8,000자일 때는 출처 2개(세션당 4,000자)에서 공고 한 곳의 연봉 같은 세부가 빠졌다.
+EVIDENCE_BUDGET_CHARS = 16_000
+MIN_SESSION_BUDGET_CHARS = 4000
+MAX_CONTEXT_CHARS = 24_000
 # 후속 질문: 이전 답변은 지시어 해석용으로만 짧게 넣는다(근거는 탐색 기록에서만 찾는다).
 HISTORY_ANSWER_PROMPT_CHARS = 600
 MAX_STANDALONE_QUERY_CHARS = 300
@@ -168,13 +170,21 @@ def _pick_evidence(
     scored: list[ScoredPassage],
     budget: int,
 ) -> list[PageEvidence]:
-    """점수 높은 조각부터 예산 안에서 고른다. 페이지 순서는 가장 관련 높은 조각 기준."""
+    """예산 안에서 조각을 고른다. 먼저 관련 높은 페이지마다 가장 가까운 조각을 하나씩 넣고(페이지
+    커버리지), 남은 예산은 점수 순으로 채운다. 점수 순으로만 고르면 한 페이지의 조각이 예산을 차지해
+    여러 페이지에 흩어진 세부(공고별 연봉 등)를 놓친다. 페이지 순서는 가장 관련 높은 조각 기준."""
     scored.sort(key=lambda item: (-item[0], item[1], item[2]))
+    first_per_page: dict[int, ScoredPassage] = {}
+    for item in scored:
+        first_per_page.setdefault(id(item[3]), item)
+    coverage = list(first_per_page.values())[:MAX_PAGES_PER_SESSION]
+    taken = {(id(item[3]), item[2]) for item in coverage}
+    pages = {id(item[3]) for item in coverage}
+    remainder = [item for item in scored if id(item[3]) in pages and (id(item[3]), item[2]) not in taken]
+
     chosen: dict[int, tuple[ExplorationEvent, dict[int, str]]] = {}
     used = 0
-    for _score, _order, index, event, passage in scored:
-        if id(event) not in chosen and len(chosen) >= MAX_PAGES_PER_SESSION:
-            continue
+    for _score, _order, index, event, passage in [*coverage, *remainder]:
         if used and used + len(passage) > budget:
             continue
         chosen.setdefault(id(event), (event, {}))[1][index] = passage
@@ -494,7 +504,7 @@ ASK_SYSTEM_PROMPT = """\
 1. 첫 문장에서 질문에 바로 답하세요. 세부 내용이 여러 개일 때만 이어서 "- "로 시작하는 짧은 목록을 쓰세요.
 2. 숫자, 가격, 날짜, 시간, 이름, 설정값은 기록에 적힌 표기 그대로 옮기세요. 계산이 필요하면 첫 문장에 식을 먼저 쓰고 그 결과로 답하세요(예: "665,000원 + 284,000원 = 949,000원입니다"). 결과를 먼저 말하고 나중에 고치지 마세요.
 3. 제공된 기록만 근거로 답하세요. 기록에 없는 내용을 일반 상식이나 추측으로 채우지 마세요.
-4. 질문에 답할 내용이 기록에 전혀 없을 때만 "기록에서 찾지 못했어요"로 시작하세요. 질문한 대상(예: 특정 모델명)은 없고 비슷한 다른 대상만 있으면, 다른 대상임을 밝히고 짧게 덧붙여도 됩니다.
+4. "기록에서 찾지 못했어요"는 관련 탐색 기록 어디에도 질문과 관련된 값이 없을 때만 쓰세요. 질문의 대상이 기록에 있으면, 값이 질문 문장과 똑같이 적혀 있지 않아도(비교·계산·조합이 필요해도) 기록의 값으로 답하세요. 질문한 대상(예: 특정 모델명)은 없고 비슷한 다른 대상만 있으면, 다른 대상임을 밝히고 짧게 덧붙여도 됩니다.
 5. 질문이 여러 부분이면 부분마다 답하세요. 여러 기록을 비교하거나 계산해야 답이 나오면 기록의 값으로 직접 비교·계산하세요(예: 공고 세 곳의 연봉 상한 중 가장 큰 값). 일부만 확인되면 확인된 부분을 먼저 답하고, 확인되지 않은 부분만 그렇다고 밝히세요.
 6. 근거 표시는 세션 번호만 [1], [2]처럼 문장 끝에 붙이세요. 페이지마다 새 번호를 만들지 말고, 근거 번호 목록에 없는 번호나 URL을 만들지 마세요. 출처는 화면에 따로 표시되므로 답변 끝에 세션·출처 목록을 다시 쓰지 마세요.
 7. 일반 텍스트로 쓰세요. Markdown 강조(**), 제목(#), 표는 쓰지 마세요.
