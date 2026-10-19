@@ -45,6 +45,8 @@
 
 - `pnpm test`(213) · `pnpm compile` · `pnpm build`, `pytest -p no:asyncio`(542) 통과. 테스트 사용자 `capture-test`의
   이벤트·세션은 API로 삭제했다.
+
+
 ## 2026-10-19 — 실제 데이터 기준 세션화·Ask 근거 판단 개선
 
 ### 원인 확인
