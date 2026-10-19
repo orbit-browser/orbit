@@ -1,6 +1,7 @@
 import { Readability } from '@mozilla/readability';
 import { MAX_CONTENT_EXCERPT_LENGTH } from '../lib/events/types';
 import { MIN_READABLE_LENGTH, pickPageText } from '../lib/page-text';
+import { isSensitiveUrl } from '../lib/sensitive-domains';
 import type { PageContent } from '../lib/types';
 
 /** load 시점 본문이 짧으면 늦게 그려지는 본문을 기다렸다 한 번 더 추출한다. */
@@ -19,11 +20,13 @@ export default defineContentScript({
     }
 
     // content script는 최상위 프레임에서만 돈다 — 본문이 same-origin iframe에 있는 페이지(네이버 블로그 #mainFrame)용.
+    // 민감 판정은 바깥 페이지 URL로만 하므로, 결제·인증 같은 민감 경로의 iframe은 여기서 건너뛴다.
     function sameOriginFrameTexts(): string[] {
       const texts: string[] = [];
       for (const frame of document.querySelectorAll('iframe')) {
         const doc = frame.contentDocument; // cross-origin이면 null
-        if (doc?.body) texts.push(parseArticle(doc)?.textContent ?? '');
+        if (!doc?.body || isSensitiveUrl(doc.location.href)) continue;
+        texts.push(parseArticle(doc)?.textContent ?? '');
       }
       return texts;
     }

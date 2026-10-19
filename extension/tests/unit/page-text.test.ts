@@ -36,6 +36,10 @@ describe('pickPageText', () => {
     expect(pickPageText('짧은 본문 문단', () => [], () => '짧음')).toBe('짧은 본문 문단');
   });
 
+  it('짧은 iframe 본문이라도 다른 후보가 비면 남긴다', () => {
+    expect(pickPageText('', () => ['짧은 iframe 글'], () => '')).toBe('짧은 iframe 글');
+  });
+
   it('추출할 것이 없으면 빈 문자열', () => {
     expect(pickPageText('', () => [], () => ' \n ')).toBe('');
   });

@@ -33,5 +33,5 @@ export function pickPageText(
   if (frame.length >= MIN_READABLE_LENGTH) return frame;
 
   const body = normalizeText(bodyText());
-  return body.length > main.length ? body : main;
+  return [frame, body].reduce((best, text) => (text.length > best.length ? text : best), main);
 }
