@@ -288,8 +288,8 @@ def test_search_sessions_scope_sessions_default_returns_bare_list(monkeypatch):
     assert response == [session]
 
 
-def test_widened_candidates_require_owned_top_above_threshold(monkeypatch):
-    """넓힌 후보에서 '관련 있음' 판단은 소유자 필터 뒤의 1위로 한다(다른 사용자 세션 제외)."""
+def test_widened_candidates_keep_owned_scores_for_ask_gate(monkeypatch):
+    """넓힌 후보는 소유자 필터 뒤 세션만 점수와 함께 돌려준다. 관련성 판단은 Ask가 한다(has_evidence)."""
     import asyncio
     from types import SimpleNamespace
 
@@ -315,7 +315,7 @@ def test_widened_candidates_require_owned_top_above_threshold(monkeypatch):
         search._search_sessions_by_vector("질문", 5, False, _DB(), "me", candidate_floor=0.15)
     )
 
-    assert result == []
+    assert [(s.id, s.vector_score) for s in result] == [("mine", 0.2)]
 
 
 def test_vector_search_passes_user_id(monkeypatch):

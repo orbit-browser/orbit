@@ -5,6 +5,7 @@ from qdrant_client.models import (
     Distance,
     FieldCondition,
     Filter,
+    HasIdCondition,
     IsEmptyCondition,
     MatchValue,
     PayloadField,
@@ -189,3 +190,21 @@ async def search_similar_with_scores(
         score_threshold=threshold,
     )
     return [(str(p.id), p.score) for p in result.points]
+
+
+async def score_sessions(
+    query_vector: list[float], session_ids: list[str], *, user_id: str
+) -> dict[str, float]:
+    """지정한 세션들만 임계값 없이 점수를 매긴다. 포인트가 없는 세션(임베딩 전)은 결과에서 빠진다."""
+    if not session_ids:
+        return {}
+    client = get_qdrant()
+    result = await client.query_points(
+        collection_name=COLLECTION,
+        query=query_vector,
+        query_filter=Filter(
+            must=[*_user_filter(user_id).must, HasIdCondition(has_id=list(session_ids))]
+        ),
+        limit=len(session_ids),
+    )
+    return {str(p.id): p.score for p in result.points}

@@ -90,6 +90,12 @@ async def _resolve_sources(
     # 앞에 두면 직전 턴이 세션 찾기(5개)였을 때 후보 상한에 걸려 새 검색 결과가 전부 잘린다.
     seen = {source.session_id for source in retrieved}
     previous = await _previous_sources(body, db, user_id)
+    previous_ids = {source.session_id for source in previous}
+    for source in retrieved:
+        if source.session_id in previous_ids:
+            # 새 검색에도 잡힌 직전 출처는 관련성 기준을 면제한다(지시어의 대상). 점수가 붙은 채로 두면
+            # 세션 점수 0.28 미만·본문 조각 0.40 미만일 때 대화의 출처가 사라진다.
+            source.vector_score = None
     return retrieved + [source for source in previous if source.session_id not in seen]
 
 

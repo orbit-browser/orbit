@@ -161,6 +161,21 @@ def test_followup_search_uses_rewritten_query_and_appends_previous_sources(monke
     assert [s.session_id for s in sources] == ["new", "prev"]
 
 
+def test_previous_source_found_again_by_search_stays_exempt_from_relevance_gate(monkeypatch):
+    async def fake_search(query, limit, rerank, db, user_id, **_kwargs):
+        return [SimpleNamespace(session_id="new", vector_score=0.3), SimpleNamespace(session_id="prev", vector_score=0.2)]
+
+    async def fake_previous(_body, _db, _user_id):
+        return [SimpleNamespace(session_id="prev", vector_score=None)]
+
+    monkeypatch.setattr(ask, "_search_sessions_by_vector", fake_search)
+    monkeypatch.setattr(ask, "_previous_sources", fake_previous)
+
+    sources = asyncio.run(ask._resolve_sources(_body(query="거기는?"), _FakeDB(), _OWNER, "질문"))
+
+    assert [(s.session_id, s.vector_score) for s in sources] == [("new", 0.3), ("prev", None)]
+
+
 def test_followup_after_session_discovery_keeps_new_results_and_caps_previous(monkeypatch):
     """직전 턴이 세션 찾기(출처 5개)여도 새 검색 결과가 후보에서 밀려나지 않는다."""
     previous_ids = [f"old{i}" for i in range(5)]

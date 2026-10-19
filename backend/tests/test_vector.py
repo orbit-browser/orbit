@@ -43,6 +43,25 @@ def test_search_functions_send_user_filter(monkeypatch):
     assert calls[1]["score_threshold"] == 0.5
 
 
+def test_score_sessions_limits_to_ids_and_owner_without_threshold(monkeypatch):
+    captured: dict = {}
+
+    class FakeClient:
+        async def query_points(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(points=[SimpleNamespace(id="s1", score=0.21)])
+
+    monkeypatch.setattr(vector, "get_qdrant", lambda: FakeClient())
+
+    assert asyncio.run(vector.score_sessions([0.1], ["s1", "s2"], user_id="u1")) == {"s1": 0.21}
+    owner, ids = captured["query_filter"].must
+    assert owner.key == "user_id" and owner.match.value == "u1"
+    assert ids.has_id == ["s1", "s2"]
+    assert captured["limit"] == 2
+    assert "score_threshold" not in captured
+    assert asyncio.run(vector.score_sessions([0.1], [], user_id="u1")) == {}
+
+
 def test_search_requires_user_id():
     import pytest
 
