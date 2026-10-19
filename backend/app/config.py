@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # A.X-K1 (SKT) — 요약·의도분석·리랭킹·채팅 primary (DecisionLog 2026-08-05)
     axk1_api_key: str = ""
-    axk1_base_url: str = "https://awf-gw.adot.ai"
+    axk1_base_url: str = "https://awf-gw.adot.ai/v1"
     axk1_model: str = "A.X-K1"
 
     # LG EXAONE (FriendliAI serverless, OpenAI 호환) — 클러스터링 primary.
