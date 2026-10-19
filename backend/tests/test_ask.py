@@ -490,3 +490,24 @@ def test_history_request_validation_truncates_answer_and_limits_turns():
     assert len(long.history[0].answer) == 4000
     with _pytest.raises(ValidationError):
         AskStreamRequest(query="그럼?", history=[{"query": "q"}] * 4)
+
+
+def test_pick_evidence_covers_each_page_before_second_passages():
+    def page(name):
+        return SimpleNamespace(url=f"https://jobs.example.com/{name}", title=name, domain="jobs.example.com", search_query=None)
+
+    neo, moa, light = page("neo"), page("moa"), page("light")
+    scored = [
+        (0.50, 0, 0, neo, "네오 요건" + "가" * 290),
+        (0.49, 0, 1, neo, "네오 복지" + "가" * 290),
+        (0.48, 0, 2, neo, "네오 절차" + "가" * 290),
+        (0.40, 1, 0, moa, "모아 연봉 5,500만원" + "가" * 280),
+        (0.30, 2, 0, light, "라이트 연봉 9,500만원" + "가" * 280),
+    ]
+
+    picked = ask_service._pick_evidence(scored, budget=1000)
+
+    text = " ".join(p for page_evidence in picked for p in page_evidence.passages)
+    assert [p.event.title for p in picked] == ["neo", "moa", "light"]
+    assert "모아 연봉" in text and "라이트 연봉" in text
+    assert sum(len(p) for page_evidence in picked for p in page_evidence.passages) <= 1000
