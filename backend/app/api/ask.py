@@ -17,6 +17,7 @@ from ..services.ask_service import (
     ASK_SYSTEM_PROMPT,
     CANDIDATE_FLOOR,
     MAX_CANDIDATE_SOURCES,
+    MAX_SOURCES,
     AskContext,
     prepare_ask_context,
     resolve_followup_query,
@@ -37,8 +38,9 @@ def encode_sse(event: str, data: dict) -> str:
 async def _previous_sources(
     body: AskStreamRequest, db: AsyncSession, user_id: str
 ) -> list[SessionDetail]:
-    """직전 답변의 출처 세션. id는 클라이언트가 보낸 값이므로 반드시 요청자 소유·활성 세션만 남긴다."""
-    ids = list(dict.fromkeys(body.history[-1].source_session_ids)) if body.history else []
+    """직전 답변의 출처 세션(최대 MAX_SOURCES개). id는 클라이언트가 보낸 값이므로 반드시 요청자
+    소유·활성 세션만 남긴다."""
+    ids = list(dict.fromkeys(body.history[-1].source_session_ids))[:MAX_SOURCES] if body.history else []
     if not ids:
         return []
     result = await db.execute(
@@ -84,10 +86,11 @@ async def _resolve_sources(
         user_id,
         candidate_floor=CANDIDATE_FLOOR,
     )
-    # "그중 제일 싼 건?"의 대상은 직전 답변의 출처에 있다. 후보 앞에 두고 근거 점수로 다시 고른다.
+    # "그중 제일 싼 건?"의 대상은 직전 답변의 출처에 있다. 새 검색 결과 뒤에 붙여 함께 근거 점수로 고른다.
+    # 앞에 두면 직전 턴이 세션 찾기(5개)였을 때 후보 상한에 걸려 새 검색 결과가 전부 잘린다.
+    seen = {source.session_id for source in retrieved}
     previous = await _previous_sources(body, db, user_id)
-    seen = {source.session_id for source in previous}
-    return previous + [source for source in retrieved if source.session_id not in seen]
+    return retrieved + [source for source in previous if source.session_id not in seen]
 
 
 async def _answer_events(

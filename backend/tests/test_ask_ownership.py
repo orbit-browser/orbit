@@ -140,7 +140,7 @@ def test_previous_sources_skip_query_without_history():
     assert db.executed == []
 
 
-def test_followup_search_uses_rewritten_query_and_puts_previous_sources_first(monkeypatch):
+def test_followup_search_uses_rewritten_query_and_appends_previous_sources(monkeypatch):
     captured = {}
 
     async def fake_search(query, limit, rerank, db, user_id, **_kwargs):
@@ -158,7 +158,32 @@ def test_followup_search_uses_rewritten_query_and_puts_previous_sources_first(mo
     )
 
     assert captured["query"] == "RX 9070 최저가는?"
-    assert [s.session_id for s in sources] == ["prev", "new"]
+    assert [s.session_id for s in sources] == ["new", "prev"]
+
+
+def test_followup_after_session_discovery_keeps_new_results_and_caps_previous(monkeypatch):
+    """직전 턴이 세션 찾기(출처 5개)여도 새 검색 결과가 후보에서 밀려나지 않는다."""
+    previous_ids = [f"old{i}" for i in range(5)]
+
+    async def fake_search(query, limit, rerank, db, user_id, **_kwargs):
+        return [SimpleNamespace(session_id=f"new{i}") for i in range(5)]
+
+    class _OwnedDB(_FakeDB):
+        async def execute(self, stmt):
+            self.executed.append(stmt)
+            rows = [_session() for _ in previous_ids]
+            for row, session_id in zip(rows, previous_ids):
+                row.id = session_id
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows), all=lambda: rows)
+
+    monkeypatch.setattr(ask, "_search_sessions_by_vector", fake_search)
+    history = [SimpleNamespace(query="세션 찾아줘", answer="5개", source_session_ids=previous_ids)]
+
+    sources = asyncio.run(ask._resolve_sources(_body(history=history), _OwnedDB(), _OWNER, "질문"))
+
+    ids = [s.session_id for s in sources]
+    assert ids[:5] == [f"new{i}" for i in range(5)]
+    assert ids[5:] == ["old0", "old1", "old2"]
 
 
 # ── _load_context_records ──────────────────────────────────────

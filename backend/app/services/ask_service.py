@@ -449,7 +449,8 @@ async def prepare_ask_context(
     if intent == "find_sessions":
         return AskContext(sources=sources[:5], prompt="", intent=intent)
 
-    candidates = sources[:MAX_CANDIDATE_SOURCES]
+    # 새 검색 후보(최대 MAX_CANDIDATE_SOURCES) + 후속 질문의 직전 출처(최대 MAX_SOURCES)
+    candidates = sources[: MAX_CANDIDATE_SOURCES + MAX_SOURCES]
     session_models, event_rows = await _load_context_records(
         db, [source.session_id for source in candidates], user_id
     )
