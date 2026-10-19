@@ -16,7 +16,7 @@ def _stub_clients(monkeypatch):
     _stream_provider만 대역 처리하면 인자로 넘길 클라이언트는 실제로 생성되므로,
     키가 없는 환경(CI·신규 클론)에서 스트림 로직과 무관하게 실패한다.
     """
-    monkeypatch.setattr(llm, "_axk1_client", lambda: None)
+    monkeypatch.setattr(llm, "_ax_client", lambda: None)
     monkeypatch.setattr(llm, "_friendli_client", lambda: None)
 
 

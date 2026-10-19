@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # 폴링 UX 파이프라인이라 60초는 과함 — 짧게 잡아 fallback 진입을 앞당긴다
 _TIMEOUT = 25.0  # LLM 응답 최대 대기 시간 (초)
 
-# A.X-K1 3 RPS 대응(docs/target-architecture.md §5) — 스냅샷 경로와 배치 파이프라인이
+# A.X 게이트웨이 3 RPS 대응(docs/target-architecture.md §5) — 스냅샷 경로와 배치 파이프라인이
 # 공유하는 전역 최소 호출 간격 리미터. asyncio.Lock으로 감싸 동시 호출도 직렬화한다.
 _MIN_CALL_INTERVAL = 0.5  # 초
 _rate_lock = asyncio.Lock()
@@ -34,7 +34,7 @@ async def _throttle() -> None:
         _last_call_at = time.monotonic()
 
 
-def _axk1_client() -> AsyncOpenAI:
+def _ax_client() -> AsyncOpenAI:
     return AsyncOpenAI(
         api_key=settings.axk1_api_key,
         base_url=settings.axk1_base_url,
@@ -61,7 +61,7 @@ _EXAONE_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
 
 
 # 다른 공급자로 넘겨 볼 만한 상태 코드. 401/403은 그 공급자의 키·모델 권한 문제라 다른 공급자는
-# 정상일 수 있다(2026-10-19 A.X-K1 키 권한 만료 때 폴백 없이 Ask·요약이 전부 실패했다).
+# 정상일 수 있다(2026-10-19 A.X 키에 모델 권한이 없을 때 폴백 없이 Ask·요약이 전부 실패했다).
 _FALLBACK_STATUS = (401, 403, 404, 429, 503)
 
 
@@ -116,7 +116,7 @@ async def chat_completion_stream_with_meta(
     temperature: float = 0.2,
     max_tokens: int = 900,
 ) -> AsyncIterator[tuple[str, str]]:
-    """A.X-K1 스트리밍, 첫 토큰 전 실패 시 EXAONE fallback.
+    """A.X 스트리밍, 첫 토큰 전 실패 시 EXAONE fallback.
 
     일부 토큰을 이미 전송한 뒤 provider가 끊기면 다른 모델의 처음부터 다시 이어 붙일 수 없으므로
     `StreamInterruptedError`를 발생시켜 호출자가 partial 오류를 명시하게 한다.
@@ -131,7 +131,7 @@ async def chat_completion_stream_with_meta(
     yielded = False
     try:
         async for text in _stream_provider(
-            _axk1_client(),
+            _ax_client(),
             model=primary_model,
             messages=messages,
             temperature=temperature,
@@ -140,7 +140,7 @@ async def chat_completion_stream_with_meta(
             yielded = True
             yield text, primary_model
         if not yielded:
-            raise ValueError("A.X-K1 빈 스트림")
+            raise ValueError("A.X 빈 스트림")
         return
     except asyncio.CancelledError:
         raise
@@ -149,11 +149,11 @@ async def chat_completion_stream_with_meta(
             raise StreamInterruptedError(primary_model) from exc
         if not _should_fallback(exc.status_code):
             raise
-        logger.warning("A.X-K1 스트림 %s 오류 — EXAONE fallback", exc.status_code)
+        logger.warning("A.X 스트림 %s 오류 — EXAONE fallback", exc.status_code)
     except (RateLimitError, APIConnectionError, APITimeoutError, ValueError) as exc:
         if yielded:
             raise StreamInterruptedError(primary_model) from exc
-        logger.warning("A.X-K1 스트림 시작 실패 (%s) — EXAONE fallback", exc)
+        logger.warning("A.X 스트림 시작 실패 (%s) — EXAONE fallback", exc)
     except Exception as exc:
         if yielded:
             raise StreamInterruptedError(primary_model) from exc
@@ -189,7 +189,7 @@ async def chat_completion_light(
     temperature: float = 0.1,
     max_tokens: int = 500,
 ) -> str:
-    """EXAONE(FriendliAI)으로 단순 분류/변환 태스크 처리. 실패 시 A.X-K1 fallback.
+    """EXAONE(FriendliAI)으로 단순 분류/변환 태스크 처리. 실패 시 A.X fallback.
 
     모델 배정 근거: docs/DecisionLog.md 2026-08-05 (클러스터링=EXAONE, 상호 폴백).
     """
@@ -210,15 +210,15 @@ async def chat_completion_light(
             raise ValueError("EXAONE 응답에 choices가 없습니다")
         return resp.choices[0].message.content or ""
     except Exception as exc:
-        logger.warning("EXAONE 실패 (%s) — A.X-K1 fallback", exc)
-        resp = await _axk1_client().chat.completions.create(
+        logger.warning("EXAONE 실패 (%s) — A.X fallback", exc)
+        resp = await _ax_client().chat.completions.create(
             model=settings.axk1_model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
         )
         if not resp.choices:
-            raise ValueError("A.X-K1 fallback 응답에 choices가 없습니다")
+            raise ValueError("A.X fallback 응답에 choices가 없습니다")
         return resp.choices[0].message.content or ""
 
 
@@ -229,7 +229,7 @@ async def chat_completion_with_meta(
     temperature: float = 0.3,
     max_tokens: int = 600,
 ) -> tuple[str, str]:
-    """A.X-K1 우선 호출, 장애 시 EXAONE fallback. (content, 실제 사용된 model명)을 반환한다."""
+    """A.X 우선 호출, 장애 시 EXAONE fallback. (content, 실제 사용된 model명)을 반환한다."""
     await _throttle()
     messages = [
         {"role": "system", "content": system},
@@ -237,7 +237,7 @@ async def chat_completion_with_meta(
     ]
 
     try:
-        client = _axk1_client()
+        client = _ax_client()
         resp = await client.chat.completions.create(
             model=settings.axk1_model,
             messages=messages,
@@ -245,19 +245,19 @@ async def chat_completion_with_meta(
             max_tokens=max_tokens,
         )
         if not resp.choices:
-            raise ValueError("A.X-K1 응답에 choices가 없습니다")
+            raise ValueError("A.X 응답에 choices가 없습니다")
         return resp.choices[0].message.content or "", settings.axk1_model
     except RateLimitError:
-        logger.warning("A.X-K1 RPS 초과 — 1초 후 EXAONE fallback")
+        logger.warning("A.X RPS 초과 — 1초 후 EXAONE fallback")
         await asyncio.sleep(1)
     except APIStatusError as e:
         if _should_fallback(e.status_code):
-            logger.warning("A.X-K1 %s 오류 — EXAONE fallback", e.status_code)
+            logger.warning("A.X %s 오류 — EXAONE fallback", e.status_code)
         else:
             raise
     except (APIConnectionError, APITimeoutError) as exc:
         # 상태 코드조차 못 받는 네트워크 레벨 장애 (DNS 실패, 연결 거부, 타임아웃) — 가장 흔한 장애 유형
-        logger.warning("A.X-K1 연결 실패 (%s) — EXAONE fallback", exc)
+        logger.warning("A.X 연결 실패 (%s) — EXAONE fallback", exc)
 
     resp = await _friendli_client().chat.completions.create(
         model=settings.exaone_model,
@@ -276,7 +276,7 @@ async def chat_completion(
     temperature: float = 0.3,
     max_tokens: int = 600,
 ) -> str:
-    """A.X-K1 우선 호출, 장애 시 EXAONE fallback. (기존 호출부 무변경 유지를 위한 래퍼)"""
+    """A.X 우선 호출, 장애 시 EXAONE fallback. (기존 호출부 무변경 유지를 위한 래퍼)"""
     content, _model = await chat_completion_with_meta(
         system, user, temperature=temperature, max_tokens=max_tokens
     )
@@ -295,7 +295,7 @@ async def chat_completion_intent(
     temperature: float = 0.0,
     max_tokens: int = 1000,
 ) -> tuple[str, str]:
-    """의도분석 전용 — EXAONE 우선, 지연/rate limit/오류 시 A.X-K1 fallback. (content, model) 반환.
+    """의도분석 전용 — EXAONE 우선, 지연/rate limit/오류 시 A.X fallback. (content, model) 반환.
 
     근거: docs/DecisionLog.md 2026-08-05 공정 재평가(EXAONE 튜닝 프롬프트로 A.X와 품질 대등,
     노이즈 제외는 EXAONE 우세) + serverless rate limit 대응 하이브리드. chat_completion_with_meta
@@ -326,23 +326,23 @@ async def chat_completion_intent(
             raise ValueError("EXAONE 빈 응답")
         return content, _exaone_model_label()
     except RateLimitError:
-        logger.warning("EXAONE rate limit — A.X-K1 fallback")
+        logger.warning("EXAONE rate limit — A.X fallback")
     except (APIConnectionError, APITimeoutError):
-        logger.warning("EXAONE 지연/연결 실패 — A.X-K1 fallback")
+        logger.warning("EXAONE 지연/연결 실패 — A.X fallback")
     except APIStatusError as e:
         if _should_fallback(e.status_code):
-            logger.warning("EXAONE %s 오류 — A.X-K1 fallback", e.status_code)
+            logger.warning("EXAONE %s 오류 — A.X fallback", e.status_code)
         else:
             raise
     except ValueError as exc:
-        logger.warning("EXAONE 응답 이상 (%s) — A.X-K1 fallback", exc)
+        logger.warning("EXAONE 응답 이상 (%s) — A.X fallback", exc)
 
-    resp = await _axk1_client().chat.completions.create(
+    resp = await _ax_client().chat.completions.create(
         model=settings.axk1_model,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
     )
     if not resp.choices:
-        raise ValueError("A.X-K1 fallback 응답에 choices가 없습니다")
+        raise ValueError("A.X fallback 응답에 choices가 없습니다")
     return resp.choices[0].message.content or "", settings.axk1_model
