@@ -161,7 +161,7 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
     "highlights": ["리뷰 3건 비교", "커뮤니티 반응 확인"],
     "todos": ["최저가 재확인"],
     "next_actions": ["쇼핑몰에서 결제"],
-    "model": "A.X-K1",
+    "model": "A.X-K2",
     "created_at": "2026-08-03T05:30:00Z"
   },
   {
@@ -172,7 +172,7 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
     "highlights": [],
     "todos": [],
     "next_actions": [],
-    "model": "A.X-K1",
+    "model": "A.X-K2",
     "created_at": "2026-08-03T05:14:00Z"
   }
 ]
@@ -271,7 +271,7 @@ event: delta
 data: {"text":"선택지는 A사였습니다 [1]."}
 
 event: done
-data: {"model":"A.X-K1"}
+data: {"model":"A.X-K2"}
 ```
 
 이벤트 순서는 `sources` → `delta` 0개 이상 → `done` 또는 `error`다. 오류 이벤트는
@@ -284,7 +284,7 @@ data: {"model":"A.X-K1"}
 relevance×체류 시간 순위로 fallback한다. 미할당 이벤트는 포함하지 않으며, 페이지 본문 안의 지시문은
 신뢰하지 않는 데이터로 취급한다. 답변은 근거 세션을 `[1]`, `[2]`처럼 표시한다.
 
-모델은 A.X-K1 스트리밍을 우선 사용한다. 첫 토큰 전에 연결·rate limit·지원 상태 오류가 나면
+모델은 A.X-K2 스트리밍을 우선 사용한다. 첫 토큰 전에 연결·rate limit·지원 상태 오류가 나면
 EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
 `stream_interrupted`를 보낸다.
 

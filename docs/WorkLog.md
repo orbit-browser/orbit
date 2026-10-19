@@ -2,6 +2,48 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-10-19 — LLM 공급 경로 복구 (A.X-K2, K-EXAONE dedicated)
+
+### 증상
+
+실키로 직접 호출해 보니 두 공급자가 다 실패했다. 키 형식(길이, 공백, 따옴표)은 정상이었다.
+
+- A.X: 게이트웨이 `/v1/models`는 200이다. 그런데 `A.X-K1` chat은
+  `401: API-KEY cannot be used for this serving model`이었다.
+- EXAONE: serverless에서 `Model 'LGAI-EXAONE/K-EXAONE-236B-A23B' not found.`(404)가 났다.
+
+### 원인
+
+- A.X 게이트웨이는 없는 모델명에 404를 주고, `A.X-K1`에만 401을 준다. 모델은 존재하고
+  키에 권한이 없다는 뜻이다. 같은 키로 `A.X-K2`를 호출하면 200이다. `/v1/models`의
+  `axllm-519b` 같은 이름은 정적 카탈로그라 실제로 호출하면 404가 난다.
+- FriendliAI changelog를 보면 serverless에서 `K-EXAONE-236B-A23B`가 2026-08-20에 내려갔다.
+  `K-EXAONE-2.0-750B-A37B`도 08-06에 추가됐다가 09-06에 내려갔다.
+  `GET /dedicated/beta/endpoint`로 팀 dedicated endpoint `depmkuykpfon9lg`를 찾았다
+  (name `K-EXAONE`, B200×2, RUNNING).
+
+### 수정
+
+- `config.py` 기본값: `axk1_model=A.X-K2`, `friendli_base_url=.../dedicated/v1`,
+  `exaone_model=depmkuykpfon9lg`.
+- `.env.example`에 `FRIENDLI_BASE_URL`·`EXAONE_MODEL`과 endpoint ID 조회 방법을 적었다.
+  로컬 `backend/.env`도 같은 값으로 맞췄다.
+- 문서를 갱신했다: README 2종, `api-design-v2.md` 예시, ProjectContext·Research·
+  target-architecture·evaluation-plan의 모델 표기, DecisionLog.
+- `llm.py`의 로그·docstring에 남은 "A.X-K1" 표기는 바꾸지 않았다. 병행 브랜치
+  `feat/ask-answer-quality`가 같은 파일의 폴백 로직을 고치고 있어 충돌을 피했다.
+
+### 검증
+
+- 붙여 준 curl 두 개와 같은 요청을 보냈다. A.X-K2는 200(0.3초)이다. dedicated는 200으로,
+  thinking을 켜면 2.7초, 끄면 0.4초다.
+- env만 덮어쓰고 앱 경로 4개를 실키로 돌렸다. `chat_completion_with_meta`는 A.X-K2로 0.5초,
+  `chat_completion_light`는 0.2초, `chat_completion_intent`는 `exaone/depmkuykpfon9lg`로 0.5초,
+  스트리밍은 A.X-K2로 0.8초였다.
+- 변경한 코드 기본값만으로(`.env` 없이 키만 주입) 같은 4경로를 실키로 다시 돌렸다. 모두
+  primary(A.X-K2 / `exaone/depmkuykpfon9lg`)로 한국어 요약을 반환했다.
+- `python -m pytest -p no:asyncio`는 488 passed였다.
+
 ## 2026-10-19 — 새 환경 기준 실행 점검
 
 빈 환경(macOS, Python 3.11, Node 26, pnpm 10)에서 의존성을 새로 설치하고 공식 검증 명령과
