@@ -60,6 +60,15 @@ def _exaone_model_label() -> str:
 _EXAONE_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
 
 
+# 다른 공급자로 넘겨 볼 만한 상태 코드. 401/403은 그 공급자의 키·모델 권한 문제라 다른 공급자는
+# 정상일 수 있다(2026-10-19 A.X-K1 키 권한 만료 때 폴백 없이 Ask·요약이 전부 실패했다).
+_FALLBACK_STATUS = (401, 403, 404, 429, 503)
+
+
+def _should_fallback(status_code: int) -> bool:
+    return status_code in _FALLBACK_STATUS or status_code >= 500
+
+
 class StreamInterruptedError(RuntimeError):
     """첫 토큰 이후 provider 스트림이 끊겨 안전하게 fallback할 수 없는 상태."""
 
@@ -85,15 +94,19 @@ async def _stream_provider(
         stream=True,
         **({"extra_body": extra_body} if extra_body else {}),
     )
+    finish_reason = None
     try:
         async for chunk in stream:
             if not chunk.choices:
                 continue
+            finish_reason = chunk.choices[0].finish_reason or finish_reason
             text = chunk.choices[0].delta.content or ""
             if text:
                 yield text
     finally:
         await stream.close()
+    if finish_reason == "length":
+        logger.warning("스트림 답변이 max_tokens(%s)에서 잘림 (model=%s)", max_tokens, model)
 
 
 async def chat_completion_stream_with_meta(
@@ -134,7 +147,7 @@ async def chat_completion_stream_with_meta(
     except APIStatusError as exc:
         if yielded:
             raise StreamInterruptedError(primary_model) from exc
-        if exc.status_code not in (404, 429, 503) and exc.status_code < 500:
+        if not _should_fallback(exc.status_code):
             raise
         logger.warning("A.X-K1 스트림 %s 오류 — EXAONE fallback", exc.status_code)
     except (RateLimitError, APIConnectionError, APITimeoutError, ValueError) as exc:
@@ -238,7 +251,7 @@ async def chat_completion_with_meta(
         logger.warning("A.X-K1 RPS 초과 — 1초 후 EXAONE fallback")
         await asyncio.sleep(1)
     except APIStatusError as e:
-        if e.status_code in (404, 503) or e.status_code >= 500:
+        if _should_fallback(e.status_code):
             logger.warning("A.X-K1 %s 오류 — EXAONE fallback", e.status_code)
         else:
             raise
@@ -317,7 +330,7 @@ async def chat_completion_intent(
     except (APIConnectionError, APITimeoutError):
         logger.warning("EXAONE 지연/연결 실패 — A.X-K1 fallback")
     except APIStatusError as e:
-        if e.status_code in (404, 503) or e.status_code >= 500:
+        if _should_fallback(e.status_code):
             logger.warning("EXAONE %s 오류 — A.X-K1 fallback", e.status_code)
         else:
             raise
