@@ -59,7 +59,7 @@ def test_search_maps_vector_store_failure(monkeypatch):
 
 
 def test_search_returns_empty_when_no_points_match(monkeypatch):
-    async def empty_search(_vector, *, limit):
+    async def empty_search(_vector, *, user_id, limit):
         assert limit == 5
         return []
 
@@ -296,7 +296,7 @@ def test_widened_candidates_require_owned_top_above_threshold(monkeypatch):
     async def fake_embed(_q):
         return [0.1]
 
-    async def fake_scores(_vector, limit, score_threshold):
+    async def fake_scores(_vector, user_id, limit, score_threshold):
         return [("other-user", 0.9), ("mine", 0.2)]
 
     class _Result:
@@ -316,3 +316,20 @@ def test_widened_candidates_require_owned_top_above_threshold(monkeypatch):
     )
 
     assert result == []
+
+
+def test_vector_search_passes_user_id(monkeypatch):
+    seen: dict = {}
+
+    async def fake_embed(_q):
+        return [0.1]
+
+    async def fake_search(_vector, *, user_id, limit):
+        seen["user_id"] = user_id
+        return []
+
+    monkeypatch.setattr(search, "embed", fake_embed)
+    monkeypatch.setattr(search, "search_similar", fake_search)
+
+    asyncio.run(search._search_sessions_by_vector("질문", 5, False, None, "me"))
+    assert seen["user_id"] == "me"

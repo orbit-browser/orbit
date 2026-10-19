@@ -1,7 +1,18 @@
 import logging
 
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, PointIdsList, PointStruct, VectorParams
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    IsEmptyCondition,
+    MatchValue,
+    PayloadField,
+    PayloadSchemaType,
+    PointIdsList,
+    PointStruct,
+    VectorParams,
+)
 
 from ..config import settings
 
@@ -33,8 +44,75 @@ async def init_collection() -> None:
             logger.info("Qdrant 컬렉션 '%s' 생성", COLLECTION)
         else:
             logger.info("Qdrant 컬렉션 '%s' 확인 완료", COLLECTION)
+        try:
+            await client.create_payload_index(
+                collection_name=COLLECTION,
+                field_name="user_id",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+        except Exception as exc:  # 이미 존재하는 인덱스는 정상
+            if "already exists" not in str(exc).lower():
+                raise
     except Exception as exc:
         logger.warning("Qdrant 초기화 실패 (%s) — 벡터 검색 비활성화", exc)
+
+
+def _user_filter(user_id: str) -> Filter:
+    return Filter(must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))])
+
+
+async def backfill_user_ids(page_size: int = 256) -> None:
+    """payload에 user_id가 없는 기존 포인트를 SQL의 세션 소유자로 채운다. 세션이 없는 고아 포인트는 삭제.
+
+    멱등 — 이미 채워진 포인트는 스캔 대상이 아니다. 실패해도 기동을 막지 않는다.
+    """
+    # 순환 import 방지를 위해 함수 안에서 import
+    from sqlalchemy import select
+
+    from .models import Session as SessionModel
+    from .session import AsyncSessionLocal
+
+    try:
+        client = get_qdrant()
+        missing = Filter(must=[IsEmptyCondition(is_empty=PayloadField(key="user_id"))])
+        updated = deleted = 0
+        offset = None
+        while True:
+            records, offset = await client.scroll(
+                collection_name=COLLECTION,
+                scroll_filter=missing,
+                limit=page_size,
+                offset=offset,
+                with_payload=False,
+                with_vectors=False,
+            )
+            if records:
+                ids = [str(r.id) for r in records]
+                async with AsyncSessionLocal() as db:
+                    rows = await db.execute(
+                        select(SessionModel.id, SessionModel.user_id).where(SessionModel.id.in_(ids))
+                    )
+                    owners = {sid: uid for sid, uid in rows.all()}
+                for sid in ids:
+                    if sid in owners:
+                        await client.set_payload(
+                            collection_name=COLLECTION,
+                            payload={"user_id": owners[sid]},
+                            points=[sid],
+                        )
+                        updated += 1
+                orphans = [sid for sid in ids if sid not in owners]
+                if orphans:
+                    await client.delete(
+                        collection_name=COLLECTION,
+                        points_selector=PointIdsList(points=orphans),
+                    )
+                    deleted += len(orphans)
+            if offset is None:
+                break
+        logger.info("Qdrant user_id 백필 완료: 갱신 %d건, 고아 삭제 %d건", updated, deleted)
+    except Exception as exc:
+        logger.warning("Qdrant user_id 백필 실패 (%s) — 건너뜀", exc)
 
 
 async def upsert_point(session_id: str, vector: list[float], payload: dict) -> None:
@@ -75,11 +153,14 @@ async def get_vector(session_id: str) -> list[float] | None:
     return vector if isinstance(vector, list) else None
 
 
-async def search_similar(query_vector: list[float], limit: int = 5) -> list[str]:
+async def search_similar(
+    query_vector: list[float], *, user_id: str, limit: int = 5
+) -> list[str]:
     client = get_qdrant()
     result = await client.query_points(
         collection_name=COLLECTION,
         query=query_vector,
+        query_filter=_user_filter(user_id),
         limit=limit,
         score_threshold=settings.search_score_threshold,
     )
@@ -88,6 +169,8 @@ async def search_similar(query_vector: list[float], limit: int = 5) -> list[str]
 
 async def search_similar_with_scores(
     query_vector: list[float],
+    *,
+    user_id: str,
     limit: int = 5,
     score_threshold: float | None = None,
 ) -> list[tuple[str, float]]:
@@ -97,6 +180,7 @@ async def search_similar_with_scores(
     result = await client.query_points(
         collection_name=COLLECTION,
         query=query_vector,
+        query_filter=_user_filter(user_id),
         limit=limit,
         score_threshold=threshold,
     )

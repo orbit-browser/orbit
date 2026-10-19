@@ -567,3 +567,18 @@ def test_process_group_hard_splits_multitopic_into_two_llm_calls(monkeypatch):
     assert order == ["fetch", "analyze", "fetch", "analyze", "apply", "apply"]
     assert touched == {"sess-a", "sess-b"}
     assert result == ["A.X-K1", "A.X-K1"]
+
+
+def test_fetch_candidates_passes_user_id_to_vector_search(monkeypatch):
+    seen: dict = {}
+
+    async def search(_vector, **kwargs):
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(sync_pipeline, "search_similar_with_scores", search)
+    db = _QueuedDB([_ScalarsResult([])])
+    monkeypatch.setattr(sync_pipeline, "AsyncSessionLocal", lambda: _FakeSessionLocalCtx(db))
+
+    asyncio.run(sync_pipeline._fetch_candidates([0.1], "u1"))
+    assert seen["user_id"] == "u1"

@@ -28,7 +28,7 @@ from .api.sync import router as sync_router
 from .api.tab_actions import router as tab_actions_router
 from .config import settings
 from .db.session import init_db
-from .db.vector import init_collection
+from .db.vector import backfill_user_ids, init_collection
 from .services.sync_pipeline import periodic_sync_loop
 
 
@@ -36,6 +36,7 @@ from .services.sync_pipeline import periodic_sync_loop
 async def lifespan(app: FastAPI):
     await init_db()
     await init_collection()
+    await backfill_user_ids()
     await recover_pending_sessions()
 
     periodic_task: asyncio.Task | None = None

@@ -69,10 +69,10 @@ async def _search_sessions_by_vector(
     scores: dict[str, float] = {}
     try:
         if candidate_floor is None:
-            session_ids = await search_similar(query_vector, limit=fetch_limit)
+            session_ids = await search_similar(query_vector, user_id=user_id, limit=fetch_limit)
         else:
             scored = await search_similar_with_scores(
-                query_vector, limit=fetch_limit, score_threshold=candidate_floor
+                query_vector, user_id=user_id, limit=fetch_limit, score_threshold=candidate_floor
             )
             scores = dict(scored)
             session_ids = [session_id for session_id, _score in scored]
@@ -83,7 +83,7 @@ async def _search_sessions_by_vector(
     if not session_ids:
         return []
 
-    # Qdrant 포인트에는 소유자 정보가 없으므로 SQL 단계에서 반드시 거른다.
+    # Qdrant가 user_id로 1차 필터하지만, 다층 방어로 SQL 소유권 필터를 유지한다.
     result = await db.execute(
         select(SessionModel).where(
             SessionModel.id.in_(session_ids),
