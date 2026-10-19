@@ -2,6 +2,7 @@
 
   python -m eval.run_ask_eval seed              # 평가 사용자에 ask_cases.json 이벤트 인제스트 + 세션화 대기
   python -m eval.run_ask_eval ask --out a.json  # 질문 → /assistant/route → /ask/stream, 채점 결과 저장
+  python -m eval.run_ask_eval ask --cases real.json --user real-eval  # 다른 질문 파일(이벤트는 이미 수집된 사용자)
 
 평가 데이터는 별도 사용자(기본 google_sub=ask-eval, --user로 변경)에 쌓이므로 개발 계정 데이터와
 섞이지 않는다. 모델을 바꿔 세션 요약부터 다시 만들려면 새 --user로 seed한다.
@@ -22,7 +23,7 @@ from app.db.models import User
 from app.db.session import AsyncSessionLocal
 from app.services.auth_tokens import issue_token
 
-_CASES = json.loads(Path(__file__).with_name("ask_cases.json").read_text(encoding="utf-8"))
+_CASES: dict = {}
 # 거절 판정은 문구 기반 근사치다. 부정 질문의 답은 사람이 한 번 더 읽어 확인한다.
 _REFUSAL = re.compile(
     r"찾지 못|찾을 수 없|확인되지 않|기록이 없|정보가 없|나와 있지 않|포함되어 있지 않|없(?:습니다|어요|네요|었)"
@@ -171,7 +172,9 @@ def main() -> None:
     parser.add_argument("--base", default="http://127.0.0.1:8000", help="대상 백엔드 주소")
     parser.add_argument("--user", default="ask-eval", help="평가 사용자 google_sub")
     parser.add_argument("--out", type=Path, help="ask 결과(JSON) 저장 경로")
+    parser.add_argument("--cases", type=Path, default=Path(__file__).with_name("ask_cases.json"), help="평가 케이스 파일")
     args = parser.parse_args()
+    _CASES.update(json.loads(args.cases.read_text(encoding="utf-8")))
     if args.command == "seed":
         asyncio.run(seed(args.base, args.user))
     else:
