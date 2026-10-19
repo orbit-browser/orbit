@@ -35,6 +35,7 @@ python -m eval.run_ask_eval seed                       # 최초 1회: 인제스�
 python -m eval.run_ask_eval ask --out ask_result.json  # 질문·채점
 ```
 
-다른 주소의 백엔드는 `--base http://127.0.0.1:8001`. 지표는 기대 사실 포함률(`a|b`는 대안 표기),
+다른 주소의 백엔드는 `--base http://127.0.0.1:8001`. 모델을 바꿔 세션 요약부터 다시 만들려면
+새 평가 사용자로 seed한다(`--user ask-eval-k2`, ask에도 같은 값). 지표는 기대 사실 포함률(`a|b`는 대안 표기),
 완전 정답 수, 부정 질문 거절 수(문구 기반 근사), 범위 밖 인용 수, 평균 지연이다.
 기준선과 개선 결과는 `docs/WorkLog.md` 2026-10-19 항목 참고.

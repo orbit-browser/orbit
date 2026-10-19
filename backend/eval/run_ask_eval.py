@@ -3,7 +3,8 @@
   python -m eval.run_ask_eval seed              # 평가 사용자에 ask_cases.json 이벤트 인제스트 + 세션화 대기
   python -m eval.run_ask_eval ask --out a.json  # 질문 → /assistant/route → /ask/stream, 채점 결과 저장
 
-평가 데이터는 별도 사용자(google_sub=ask-eval)에 쌓이므로 개발 계정 데이터와 섞이지 않는다.
+평가 데이터는 별도 사용자(기본 google_sub=ask-eval, --user로 변경)에 쌓이므로 개발 계정 데이터와
+섞이지 않는다. 모델을 바꿔 세션 요약부터 다시 만들려면 새 --user로 seed한다.
 backend/.env의 DATABASE_URL이 대상 백엔드와 같은 DB를 가리켜야 한다(평가 사용자 토큰 발급용).
 """
 import argparse
@@ -11,6 +12,7 @@ import asyncio
 import json
 import re
 import time
+import uuid
 from pathlib import Path
 
 import httpx
@@ -27,21 +29,26 @@ _REFUSAL = re.compile(
 )
 
 
-async def _token() -> str:
+async def _token(google_sub: str) -> str:
     async with AsyncSessionLocal() as db:
-        user = await db.scalar(select(User).where(User.google_sub == "ask-eval"))
+        user = await db.scalar(select(User).where(User.google_sub == google_sub))
         if user is None:
-            user = User(google_sub="ask-eval", email="ask-eval@orbit.local", name="Ask Eval")
+            user = User(google_sub=google_sub, email=f"{google_sub}@orbit.local", name="Ask Eval")
             db.add(user)
             await db.commit()
             await db.refresh(user)
     return issue_token(user.id)[0]
 
 
-async def seed(base: str) -> None:
-    headers = {"Authorization": f"Bearer {await _token()}"}
+async def seed(base: str, google_sub: str) -> None:
+    headers = {"Authorization": f"Bearer {await _token(google_sub)}"}
+    # 이벤트 id는 전역 유일이라 사용자마다 다른 id로 넣어야 중복 처리되지 않는다.
+    events = [
+        {**event, "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{google_sub}:{event['id']}"))}
+        for event in _CASES["events"]
+    ]
     async with httpx.AsyncClient(base_url=base, headers=headers, timeout=60) as client:
-        response = await client.post("/events", json={"device_id": "ask-eval", "events": _CASES["events"]})
+        response = await client.post("/events", json={"device_id": "ask-eval", "events": events})
         print("ingest", response.status_code, response.text)
         response = await client.post("/sync", json={"trigger_type": "manual"})
         print("sync", response.status_code, response.text)
@@ -104,8 +111,8 @@ async def _ask(client: httpx.AsyncClient, case: dict) -> dict:
     }
 
 
-async def ask(base: str, out: Path | None) -> None:
-    headers = {"Authorization": f"Bearer {await _token()}"}
+async def ask(base: str, google_sub: str, out: Path | None) -> None:
+    headers = {"Authorization": f"Bearer {await _token(google_sub)}"}
     results = []
     async with httpx.AsyncClient(base_url=base, headers=headers, timeout=120) as client:
         for case in _CASES["questions"]:
@@ -138,9 +145,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["seed", "ask"])
     parser.add_argument("--base", default="http://127.0.0.1:8000", help="대상 백엔드 주소")
+    parser.add_argument("--user", default="ask-eval", help="평가 사용자 google_sub")
     parser.add_argument("--out", type=Path, help="ask 결과(JSON) 저장 경로")
     args = parser.parse_args()
-    asyncio.run(seed(args.base) if args.command == "seed" else ask(args.base, args.out))
+    if args.command == "seed":
+        asyncio.run(seed(args.base, args.user))
+    else:
+        asyncio.run(ask(args.base, args.user, args.out))
 
 
 if __name__ == "__main__":
