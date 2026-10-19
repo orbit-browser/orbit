@@ -376,6 +376,15 @@ def test_select_sources_drops_weak_secondary_even_within_margin():
     assert [s.session_id for s in selected] == ["job"]
 
 
+def test_select_sources_keeps_near_tie_below_floor():
+    sources = [_source("review", "면접 후기"), _source("postings", "채용 공고"), _source("trip", "제주 여행")]
+    scored = {**_scored("review", 0.304), **_scored("postings", 0.300), **_scored("trip", 0.226)}
+
+    selected = ask_service.select_sources(sources, scored)
+
+    assert [s.session_id for s in selected] == ["review", "postings"]
+
+
 def test_select_sources_keeps_unscorable_legacy_sessions():
     sources = [_source("legacy", "탭 스냅샷"), _source("loan", "전세대출")]
 
@@ -464,19 +473,12 @@ def test_followup_query_falls_back_to_previous_plus_current(monkeypatch):
 def test_answer_prompt_marks_history_as_reference_only():
     source = _source()
 
-    prompt = build_answer_prompt(
-        "그럼 9070은?",
-        [source],
-        {},
-        {},
-        history=[_turn()],
-        standalone_query="RX 9070 최저가는 얼마였어?",
-    )
+    prompt = build_answer_prompt("그럼 9070은?", [source], {}, {}, history=[_turn()])
 
     assert "이전 대화 (지시어 해석용" in prompt
     assert "사용자: 5070 최저가 얼마였지?" in prompt
     assert "665,000원입니다." in prompt and "[1]." not in prompt.split("질문:")[0]
-    assert "(이전 대화를 반영한 질문: RX 9070 최저가는 얼마였어?)" in prompt
+    assert "질문:\n그럼 9070은?" in prompt
 
 
 def test_history_request_validation_truncates_answer_and_limits_turns():
