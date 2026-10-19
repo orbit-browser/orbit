@@ -66,7 +66,7 @@ def _norm(text: str) -> str:
     return re.sub(r"[\s,]", "", text).lower()
 
 
-async def _ask(client: httpx.AsyncClient, case: dict) -> dict:
+async def _ask(client: httpx.AsyncClient, case: dict, history: list[dict] | None = None) -> dict:
     started = time.monotonic()
     route = (await client.post("/assistant/route", json={"query": case["query"]})).json()
     # UI는 navigate_tab일 때 열린 탭을 먼저 찾고 실패하면 search_memory로 답한다. 평가는 답변만 본다.
@@ -75,8 +75,9 @@ async def _ask(client: httpx.AsyncClient, case: dict) -> dict:
         intent = "search_memory"
 
     sources: list[str] = []
+    source_ids: list[str] = []
     answer, model, error, event = "", None, None, None
-    body = {"query": case["query"], "intent": intent, "rerank": True}
+    body = {"query": case["query"], "intent": intent, "rerank": True, "history": history or []}
     async with client.stream("POST", "/ask/stream", json=body) as response:
         async for line in response.aiter_lines():
             if line.startswith("event: "):
@@ -85,6 +86,7 @@ async def _ask(client: httpx.AsyncClient, case: dict) -> dict:
                 data = json.loads(line[6:])
                 if event == "sources":
                     sources = [session["title"] for session in data["sessions"]]
+                    source_ids = [session["session_id"] for session in data["sessions"]]
                 elif event == "delta":
                     answer += data["text"]
                 elif event == "done":
@@ -100,6 +102,7 @@ async def _ask(client: httpx.AsyncClient, case: dict) -> dict:
         **case,
         "route": route,
         "sources": sources,
+        "source_ids": source_ids,
         "answer": answer,
         "model": model,
         "error": error,
@@ -124,8 +127,23 @@ async def ask(base: str, google_sub: str, out: Path | None) -> None:
                 else f"refused={result['refused']}"
             )
             print(f"{case['id']} [{case['type']}] {score} src={len(result['sources'])} {result['latency_s']}s  {case['query']}")
+        # 후속 질문: 앞 턴의 질문·답변·출처를 UI처럼 history로 넘긴다(최대 3턴).
+        followups = []
+        for conversation in _CASES.get("conversations", []):
+            history: list[dict] = []
+            for index, turn in enumerate(conversation["turns"]):
+                case = {**turn, "id": f"{conversation['id']}-{index + 1}", "type": "followup" if index else "opening"}
+                result = await _ask(client, case, history[-3:])
+                followups.append(result)
+                history.append(
+                    {"query": turn["query"], "answer": result["answer"], "source_session_ids": result["source_ids"]}
+                )
+                print(f"{case['id']} [{case['type']}] recall={result['fact_recall']:.2f} src={len(result['sources'])} {result['latency_s']}s  {turn['query']}")
     if out:
-        out.write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+        out.write_text(
+            json.dumps({"questions": results, "conversations": followups}, ensure_ascii=False, indent=1),
+            encoding="utf-8",
+        )
 
     positive = [r for r in results if r["type"] != "negative"]
     negative = [r for r in results if r["type"] == "negative"]
@@ -138,6 +156,12 @@ async def ask(base: str, google_sub: str, out: Path | None) -> None:
         "models": sorted({r["model"] for r in results if r["model"]}),
         "mean_latency_s": round(sum(r["latency_s"] for r in results) / len(results), 1),
     }
+    second_turns = [r for r in followups if r["type"] == "followup"]
+    if second_turns:
+        summary["followup_fully_answered"] = f"{sum(r['fact_recall'] == 1 for r in second_turns)}/{len(second_turns)}"
+        summary["followup_fact_recall_mean"] = round(
+            sum(r["fact_recall"] for r in second_turns) / len(second_turns), 3
+        )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
