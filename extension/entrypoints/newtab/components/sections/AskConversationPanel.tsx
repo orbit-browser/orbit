@@ -47,7 +47,7 @@ export function AskConversationPanel({
   return (
     <main className="ask-conversation" aria-live="polite">
       <div className="ask-conversation__toolbar">
-        <span>질문과 답변은 누적 표시되지만, 각 질문은 독립적으로 처리돼요</span>
+        <span>최근 질문 3개를 이어서 이해해요. 새 주제는 새 대화로 시작하세요</span>
         <div>
           {isStreaming && (
             <button type="button" onClick={onCancel}>

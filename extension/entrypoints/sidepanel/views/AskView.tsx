@@ -60,7 +60,7 @@ export function AskView() {
         ) : (
           <>
             <p className="text-center text-[11px] text-orbit-muted/70">
-              각 질문은 이전 답변을 참조하지 않아요
+              앞선 질문을 이어서 물어볼 수 있어요
             </p>
             {turns.map((turn) => (
               <article key={turn.id} className="space-y-3">
