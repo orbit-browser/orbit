@@ -25,6 +25,9 @@ from app.services import assistant_router
         ("sqlalchemy async에서 MissingGreenlet 에러 어떻게 고친다고 했지?", None, "search_memory"),
         ("도쿄 여행 항공권 알아본 거 있어?", None, "search_memory"),
         ("그 세션에서 가격이 얼마였어?", None, "search_session"),
+        ("그중 마감이 제일 빠른 곳", None, "search_memory"),
+        ("그럼 9070은", None, "search_memory"),
+        ("그럼 유튜브 탭으로 가줘", None, "navigate_tab"),
     ],
 )
 def test_rule_intent(query, session_id, expected):

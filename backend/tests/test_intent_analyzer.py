@@ -26,11 +26,15 @@ def _candidate(session_id: str = "sess-1", title: str = "기존 세션", **overr
     return base
 
 
-def _mock_llm(monkeypatch, response: str, model: str = "A.X-K1"):
+def _mock_llm(monkeypatch, response: str, model: str = "A.X-K1", retry_response: str | None = None):
     async def fake(*_args, **_kwargs):
         return response, model
 
+    async def fake_retry(*_args, **_kwargs):
+        return (response if retry_response is None else retry_response), "A.X-K2"
+
     monkeypatch.setattr(intent_analyzer, "chat_completion_intent", fake)
+    monkeypatch.setattr(intent_analyzer, "chat_completion_with_meta", fake_retry)
 
 
 def test_empty_group_returns_empty_without_llm_call(monkeypatch):
@@ -161,6 +165,31 @@ def test_malformed_json_falls_back_to_hold(monkeypatch):
     _mock_llm(monkeypatch, "this is not json")
     events = [_event()]
     result = asyncio.run(intent_analyzer.analyze(events, []))
+    assert result[0].action == "hold"
+
+
+def test_malformed_json_is_retried_once_with_the_other_provider(monkeypatch):
+    broken = '{"assignments": [{"event_indices": [0], "action": "create", "re.\n "relevance": 0.8}]}'
+    fixed = json.dumps({"assignments": [{"event_indices": [0], "action": "create", "relevance": 0.8}]})
+    _mock_llm(monkeypatch, broken, model="exaone/endpoint", retry_response=fixed)
+
+    result = asyncio.run(intent_analyzer.analyze([_event()], []))
+
+    assert result[0].action == "create"
+    assert result[0].model == "A.X-K2"
+
+
+def test_llm_call_failure_is_not_retried(monkeypatch):
+    async def boom(*_a, **_k):
+        raise RuntimeError("network error")
+
+    async def must_not_retry(*_a, **_k):
+        raise AssertionError("호출 실패는 llm 계층 폴백이 이미 처리했다")
+
+    monkeypatch.setattr(intent_analyzer, "chat_completion_intent", boom)
+    monkeypatch.setattr(intent_analyzer, "chat_completion_with_meta", must_not_retry)
+
+    result = asyncio.run(intent_analyzer.analyze([_event()], []))
     assert result[0].action == "hold"
 
 

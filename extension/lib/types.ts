@@ -193,11 +193,20 @@ export interface MemorySearchResult {
 
 // ── Ask AI 스트리밍 ───────────────────────────────────────────────────
 
+/** 후속 질문 해석용 이전 턴. 서버는 저장하지 않는다. */
+export interface AskHistoryTurn {
+  query: string;
+  answer: string;
+  sourceSessionIds: string[];
+}
+
 export interface AskStreamRequest {
   query: string;
   sessionId?: string;
   rerank?: boolean;
   intent?: AssistantRetrievalIntent;
+  /** 최근 대화(오래된 순, 최대 3턴). 비우면 독립 질문으로 처리된다. */
+  history?: AskHistoryTurn[];
 }
 
 export type AskStreamEvent =

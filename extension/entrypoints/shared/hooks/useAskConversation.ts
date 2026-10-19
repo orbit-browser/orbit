@@ -8,7 +8,12 @@ import {
   findBestOpenTab,
   parseOpenTabNavigationIntent,
 } from '../../../lib/tab-actions';
-import type { AssistantRetrievalIntent, OpenTabItem, Session } from '../../../lib/types';
+import type {
+  AskHistoryTurn,
+  AssistantRetrievalIntent,
+  OpenTabItem,
+  Session,
+} from '../../../lib/types';
 
 export type AskTurnStatus = 'streaming' | 'done' | 'error' | 'cancelled';
 
@@ -27,6 +32,23 @@ export interface AskTurn {
 interface AskConversationState {
   turns: AskTurn[];
   isStreaming: boolean;
+}
+
+const MAX_HISTORY_TURNS = 3;
+const TAB_ACTION_MODELS = new Set(['local-tab-action', 'semantic-tab-action']);
+
+/** 후속 질문용 최근 대화 — 답변이 끝난 Ask 턴만 보낸다. 탭 이동 결과는 대화 맥락이 아니다. */
+export function buildAskHistory(turns: AskTurn[]): AskHistoryTurn[] {
+  return turns
+    .filter((turn) =>
+      turn.status === 'done' && turn.answer.trim() !== '' && !TAB_ACTION_MODELS.has(turn.model ?? ''),
+    )
+    .slice(-MAX_HISTORY_TURNS)
+    .map((turn) => ({
+      query: turn.query,
+      answer: turn.answer,
+      sourceSessionIds: turn.sources.map((session) => session.id),
+    }));
 }
 
 let turnSequence = 0;
@@ -239,6 +261,7 @@ export function useAskConversation({
     if (!query) return;
 
     if (activeController) cancelActiveTurn();
+    const history = buildAskHistory(useAskConversationStore.getState().turns);
     const id = nextTurnId();
     const controller = new AbortController();
     activeController = controller;
@@ -278,12 +301,13 @@ export function useAskConversation({
         return;
       }
 
-      // 이전 질문·답변을 보내지 않는다. 화면의 누적 목록은 표시용일 뿐 각 요청은 독립 단일턴이다.
+      // 최근 대화를 함께 보내 "그중", "그럼 9070은?" 같은 후속 질문을 해석하게 한다.
       for await (const event of streamAsk({
         query,
         rerank,
         sessionId,
         intent: routed.intent,
+        history,
       }, controller.signal)) {
         if (event.type === 'sources') {
           updateTurn(id, (turn) => ({ ...turn, sources: event.sessions }));

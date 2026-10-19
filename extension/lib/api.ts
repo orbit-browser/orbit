@@ -661,6 +661,11 @@ export async function* streamAsk(
         session_id: body.sessionId ?? null,
         rerank: body.rerank ?? true,
         intent: body.intent ?? 'search_memory',
+        history: (body.history ?? []).map((turn) => ({
+          query: turn.query,
+          answer: turn.answer,
+          source_session_ids: turn.sourceSessionIds,
+        })),
       }),
       signal,
     }),

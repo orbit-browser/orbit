@@ -376,6 +376,15 @@ def test_select_sources_drops_weak_secondary_even_within_margin():
     assert [s.session_id for s in selected] == ["job"]
 
 
+def test_select_sources_keeps_near_tie_below_floor():
+    sources = [_source("review", "면접 후기"), _source("postings", "채용 공고"), _source("trip", "제주 여행")]
+    scored = {**_scored("review", 0.304), **_scored("postings", 0.300), **_scored("trip", 0.226)}
+
+    selected = ask_service.select_sources(sources, scored)
+
+    assert [s.session_id for s in selected] == ["review", "postings"]
+
+
 def test_select_sources_keeps_unscorable_legacy_sessions():
     sources = [_source("legacy", "탭 스냅샷"), _source("loan", "전세대출")]
 
@@ -417,3 +426,67 @@ def test_candidate_dedupe_prefers_visit_with_captured_content():
     )
 
     assert [event.content_excerpt for _se, event in limited] == ["필요서류: 재직증명서"]
+
+
+def _turn(query="5070 최저가 얼마였지?", answer="RTX 5070 최저가는 665,000원입니다 [1].", ids=("gpu",)):
+    from app.schemas.ask import AskHistoryTurn
+
+    return AskHistoryTurn(query=query, answer=answer, source_session_ids=list(ids))
+
+
+def test_followup_query_is_unchanged_without_history(monkeypatch):
+    async def boom(*_args, **_kwargs):
+        raise AssertionError("대화가 없으면 재작성 LLM을 부르지 않는다")
+
+    monkeypatch.setattr(ask_service, "chat_completion", boom)
+
+    assert asyncio.run(ask_service.resolve_followup_query("그럼 9070은?", [])) == "그럼 9070은?"
+
+
+def test_followup_query_uses_rewritten_first_line(monkeypatch):
+    captured = {}
+
+    async def fake_completion(system, user, **kwargs):
+        captured["user"] = user
+        return '"RX 9070 최저가는 얼마였어?"\n설명: 지시어를 풀었습니다'
+
+    monkeypatch.setattr(ask_service, "chat_completion", fake_completion)
+
+    rewritten = asyncio.run(ask_service.resolve_followup_query("그럼 9070은?", [_turn()]))
+
+    assert rewritten == "RX 9070 최저가는 얼마였어?"
+    assert "5070 최저가 얼마였지?" in captured["user"]
+    assert "[1]" not in captured["user"]
+
+
+def test_followup_query_falls_back_to_previous_plus_current(monkeypatch):
+    async def failing(*_args, **_kwargs):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr(ask_service, "chat_completion", failing)
+
+    rewritten = asyncio.run(ask_service.resolve_followup_query("그럼 9070은?", [_turn()]))
+
+    assert rewritten == "5070 최저가 얼마였지? 그럼 9070은?"
+
+
+def test_answer_prompt_marks_history_as_reference_only():
+    source = _source()
+
+    prompt = build_answer_prompt("그럼 9070은?", [source], {}, {}, history=[_turn()])
+
+    assert "이전 대화 (지시어 해석용" in prompt
+    assert "사용자: 5070 최저가 얼마였지?" in prompt
+    assert "665,000원입니다." in prompt and "[1]." not in prompt.split("질문:")[0]
+    assert "질문:\n그럼 9070은?" in prompt
+
+
+def test_history_request_validation_truncates_answer_and_limits_turns():
+    import pytest as _pytest
+    from pydantic import ValidationError
+    from app.schemas.ask import AskStreamRequest
+
+    long = AskStreamRequest(query="그럼?", history=[{"query": "q", "answer": "가" * 9000}])
+    assert len(long.history[0].answer) == 4000
+    with _pytest.raises(ValidationError):
+        AskStreamRequest(query="그럼?", history=[{"query": "q"}] * 4)

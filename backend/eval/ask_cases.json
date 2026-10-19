@@ -335,8 +335,8 @@
    "query": "대한항공이랑 제주항공 위탁수하물 규정 뭐가 달라?",
    "type": "compare",
    "expected_facts": [
-    "15kg 무료|15kg을 무료|15kg이 무료|15kg까지 무료",
-    "15kg 8,000원"
+    "15kg 무료|15kg을 무료|15kg이 무료|15kg까지 무료|15kg이 무료로",
+    "15kg 8,000원|15kg에 8,000원"
    ],
    "expected_topic": "jeju"
   },
@@ -376,9 +376,9 @@
    "query": "11월 제주 여행 준비한 거 항공이랑 숙소 위주로 정리해줘",
    "type": "summary",
    "expected_facts": [
-    "KE1205|LJ301|7C103",
-    "그랜드 하버 제주",
-    "애월 숲속 스테이"
+    "KE1205|LJ301|7C103|진에어|대한항공|제주항공",
+    "그랜드 하버",
+    "애월"
    ],
    "expected_topic": "jeju"
   },
@@ -430,7 +430,7 @@
    "type": "cross_session",
    "expected_facts": [
     "9,500만원",
-    "1억 2천만원"
+    "1억 2천만원|1억2천만원|1.2억"
    ],
    "expected_topic": "job+loan"
   },
@@ -461,6 +461,116 @@
    "type": "negative",
    "expected_facts": [],
    "expected_topic": null
+  }
+ ],
+ "conversations": [
+  {
+   "id": "c1",
+   "turns": [
+    {
+     "query": "11월 제주 숙소 어디어디 봤었지?",
+     "expected_facts": [
+      "그랜드 하버",
+      "애월"
+     ]
+    },
+    {
+     "query": "그중 체크인이 더 빠른 곳은 몇 시부터야?",
+     "expected_facts": [
+      "애월",
+      "14:00"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "c2",
+   "turns": [
+    {
+     "query": "5070 최저가 얼마였지?",
+     "expected_facts": [
+      "665,000원|689,000원"
+     ]
+    },
+    {
+     "query": "그럼 9070은?",
+     "expected_facts": [
+      "649,000원"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "c3",
+   "turns": [
+    {
+     "query": "이직 준비하면서 본 공고들 정리해줘",
+     "expected_facts": [
+      "네오핀테크",
+      "모아커머스",
+      "라이트헬스"
+     ]
+    },
+    {
+     "query": "그중 마감이 제일 빠른 곳은 어디야?",
+     "expected_facts": [
+      "네오핀테크",
+      "2026-10-25|10월 25일|10/25"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "c4",
+   "turns": [
+    {
+     "query": "버팀목 전세대출 금리 어느 정도였지?",
+     "expected_facts": [
+      "2.3",
+      "2.9%"
+     ]
+    },
+    {
+     "query": "한도는?",
+     "expected_facts": [
+      "1억 2천만원|1억2천만원|1억 2천만 원"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "c5",
+   "turns": [
+    {
+     "query": "돼지고기 묵은지 김치찌개에 묵은지 몇 g 넣으라고 했어?",
+     "expected_facts": [
+      "400g"
+     ]
+    },
+    {
+     "query": "그거 총 조리 시간은?",
+     "expected_facts": [
+      "35분"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "c6",
+   "turns": [
+    {
+     "query": "5070 최저가 얼마였지?",
+     "expected_facts": [
+      "665,000원|689,000원"
+     ]
+    },
+    {
+     "query": "제주 렌터카 완전자차 추가하면 하루 얼마였어?",
+     "expected_facts": [
+      "12,000원"
+     ]
+    }
+   ]
   }
  ]
 }

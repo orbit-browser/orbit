@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.llm import StreamInterruptedError, chat_completion_stream_with_meta
@@ -16,8 +17,10 @@ from ..services.ask_service import (
     ASK_SYSTEM_PROMPT,
     CANDIDATE_FLOOR,
     MAX_CANDIDATE_SOURCES,
+    MAX_SOURCES,
     AskContext,
     prepare_ask_context,
+    resolve_followup_query,
 )
 from .deps import current_user_id
 from .search import _search_sessions_by_vector
@@ -32,12 +35,35 @@ def encode_sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
+async def _previous_sources(
+    body: AskStreamRequest, db: AsyncSession, user_id: str
+) -> list[SessionDetail]:
+    """직전 답변의 출처 세션(최대 MAX_SOURCES개). id는 클라이언트가 보낸 값이므로 반드시 요청자
+    소유·활성 세션만 남긴다."""
+    ids = list(dict.fromkeys(body.history[-1].source_session_ids))[:MAX_SOURCES] if body.history else []
+    if not ids:
+        return []
+    result = await db.execute(
+        select(SessionModel).where(
+            SessionModel.id.in_(ids),
+            SessionModel.user_id == user_id,
+            SessionModel.status != "merged",
+        )
+    )
+    by_id = {session.id: session for session in result.scalars().all()}
+    return [_to_detail(by_id[session_id]) for session_id in ids if session_id in by_id]
+
+
 async def _resolve_sources(
     body: AskStreamRequest,
     db: AsyncSession,
     user_id: str,
+    retrieval_query: str | None = None,
 ) -> list[SessionDetail]:
-    """답변 근거로 쓸 세션을 고른다. **반드시 요청자 소유 세션만** 대상으로 한다."""
+    """답변 근거로 쓸 세션을 고른다. **반드시 요청자 소유 세션만** 대상으로 한다.
+
+    retrieval_query는 후속 질문을 단독 질문으로 바꾼 검색용 질문이다(없으면 원래 질문).
+    """
     if body.session_id:
         # 소유권 확인을 거친다 — 남의 세션 id 로 그 내용을 요약해 받아갈 수 있으면 안 된다.
         session = await _owned_session(db, body.session_id, user_id)
@@ -45,20 +71,26 @@ async def _resolve_sources(
             raise HTTPException(status_code=404, detail="Session not found")
         return [_to_detail(session)]
 
+    query = retrieval_query or body.query
     if body.intent == "find_sessions":
-        return await _search_sessions_by_vector(body.query, 5, body.rerank, db, user_id)
+        return await _search_sessions_by_vector(query, 5, body.rerank, db, user_id)
     if body.intent == "search_session":
-        return await _search_sessions_by_vector(body.query, 1, body.rerank, db, user_id)
+        return await _search_sessions_by_vector(query, 1, body.rerank, db, user_id)
     # 후보를 넓게 받고 최종 출처는 prepare_ask_context가 본문 근거 점수로 다시 고른다.
     # 요약 60자만 보는 LLM 리랭크는 그 재정렬과 겹치고 첫 토큰을 ~1.2초 늦춰 쓰지 않는다.
-    return await _search_sessions_by_vector(
-        body.query,
+    retrieved = await _search_sessions_by_vector(
+        query,
         MAX_CANDIDATE_SOURCES,
         False,
         db,
         user_id,
         candidate_floor=CANDIDATE_FLOOR,
     )
+    # "그중 제일 싼 건?"의 대상은 직전 답변의 출처에 있다. 새 검색 결과 뒤에 붙여 함께 근거 점수로 고른다.
+    # 앞에 두면 직전 턴이 세션 찾기(5개)였을 때 후보 상한에 걸려 새 검색 결과가 전부 잘린다.
+    seen = {source.session_id for source in retrieved}
+    previous = await _previous_sources(body, db, user_id)
+    return retrieved + [source for source in previous if source.session_id not in seen]
 
 
 async def _answer_events(
@@ -123,8 +155,17 @@ async def stream_answer(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> StreamingResponse:
-    sources = await _resolve_sources(body, db, user_id)
-    context = await prepare_ask_context(db, body.query, sources, user_id, body.intent)
+    retrieval_query = await resolve_followup_query(body.query, body.history)
+    sources = await _resolve_sources(body, db, user_id, retrieval_query)
+    context = await prepare_ask_context(
+        db,
+        body.query,
+        sources,
+        user_id,
+        body.intent,
+        history=body.history,
+        retrieval_query=retrieval_query,
+    )
     return StreamingResponse(
         _answer_events(request, context),
         media_type="text/event-stream",
