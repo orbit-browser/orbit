@@ -335,7 +335,7 @@
    "query": "대한항공이랑 제주항공 위탁수하물 규정 뭐가 달라?",
    "type": "compare",
    "expected_facts": [
-    "15kg 무료",
+    "15kg 무료|15kg을 무료|15kg이 무료|15kg까지 무료",
     "15kg 8,000원"
    ],
    "expected_topic": "jeju"

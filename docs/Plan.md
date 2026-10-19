@@ -1,6 +1,6 @@
 # Ask AI 답변 품질 개선
 
-**상태:** 진행 중 (2026-10-19)
+**상태:** 구현 완료 (2026-10-19) — 실제 A.X-K1·EXAONE 재측정과 화면 수동 확인은 키 복구 후
 **브랜치:** `feat/ask-answer-quality`
 
 ## 작업 목표
@@ -47,7 +47,8 @@ A.X-K1·EXAONE 키가 막혀 측정은 Upstage `solar-pro2`로 두 슬롯을 대
   `backend/app/api/ask.py`, `backend/app/ai/llm.py`
 - `backend/tests/test_assistant_router.py`, `test_ask.py`, `test_llm_stream.py`
 - `backend/eval/` Ask 평가 데이터·스크립트, `backend/eval/README.md`
-- 필요 시 확장 답변 렌더링(`AskConversationPanel.tsx`, `AskView.tsx`)
+- `backend/app/api/search.py`(후보 확장), `backend/app/ai/embedding.py`(100개 배치)
+- 확장 답변 정리(`lib/ask-answer.ts`, `AskConversationPanel.tsx`, `AskView.tsx`)
 
 ## 구현 순서
 
