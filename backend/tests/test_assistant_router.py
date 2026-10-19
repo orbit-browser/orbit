@@ -20,6 +20,11 @@ from app.services import assistant_router
         ("탭 이동 기능이 어떻게 동작하는지 설명해줘", None, "search_memory"),
         ("유튜브 탭으로 이동이 안 되는 이유가 뭐야?", None, "search_memory"),
         ("리액트와 Vue를 비교해줘", None, "search_memory"),
+        ("제주 그랜드 하버 호텔 체크인 몇 시였어?", None, "search_memory"),
+        ("모아커머스 공고 마감일이 언제였더라?", None, "search_memory"),
+        ("sqlalchemy async에서 MissingGreenlet 에러 어떻게 고친다고 했지?", None, "search_memory"),
+        ("도쿄 여행 항공권 알아본 거 있어?", None, "search_memory"),
+        ("그 세션에서 가격이 얼마였어?", None, "search_session"),
     ],
 )
 def test_rule_intent(query, session_id, expected):
