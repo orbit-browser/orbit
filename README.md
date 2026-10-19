@@ -171,7 +171,7 @@ orbit/
 docker compose up -d postgres qdrant
 cd backend
 pip install -e .
-# backend/.env 를 직접 작성한다 — 아래 "백엔드 환경변수" 참고
+cp .env.example .env   # 값은 아래 "백엔드 환경변수" 참고
 uvicorn app.main:app --reload
 
 # Extension
@@ -188,7 +188,7 @@ pnpm dev        # WXT dev 서버 → Chrome 에 확장 자동 로드
 
 ### 백엔드 환경변수
 
-리포지터리에 `backend/.env.example` 은 없으므로 `backend/.env` 를 직접 만듭니다.
+`backend/.env.example` 을 `backend/.env` 로 복사해 채웁니다.
 AI 키 3종은 모두 필요합니다.
 
 ```bash
@@ -225,7 +225,9 @@ Orbit 은 구글 계정 로그인이 **필수**입니다. 최초 1회 OAuth 클�
 ```bash
 # backend/.env
 GOOGLE_CLIENT_ID=<클라이언트 ID>
-JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
+# .env 는 셸이 아니므로 $(...) 를 그대로 적지 말고, 아래 명령의 출력값을 붙여 넣는다.
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"
+JWT_SECRET=<위 명령의 출력값>
 
 # extension/.env
 VITE_GOOGLE_CLIENT_ID=<같은 클라이언트 ID>

@@ -58,7 +58,7 @@ eval/                     # 골든셋 평가 하네스 — 세션 분류·검색
 docker compose up -d postgres qdrant   # 루트에서
 cd backend
 pip install -e ".[dev]"                # 또는 uv sync
-# backend/.env 를 직접 작성한다 (backend/.env.example 은 없다).
+cp .env.example .env                   # 값 채우기
 # AXK1_API_KEY, FRIENDLI_API_KEY, UPSTAGE_API_KEY 3종이 모두 필요하며,
 # 구글 로그인용 GOOGLE_CLIENT_ID / JWT_SECRET 은 루트 README 참고.
 uvicorn app.main:app --reload

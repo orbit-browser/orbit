@@ -2,6 +2,38 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-10-19 — 새 환경 기준 실행 점검
+
+빈 환경(macOS, Python 3.11, Node 26, pnpm 10)에서 의존성을 새로 설치하고 공식 검증 명령과
+실제 기동을 돌려 봤다.
+
+### 발견해서 고친 것
+
+- **backend 기동 불가 — greenlet 누락.** SQLAlchemy 2.1부터 greenlet이 기본 의존성에서 빠져
+  `pip install -e .` 직후 `sqlalchemy.ext.asyncio` import가 실패했다(pytest 수집 ImportError,
+  uvicorn 기동 불가). `pyproject.toml`을 `sqlalchemy[asyncio]>=2.0`으로 바꿨다.
+- **A.X-K1 base URL.** 게이트웨이를 무인증으로 찔러 보면 `/v1/chat/completions` 401,
+  `/chat/completions` 404. `config.py` 기본값과 `backend/.env.example`이 `/v1` 없이 적혀 있어
+  그대로 쓰면 A.X-K1 호출이 전부 실패하고 EXAONE 폴백으로만 돈다. 둘 다 `/v1`로 맞췄다.
+- **`dev.sh` 실행 권한 없음**(git mode 100644). Windows Git Bash에서는 상관없지만 macOS/Linux에서
+  `./dev.sh`가 permission denied. 755로 바꿨다.
+- **README 오기.** `backend/.env.example`이 없다고 안내했지만 실제로는 커밋돼 있다 →
+  `cp .env.example .env`로 정정. `JWT_SECRET=$(python ...)` 예시는 .env가 셸이 아니라서 문자열
+  그대로 서명 키가 된다(`.env.example` 주석이 경고하는 경우) → 출력값을 붙여 넣도록 정정.
+
+### 검증
+
+- backend `python -m pytest -p no:asyncio` — 새 venv에서 greenlet 자동 설치, 488 passed
+- extension `pnpm test` 200 passed, `pnpm compile` 통과, `pnpm build` 통과
+- 스모크: 별도 포트의 postgres:16·qdrant + uvicorn → 테이블·마이그레이션·Qdrant 컬렉션 생성,
+  `/health` ok, 미인증 401, 테스트 사용자 토큰으로 `/auth/me`·`/sessions`·`/settings`·`/folders`·
+  `/sync/status`·`/analytics/overview` 200, `POST /events` 202(accepted 3) → 재전송 duplicates 3,
+  잘못된 id 422
+- 확장: headless Chrome에 CDP `Extensions.loadUnpacked`로 로드(브랜드 Chrome 137+는
+  `--load-extension` 무시) → 고정 ID `aghgamoeifieijjckhpfkmhiibacnhml`, 서비스 워커 등록,
+  설치 시 온보딩 탭 열림, 새 탭·사이드패널 로그인 화면 렌더링, 콘솔 에러 0
+- 실행하지 않음: `/sync` 등 실제 LLM 호출 경로(비용), 구글 로그인(실제 크롬 프로필 필요)
+
 ## 2026-08-12 — 다크 모드를 네비게이터·대시보드·사이드패널까지
 
 ### 대시보드와 네비게이터가 안 바뀌던 이유 — 명시도가 아니라 스코프
