@@ -236,7 +236,10 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
     """
     try:
         scored = await search_similar_with_scores(
-            vector, limit=_CANDIDATE_VECTOR_LIMIT, score_threshold=settings.search_score_threshold
+            vector,
+            user_id=user_id,
+            limit=_CANDIDATE_VECTOR_LIMIT,
+            score_threshold=settings.search_score_threshold,
         )
         vector_ids = [session_id for session_id, _score in scored]
         scores_by_id = {session_id: score for session_id, score in scored}

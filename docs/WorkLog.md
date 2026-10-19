@@ -2,6 +2,20 @@
 
 작업, 오류, 원인, 해결 과정과 실제 검증 결과를 시간순으로 기록한다.
 
+## 2026-10-19 — Qdrant 검색을 사용자 단위로 필터
+
+- 문제: `orbit_sessions` 컬렉션은 모든 사용자가 공유하고 포인트 payload에 소유자가 없어, 전역 top-k를 가져온 뒤
+  SQL에서만 소유권을 거르고 있었다. 공유 백엔드에서는 남의 세션이 top-k를 차지해 내 관련 세션이 결과에서 사라질 수 있다.
+- 변경: 포인트 payload에 `user_id`를 항상 넣고(`embed_and_upsert`가 DB에서 소유자를 읽음, 세션이 없으면 upsert 생략),
+  `search_similar`/`search_similar_with_scores`가 `user_id` 필수 키워드 인자로 Qdrant payload 필터를 적용한다.
+  검색·후보 조회·추천·병합 제안 호출부 모두 소유자를 전달하고 SQL 소유권 필터는 다층 방어로 유지한다.
+  `init_collection()`이 `user_id` keyword 인덱스를 보장하고, 기동 시 `backfill_user_ids()`가 `user_id` 없는 기존 포인트를
+  채우거나(세션 없는 고아 포인트는 삭제) 실패해도 기동을 막지 않는다.
+- 백필은 소유자별로 묶어 `set_payload`를 호출한다(포인트마다 호출하면 기동이 느려진다).
+- 검증: `python -m pytest -p no:asyncio` 519 passed. 로컬 Qdrant 실측 — 기동 시 `user_id` keyword 인덱스 생성,
+  새 포인트 payload에 `user_id` 포함, `user_id`를 지운 포인트는 백필로 복구(`IsEmptyCondition`이 키가 없는
+  포인트도 잡음), 세션 없는 고아 포인트 삭제, 같은 질의로 본인 5건·다른 사용자 0건.
+
 ## 2026-10-19 — 이벤트 개별 삭제가 동기화된 이벤트에서 500으로 실패
 
 - 증상: Ask 평가 데이터를 `DELETE /events/{id}`로 정리하다 첫 건에서 연결이 끊겼다. 로그는

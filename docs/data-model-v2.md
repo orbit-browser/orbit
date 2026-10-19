@@ -3,6 +3,7 @@
 > 근거: 계획서 B-2. 신규 테이블 5개 + 기존 `sessions` 확장. 원본 이벤트(사실)와 AI 해석(세션)을 분리한다 — 이벤트가 Memory의 기본 단위이고, 세션은 그 위의 파생 뷰다.
 > 현재 스키마는 `docs/current-state-audit.md` §4 참고. 마이그레이션 절차는 `docs/migration-plan.md` 참고. DDL은 Postgres 16 기준이며, 실제 구현은 SQLAlchemy 모델(`backend/app/db/models.py`)로 옮겨진다 — 아래는 그 계약을 고정하기 위한 DDL 수준 정의다.
 > 구현 노트: 아래 DDL의 `UUID` 컬럼은 실제 모델에서 기존 코드베이스 컨벤션(`sessions.id = String(36)`, Qdrant point id 문자열)에 맞춰 **`VARCHAR(36)` UUID 문자열**로 구현한다. 값 형식은 UUID로 동일하며, JSON 직렬화·비교 시 `uuid.UUID`↔`str` 변환 계층을 없애기 위한 선택이다.
+> Qdrant 구현 노트: `orbit_sessions` 포인트 payload는 `session_id`, `user_id`(세션 소유자), `title`, `overview`, `purpose`를 갖는다. 모든 벡터 검색은 `user_id` payload 필터를 적용하고 `init_collection()`이 `user_id` keyword 인덱스를 보장한다. 기동 시 `backfill_user_ids()`가 `user_id` 없는 기존 포인트를 SQL의 세션 소유자로 채우고 세션이 없는 포인트는 삭제한다(멱등).
 
 ## 1. `exploration_events` — Memory의 원자 단위
 
