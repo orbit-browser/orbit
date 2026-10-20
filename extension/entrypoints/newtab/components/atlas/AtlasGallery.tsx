@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { OrbitPoint } from './data';
+import { alignOffset, normalizeRotation, ringDelta } from './data';
 import { pageShot } from './page-shots';
 
 /**
@@ -8,8 +9,10 @@ import { pageShot } from './page-shots';
  * 카드가 가로로 늘어서고, 가운데서 멀어질수록 뒤로 물러나며(translateZ) 돌고(rotateY)
  * 옅어진다. 끌면 따라오고 놓으면 관성으로 미끄러진다. 값과 계산식은 원본과 같다.
  * 원본과 달리 저절로 흐르지 않는다(대표 2026-10-20) — 끌기·←→·카드·위 막대로만 움직이고,
- * 멈출 때는 가장 가까운 카드에 붙어 그 페이지를 고른다. 원본처럼 끝없이 돌지도 않는다 —
- * 페이지 수만큼만 카드가 있고(같은 페이지를 이어 붙이지 않는다), 끝을 넘어 끌면 버티다 돌아온다.
+ * 멈출 때는 가장 가까운 카드에 붙어 그 페이지를 고른다.
+ * 궤도처럼 끝없이 돈다 — 페이지마다 카드는 한 장뿐이고(같은 페이지를 이어 붙이지 않는다), 마지막
+ * 다음에는 첫 페이지가 같은 방향으로 이어 온다. 고리의 반대편(이음매)을 지나는 카드는 그 자리에서
+ * 옅어졌다 다른 쪽에서 나타난다. 페이지가 둘 이하면 고리를 만들 수 없어 끝이 있는 띠다.
  * 사진 대신 페이지 화면을 쓰고, 화면이 없는 페이지는 원본의 빈 사진처럼 회색 칸이다.
  */
 
@@ -19,8 +22,10 @@ const SPACING = 220;
 const FRICTION = 0.95;
 /** 이만큼 넘게 움직였으면 누르기가 아니라 끌기다 */
 const DRAG_SLOP = 5;
-/** 끝을 넘어 끌 때 따라오는 비율 — 고무줄처럼 버틴다 */
+/** 끝이 있는 띠(페이지 둘 이하)에서 끝을 넘어 끌 때 따라오는 비율 — 고무줄처럼 버틴다 */
 const OVERSCROLL = 0.3;
+/** 이음매에서 카드가 사라지고 나타나는 폭(카드 장 수) */
+const SEAM = 0.5;
 
 
 interface AtlasGalleryProps {
@@ -45,11 +50,13 @@ export function AtlasGallery({
   const motion = useRef({ current: 0, target: 0, velocity: 0, dragging: false, lastX: 0, moved: 0 });
 
   const cards = points;
-  /** 마지막 카드가 가운데 올 때의 위치. 위치는 이 범위 안에 머문다. */
+  /** 셋 이상이면 고리, 둘 이하면 끝이 있는 띠 */
+  const loop = cards.length >= 3;
+  /** 끝이 있는 띠에서 마지막 카드가 가운데 올 때의 위치 */
   const end = Math.max(0, cards.length - 1) * SPACING;
   // 창 전체에 건 놓기 핸들러가 최신 카드·콜백을 보도록
-  const latest = useRef({ cards, onSelectPoint, onFrame, end });
-  latest.current = { cards, onSelectPoint, onFrame, end };
+  const latest = useRef({ cards, onSelectPoint, onFrame, end, loop });
+  latest.current = { cards, onSelectPoint, onFrame, end, loop };
   /** 멈춰 있던 프레임 루프를 다시 돌린다. 움직일 일이 생길 때마다 부른다. */
   const wakeRef = useRef(() => {});
 
@@ -75,7 +82,10 @@ export function AtlasGallery({
       const width = viewportRef.current?.clientWidth ?? window.innerWidth;
       cardRefs.current.slice(0, cards.length).forEach((card, index) => {
         if (!card) return;
-        const offset = index * SPACING - state.current;
+        // 고리면 지금 자리에서 가장 가까운 쪽으로 잰 거리(장 수), 띠면 그냥 차이
+        const away = loop ? ringDelta(state.current / SPACING, index, cards.length) : index - state.current / SPACING;
+        const offset = away * SPACING;
+        const seam = loop ? Math.min(1, Math.max(0, (cards.length / 2 - Math.abs(away)) / SEAM)) : 1;
         if (Math.abs(offset) >= width) {
           card.style.display = 'none';
           return;
@@ -83,7 +93,7 @@ export function AtlasGallery({
         const progress = offset / (width / 1.5);
         card.style.display = 'block';
         card.style.transform = `translateX(${offset}px) translateZ(${-(progress ** 2) * 500}px) rotateY(${progress * 45}deg)`;
-        card.style.opacity = String(1 - Math.abs(progress) ** 3);
+        card.style.opacity = String((1 - Math.abs(progress) ** 3) * seam);
       });
       latest.current.onFrame?.(state.current / SPACING);
       frame = settled ? 0 : requestAnimationFrame(step);
@@ -96,7 +106,7 @@ export function AtlasGallery({
       cancelAnimationFrame(frame);
       wakeRef.current = () => {};
     };
-  }, [cards.length]);
+  }, [cards.length, loop]);
 
   // 끌기 — 누르기는 갤러리에서, 움직임과 놓기는 창 전체에서 받는다(원본과 같다).
   useEffect(() => {
@@ -118,7 +128,7 @@ export function AtlasGallery({
       state.lastX = event.clientX;
       state.moved += Math.abs(delta);
       // 끝을 넘어서면 덜 따라온다
-      const beyond = state.target < 0 || state.target > latest.current.end;
+      const beyond = !latest.current.loop && (state.target < 0 || state.target > latest.current.end);
       state.target -= delta * 1.5 * (beyond ? OVERSCROLL : 1);
       state.velocity = -delta * 0.5;
       wakeRef.current();
@@ -129,14 +139,14 @@ export function AtlasGallery({
       viewport.style.cursor = 'grab';
       if (state.moved <= DRAG_SLOP) return;
       // 관성이 멈출 자리를 미리 셈해 가장 가까운 카드에 붙이고(끝 안쪽으로), 그 페이지를 고른다.
-      const { cards: current, onSelectPoint: select } = latest.current;
+      const { cards: current, onSelectPoint: select, loop: looping } = latest.current;
       if (current.length === 0) return;
       const rest = Math.round((state.target + state.velocity / (1 - FRICTION)) / SPACING);
-      const index = Math.min(current.length - 1, Math.max(0, rest));
-      state.target = index * SPACING;
+      const stop = looping ? rest : Math.min(current.length - 1, Math.max(0, rest));
+      state.target = stop * SPACING;
       state.velocity = 0;
       wakeRef.current();
-      select(current[index].id);
+      select(current[normalizeRotation(stop, current.length)].id);
     };
     viewport.addEventListener('pointerdown', down);
     window.addEventListener('pointermove', move);
@@ -156,14 +166,15 @@ export function AtlasGallery({
     const index = cards.findIndex((point) => point.id === selectedPointId);
     if (index < 0) return;
     const state = motion.current;
-    state.target = index * SPACING;
+    // 고리면 가까운 쪽으로 돈다 — 마지막에서 첫 페이지로 가도 한 칸만 앞으로 간다.
+    state.target = (loop ? alignOffset(state.target / SPACING, index, cards.length) : index) * SPACING;
     state.velocity = 0;
     // 처음 열 때는 미끄러지지 않고 그 자리에서 시작한다.
     if (!centeredRef.current) state.current = state.target;
     centeredRef.current = true;
     wakeRef.current();
     // 고른 페이지가 바뀔 때만 다시 맞춘다.
-  }, [selectedPointId, cards.length]);
+  }, [selectedPointId, cards.length, loop]);
 
   return (
     <div className="atlas-gallery" ref={viewportRef}>
