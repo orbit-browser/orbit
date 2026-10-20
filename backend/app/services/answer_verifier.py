@@ -20,6 +20,9 @@ from ..schemas.ask import AskVerificationIssue
 # 답변(`done`) 뒤 검증을 기다리는 상한. 넘기면 경고 없이 끝낸다.
 VERIFY_TIMEOUT_S = 15.0
 MAX_ISSUES = 3
+# 값마다 원문을 옮겨 적어 요약형 답변은 응답이 길다. 1,000토큰에서는 합성 평가 답변의 19%가 잘려 파싱되지 않았고,
+# 2,500토큰에서 가장 긴 답변이 9.7초에 끝났다(검증은 done 뒤라 답변을 기다리게 하지 않는다).
+VERIFY_MAX_TOKENS = 2500
 # 첫 문장에서 못 찾았다고 답한 경우는 값을 단정하지 않으므로 검증하지 않는다.
 _REFUSAL = re.compile(r"찾지 못|확인되지 않|나와 있지 않|적혀 있지 않|기록에 없")
 _FIRST_SENTENCE = re.compile(r"^.*?(?:[.!?](?:\s|$)|\n|$)", re.S)
@@ -105,7 +108,7 @@ async def find_conflations(prompt: str, answer: str) -> list[AskVerificationIssu
                 VERIFY_SYSTEM_PROMPT,
                 f"{prompt}\n\n검증할 답변:\n{answer}",
                 temperature=0.0,
-                max_tokens=1000,
+                max_tokens=VERIFY_MAX_TOKENS,
             ),
             timeout=VERIFY_TIMEOUT_S,
         )
