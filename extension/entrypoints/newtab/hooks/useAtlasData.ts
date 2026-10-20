@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   fetchFolderSuggestions,
   fetchFolders,
@@ -20,8 +21,6 @@ export interface AtlasData {
   folders: FolderNode[];
   /** 아직 어떤 폴더에도 넣지 않은 세션. */
   unfiled: SessionNode[];
-  /** 미정리 세션별 폴더 제안. */
-  suggestions: SuggestionNode[];
 }
 
 async function fetchEventsInBatches(sessionIds: string[]) {
@@ -39,21 +38,14 @@ async function fetchEventsInBatches(sessionIds: string[]) {
 }
 
 export async function fetchAtlasData(): Promise<AtlasData> {
-  // 폴더·제안 조회가 실패해도 세션은 보여준다 — 정리 기능이 없다고 기록 자체를 감출 이유는 없다.
-  // 제안은 벡터 DB 가 내려가면 503 이 오는데, 그때는 제안이 없는 것과 같다.
-  const [sessions, folders, suggestions] = await Promise.all([
+  // 폴더 조회가 실패해도 세션은 보여준다 — 정리 기능이 없다고 기록 자체를 감출 이유는 없다.
+  const [sessions, folders] = await Promise.all([
     fetchSessions(),
     fetchFolders().catch(() => []),
-    fetchFolderSuggestions().catch(() => []),
   ]);
   const eventsBySession = await fetchEventsInBatches(sessions.map((session) => session.id));
   const nodes = buildAtlasSessions(sessions, eventsBySession);
-  const grouped = buildFolderNodes(folders, nodes);
-  return {
-    sessions: nodes,
-    ...grouped,
-    suggestions: buildSuggestionNodes(suggestions, grouped.folders, grouped.unfiled, nodes),
-  };
+  return { sessions: nodes, ...buildFolderNodes(folders, nodes) };
 }
 
 export const ATLAS_QUERY_KEY = ['newtab', 'atlas-data'] as const;
@@ -63,4 +55,21 @@ export function useAtlasData() {
     queryKey: ATLAS_QUERY_KEY,
     queryFn: fetchAtlasData,
   });
+}
+
+/**
+ * 미정리 세션별 폴더 제안. Atlas 데이터와 따로 불러와 벡터 검색이 느려도 세션 목록이 먼저 그려진다.
+ * Atlas 데이터가 새로 오면(배정·동기화 뒤) 제안도 다시 받는다. 실패(벡터 DB 장애 503 등)는 제안 없음과 같다.
+ */
+export function useFolderSuggestions(atlas: AtlasData | undefined, atlasUpdatedAt: number): SuggestionNode[] {
+  const { data } = useQuery({
+    queryKey: ['newtab', 'folder-suggestions', atlasUpdatedAt],
+    queryFn: () => fetchFolderSuggestions().catch(() => []),
+    enabled: atlas !== undefined,
+    placeholderData: keepPreviousData,
+  });
+  return useMemo(
+    () => (atlas && data ? buildSuggestionNodes(data, atlas.folders, atlas.unfiled, atlas.sessions) : []),
+    [atlas, data],
+  );
 }

@@ -52,8 +52,8 @@ class _FakeDB:
         return False
 
     async def execute(self, _stmt):
-        rows = list(self.sessions.values())
-        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+        ids = list(self.sessions)
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: ids))
 
     async def get(self, _model, session_id):
         return self.sessions.get(session_id)
@@ -68,33 +68,42 @@ def _session(session_id, **fields):
     )
 
 
-def test_auto_file_sessions_files_only_confident_matches(monkeypatch):
-    sure, unsure = _session("new-sure"), _session("new-unsure")
-    db = _FakeDB([sure, unsure])
-    vectors = {"new-sure": [1.0], "new-unsure": [0.0]}
-    scores = {
-        "new-sure": {"k1": 0.60, "k2": 0.55, "j1": 0.30},
-        "new-unsure": {"k1": 0.50, "k2": 0.45, "j1": 0.44, "j2": 0.43},
-    }
-
+def _patch_vectors(monkeypatch, scores, filed):
     async def evidence(_db, _user_id):
         return FOLDER_OF
 
-    async def get_vector(session_id):
-        return vectors[session_id]
+    async def get_vectors(ids):
+        return {session_id: [1.0] for session_id in ids if session_id in scores}
 
-    async def score_sessions(vector, ids, *, user_id):
-        assert user_id == "u1" and set(ids) == set(FOLDER_OF)
-        return scores["new-sure" if vector == [1.0] else "new-unsure"]
+    async def score_many(vectors, member_ids, *, user_id):
+        assert user_id == "u1" and set(member_ids) == set(FOLDER_OF)
+        return {session_id: scores[session_id] for session_id in vectors}
 
-    monkeypatch.setattr(fc, "AsyncSessionLocal", lambda: db)
+    async def file_if_undecided(_db, session_id, folder_id, _user_id):
+        # 사용자가 그사이 정한 세션은 조건부 UPDATE가 0행을 바꾼다.
+        if session_id == "decided-meanwhile":
+            return False
+        filed.append((session_id, folder_id))
+        return True
+
     monkeypatch.setattr(fc, "_evidence", evidence)
-    monkeypatch.setattr(fc, "get_vector", get_vector)
-    monkeypatch.setattr(fc, "score_sessions", score_sessions)
+    monkeypatch.setattr(fc, "get_vectors", get_vectors)
+    monkeypatch.setattr(fc, "score_sessions_many", score_many)
+    monkeypatch.setattr(fc, "_file_if_undecided", file_if_undecided)
 
-    assert asyncio.run(fc.auto_file_sessions("u1", {"new-sure", "new-unsure"})) == 1
-    assert (sure.folder_id, sure.folder_assigned_by) == ("k8s", "auto")
-    assert (unsure.folder_id, unsure.folder_assigned_by) == (None, None)
+
+SURE = {"k1": 0.60, "k2": 0.55, "j1": 0.30}
+UNSURE = {"k1": 0.50, "k2": 0.45, "j1": 0.44, "j2": 0.43}
+
+
+def test_auto_file_sessions_files_only_confident_matches(monkeypatch):
+    db = _FakeDB([_session("new-sure"), _session("new-unsure"), _session("decided-meanwhile"), _session("no-vector")])
+    filed: list[tuple[str, str]] = []
+    _patch_vectors(monkeypatch, {"new-sure": SURE, "new-unsure": UNSURE, "decided-meanwhile": SURE}, filed)
+    monkeypatch.setattr(fc, "AsyncSessionLocal", lambda: db)
+
+    assert asyncio.run(fc.auto_file_sessions("u1", set(db.sessions))) == 1
+    assert filed == [("new-sure", "k8s")]
     assert db.committed == 1
 
 
@@ -111,6 +120,20 @@ def test_auto_file_sessions_skips_without_evidence_and_survives_errors(monkeypat
     assert asyncio.run(fc.auto_file_sessions("u1", set())) == 0
     monkeypatch.setattr(fc, "_evidence", broken)
     assert asyncio.run(fc.auto_file_sessions("u1", {"s1"})) == 0
+
+
+def test_folder_suggestions_sorts_and_propagates_vector_errors(monkeypatch):
+    db = _FakeDB([_session("a"), _session("b"), _session("far")])
+    _patch_vectors(monkeypatch, {"a": UNSURE, "b": SURE, "far": {"k1": 0.2, "j1": 0.1}}, [])
+
+    assert [(sid, m.folder_id) for sid, m in asyncio.run(fc.folder_suggestions(db, "u1"))] == [("b", "k8s"), ("a", "k8s")]
+
+    async def down(_ids):
+        raise RuntimeError("qdrant down")
+
+    monkeypatch.setattr(fc, "get_vectors", down)
+    with pytest.raises(RuntimeError):
+        asyncio.run(fc.folder_suggestions(db, "u1"))
 
 
 def test_dismiss_marks_user_decision_and_hides_foreign_sessions():

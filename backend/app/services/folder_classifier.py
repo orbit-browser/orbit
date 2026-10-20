@@ -10,12 +10,12 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Literal
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Folder, Session as SessionModel
 from ..db.session import AsyncSessionLocal
-from ..db.vector import get_vector, score_sessions
+from ..db.vector import get_vectors, score_sessions_many
 
 # 폴더 점수 = 그 폴더 근거 세션 중 가장 비슷한 2개의 평균. 한 세션만 닮은 우연을 줄이면서 갈래가 여러 개인 폴더
 # (이직 = 공고 + 면접 후기)도 평균 벡터보다 잘 맞춘다.
@@ -98,12 +98,29 @@ def _undecided(user_id: str):
     )
 
 
-async def _match(session_id: str, folder_of: dict[str, str], user_id: str) -> FolderMatch | None:
-    vector = await get_vector(session_id)
-    if vector is None:
-        return None
-    scores = await score_sessions(vector, [sid for sid in folder_of if sid != session_id], user_id=user_id)
-    return best_folder(scores, folder_of)
+async def _matches(
+    session_ids: list[str], folder_of: dict[str, str], user_id: str
+) -> dict[str, FolderMatch | None]:
+    """세션마다 가장 가까운 폴더. Qdrant 요청은 벡터 조회 1번·점수 1번으로 묶는다. 벡터가 없는 세션(임베딩 전)은 빠진다."""
+    vectors = await get_vectors(session_ids)
+    scores = await score_sessions_many(vectors, list(folder_of), user_id=user_id)
+    return {session_id: best_folder(scores.get(session_id, {}), folder_of) for session_id in vectors}
+
+
+async def _file_if_undecided(db: AsyncSession, session_id: str, folder_id: str, user_id: str) -> bool:
+    """Qdrant를 기다리는 사이 사용자가 옮기거나 제안을 닫았거나 폴더를 지웠으면 덮어쓰지 않는다 — 아직 미결정이고
+    폴더가 남아 있을 때만 넣는다."""
+    result = await db.execute(
+        update(SessionModel)
+        .where(
+            SessionModel.id == session_id,
+            *_undecided(user_id),
+            select(Folder.id).where(Folder.id == folder_id, Folder.user_id == user_id).exists(),
+        )
+        .values(folder_id=folder_id, folder_assigned_by="auto")
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount == 1
 
 
 async def auto_file_sessions(user_id: str, session_ids: set[str]) -> int:
@@ -118,14 +135,12 @@ async def auto_file_sessions(user_id: str, session_ids: set[str]) -> int:
             if not folder_of:
                 return 0
             result = await db.execute(
-                select(SessionModel).where(*_undecided(user_id), SessionModel.id.in_(session_ids))
+                select(SessionModel.id).where(*_undecided(user_id), SessionModel.id.in_(session_ids))
             )
+            matches = await _matches(list(result.scalars().all()), folder_of, user_id)
             filed = 0
-            for session in result.scalars().all():
-                match = await _match(session.id, folder_of, user_id)
-                if decide(match) == "auto":
-                    session.folder_id = match.folder_id
-                    session.folder_assigned_by = "auto"
+            for session_id, match in matches.items():
+                if decide(match) == "auto" and await _file_if_undecided(db, session_id, match.folder_id, user_id):
                     filed += 1
             await db.commit()
     except Exception as exc:
@@ -148,10 +163,7 @@ async def folder_suggestions(db: AsyncSession, user_id: str) -> list[tuple[str, 
         .order_by(SessionModel.last_activity_at.desc().nulls_last())
         .limit(MAX_SUGGESTION_SESSIONS)
     )
-    suggestions: list[tuple[str, FolderMatch]] = []
-    for session_id in result.scalars().all():
-        match = await _match(session_id, folder_of, user_id)
-        if decide(match) is not None:
-            suggestions.append((session_id, match))
+    matches = await _matches(list(result.scalars().all()), folder_of, user_id)
+    suggestions = [(session_id, match) for session_id, match in matches.items() if decide(match) is not None]
     suggestions.sort(key=lambda item: item[1].score, reverse=True)
     return suggestions

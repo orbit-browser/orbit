@@ -12,6 +12,7 @@ from qdrant_client.models import (
     PayloadSchemaType,
     PointIdsList,
     PointStruct,
+    QueryRequest,
     VectorParams,
 )
 
@@ -158,6 +159,17 @@ async def get_vector(session_id: str) -> list[float] | None:
     return vector if isinstance(vector, list) else None
 
 
+async def get_vectors(session_ids: list[str]) -> dict[str, list[float]]:
+    """여러 세션 벡터를 한 번에 조회한다. 포인트가 없는 세션은 빠지고, Qdrant 오류는 호출측에 그대로 올린다
+    (get_vector처럼 None으로 삼키면 장애가 "벡터 없음"으로 보인다)."""
+    if not session_ids:
+        return {}
+    records = await get_qdrant().retrieve(
+        collection_name=COLLECTION, ids=list(session_ids), with_vectors=True
+    )
+    return {str(record.id): record.vector for record in records if isinstance(record.vector, list)}
+
+
 async def search_similar(
     query_vector: list[float], *, user_id: str, limit: int = 5
 ) -> list[str]:
@@ -208,3 +220,20 @@ async def score_sessions(
         limit=len(session_ids),
     )
     return {str(p.id): p.score for p in result.points}
+
+
+async def score_sessions_many(
+    query_vectors: dict[str, list[float]], session_ids: list[str], *, user_id: str
+) -> dict[str, dict[str, float]]:
+    """질의 벡터 여러 개를 지정한 세션들에 한 번의 요청으로 점수 매긴다(질의마다 score_sessions와 같은 조건)."""
+    if not query_vectors or not session_ids:
+        return {key: {} for key in query_vectors}
+    owned_ids = Filter(must=[*_user_filter(user_id).must, HasIdCondition(has_id=list(session_ids))])
+    keys = list(query_vectors)
+    responses = await get_qdrant().query_batch_points(
+        collection_name=COLLECTION,
+        requests=[
+            QueryRequest(query=query_vectors[key], filter=owned_ids, limit=len(session_ids)) for key in keys
+        ],
+    )
+    return {key: {str(p.id): p.score for p in response.points} for key, response in zip(keys, responses)}

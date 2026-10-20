@@ -112,21 +112,18 @@ describe('folder auto-classify API contract', () => {
     );
   });
 
-  it('제안 조회가 503 이어도 Atlas 데이터는 제안 없이 불러온다', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.endsWith('/folders/suggestions')) return jsonResponse({ detail: 'down' }, 503);
-        return jsonResponse([]);
-      }),
-    );
-
-    await expect(fetchAtlasData()).resolves.toEqual({
-      sessions: [],
-      folders: [],
-      unfiled: [],
-      suggestions: [],
+  it('Atlas 데이터는 제안을 기다리지 않는다 — 제안은 따로 불러오고 503 이면 실패한다', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/folders/suggestions')) return jsonResponse({ detail: 'down' }, 503);
+      return jsonResponse([]);
     });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchAtlasData()).resolves.toEqual({ sessions: [], folders: [], unfiled: [] });
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain(
+      'http://localhost:8000/folders/suggestions',
+    );
+    await expect(fetchFolderSuggestions()).rejects.toThrow();
   });
 });

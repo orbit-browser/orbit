@@ -6,7 +6,7 @@ import { OrbitHero } from './components/sections/OrbitHero';
 import { RecentExploration } from './components/sections/RecentExploration';
 import type { ExplorationEntry } from './components/sections/RecentExploration';
 import { ContinueExploring } from './components/sections/ContinueExploring';
-import { useAtlasData } from './hooks/useAtlasData';
+import { useAtlasData, useFolderSuggestions } from './hooks/useAtlasData';
 import { useRecommendations } from './hooks/useRecommendations';
 import { navigateToAtlas } from './lib/navigation';
 import { getNavState, useSharedNavState } from './lib/nav-state';
@@ -22,7 +22,7 @@ export default function App() {
   const sessions = atlasQuery.data?.sessions ?? [];
   const folders = atlasQuery.data?.folders ?? [];
   const unfiled = atlasQuery.data?.unfiled ?? [];
-  const suggestions = atlasQuery.data?.suggestions ?? [];
+  const suggestions = useFolderSuggestions(atlasQuery.data, atlasQuery.dataUpdatedAt);
   const recommendationQuery = useRecommendations();
   const {
     turns,
