@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { OrbitScene, OrbitTrack } from './data';
+import { AtlasCarousel } from './AtlasCarousel';
+import { LivingPlanet } from '../planet/LivingPlanet';
 import {
   alignOffset,
   formatMinutes,
@@ -500,9 +502,34 @@ export function AtlasCanvas({
 
   const totalPoints = tracks.reduce((sum, track) => sum + track.points.length, 0);
 
+  /*
+   * 세션 씬은 페이지 카드가 행성 둘레를 도는 고리로 그린다. 폴더 씬(궤도 = 세션)은
+   * 아래의 호 그림을 그대로 쓴다. 세션이 바뀌면 고리를 새로 세운다(key) — 회전량이
+   * 이전 세션의 페이지 인덱스를 들고 오지 않게.
+   */
+  const carousel =
+    scene?.kind === 'session' && tracks[0] ? (
+      <AtlasCarousel
+        key={scene.id}
+        title={scene.title}
+        meta={scene.meta}
+        hue={hue}
+        points={tracks[0].points}
+        selectedPointId={selectedPointId}
+        onSelectPoint={(pointId) => onSelectPoint(pointId, null)}
+        onClearSelection={onClearSelection}
+        width={size.w}
+        height={Math.max(320, size.h - inset)}
+      />
+    ) : null;
+
   return (
     <div className="atlas-stage" ref={stageRef}>
-      {scene && (
+      {carousel && (
+        <div className={cx('atlas-stage__scaler', leaving && 'atlas-stage__scaler--leaving')}>{carousel}</div>
+      )}
+
+      {scene && !carousel && (
         <div className={cx('atlas-stage__scaler', leaving && 'atlas-stage__scaler--leaving')}>
           <svg className="atlas-stage__svg" width={size.w} height={size.h} aria-hidden>
             <g
@@ -526,10 +553,6 @@ export function AtlasCanvas({
                 >
                   <rect x={-centerX} y={-40} width={centerX * 2} height={size.h} fill="url(#atlas-arc-fade)" />
                 </mask>
-                <radialGradient id="atlas-node-glow" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor={hue} stopOpacity="0.14" />
-                  <stop offset="100%" stopColor={hue} stopOpacity="0" />
-                </radialGradient>
               </defs>
 
               {/* 클릭 히트 영역 (마스크 밖에 둬서 페이드와 무관하게 잡히도록) */}
@@ -585,16 +608,20 @@ export function AtlasCanvas({
                 const point = pointOnArc(layout.rx, layout.ry, placement.angle);
                 return <line className="atlas-arc__link" x1={0} y1={0} x2={point.x} y2={point.y} />;
               })()}
-
-              <g className="atlas-node" onClick={onClearSelection}>
-                <title>{scene.title} — 전체 보기</title>
-                <circle r={PLANET_R * 3.6} fill="url(#atlas-node-glow)" pointerEvents="none" />
-                <circle className="atlas-node__halo" r={PLANET_R * 1.85} />
-                <circle className="atlas-node__core" r={PLANET_R} />
-                <circle className="atlas-node__rim" r={PLANET_R} vectorEffect="non-scaling-stroke" />
-              </g>
             </g>
           </svg>
+
+          {/* 중심 행성 — 홈·세션 씬과 같은 살아 있는 행성 */}
+          <button
+            type="button"
+            className="atlas-node"
+            style={{ left: centerX, top: planetY }}
+            onClick={onClearSelection}
+            title={`${scene.title} — 전체 보기`}
+            aria-label={`${scene.title} — 전체 보기`}
+          >
+            <LivingPlanet size={PLANET_R * 2.6} hue={hue} />
+          </button>
 
           <div className="atlas-planet-label" style={{ left: centerX, top: planetY + PLANET_R + 20 }}>
             <div className="atlas-planet-label__title">{scene.title}</div>
@@ -798,7 +825,7 @@ export function AtlasCanvas({
           <span>
             {isFolder
               ? '궤도나 레이블을 클릭하면 세션이 펼쳐집니다 · ↑↓ 폴더·세션 이동, ←→ 페이지 이동'
-              : '페이지는 방문 순서대로 배치됩니다 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'}
+              : '카드를 끌어 돌려 보세요 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'}
           </span>
           <span
             className="atlas-stage__hint-actions"

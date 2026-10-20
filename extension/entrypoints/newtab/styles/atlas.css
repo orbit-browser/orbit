@@ -52,7 +52,6 @@
   --atlas-nav-w: 272px;
 
   /* 궤도 캔버스 안쪽 노드의 테두리, 트레이 위 페이드 — 배경색에 물리는 값들 */
-  --node-rim: #ffffff;
   --fade-page-0: rgba(254, 250, 246, 0);
   --fade-page-94: rgba(254, 250, 246, 0.94);
 
@@ -100,7 +99,6 @@ html[data-theme='dark'] .nav-drawer {
   --shadow-card: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
   --shadow-float: 0 20px 40px rgba(0, 0, 0, 0.5);
 
-  --node-rim: #f2e9e2;
   --fade-page-0: rgba(23, 19, 15, 0);
   --fade-page-94: rgba(23, 19, 15, 0.94);
 }
@@ -1100,30 +1098,21 @@ body.atlas-resizing .atlas-nav__resizer::after {
 }
 
 /* ── 중심 노드 ── */
+/* 그림은 LivingPlanet(planet.css). 여기서는 자리만 잡는다. */
 .atlas-node {
+  position: absolute;
+  z-index: 2;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
   cursor: pointer;
+  transform: translate(-50%, -50%);
 }
 
-.atlas-node__halo {
-  fill: var(--arc-hue, var(--accent));
-  opacity: 0.12;
-  transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.atlas-node:hover .atlas-node__halo {
-  opacity: 0.22;
-}
-
-.atlas-node__core {
-  fill: var(--arc-hue, var(--accent));
-}
-
-.atlas-node__rim {
-  fill: none;
-  stroke: var(--node-rim);
-  stroke-width: 1;
-  opacity: 0.18;
-  pointer-events: none;
+.atlas-node:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
 }
 
 .atlas-planet-label {

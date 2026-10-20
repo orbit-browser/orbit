@@ -306,6 +306,8 @@ export function buildAtlasSessions(
 export interface OrbitPoint {
   id: string;
   title: string;
+  /** 카드 미리보기와 "열기"가 쓴다. */
+  url: string;
   domain: string;
   minutes: number;
   visits: number;
@@ -342,6 +344,7 @@ export interface OrbitScene {
 const pageToPoint = (page: PageNode): OrbitPoint => ({
   id: page.id,
   title: page.title,
+  url: page.url,
   domain: page.domain,
   minutes: page.minutes,
   visits: page.visits,

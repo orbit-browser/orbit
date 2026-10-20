@@ -13,6 +13,7 @@ import {
 } from '../../lib/search-history';
 import { SearchHistoryDropdown } from './SearchHistoryDropdown';
 import { Shortcuts } from './Shortcuts';
+import { SignatureOrbit } from './SignatureOrbit';
 
 const HISTORY_LISTBOX_ID = 'hero-search-history';
 
@@ -171,59 +172,12 @@ export function OrbitHero({
         이 경로로만 네비게이터를 펼친 채 연다(카드·타임라인에서 특정 세션으로 들어갈 때는
         오른쪽 내용에 집중하도록 닫힌 채 둔다).
       */}
-      <div
-        className="signature-orbit"
-        title="대시보드 열기"
-        onClick={() => {
+      <SignatureOrbit
+        onOpen={() => {
           patchNavState({ open: true });
           navigateToAtlas();
         }}
-      >
-        <svg viewBox="0 0 240 240" width="208" height="208" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <radialGradient id="saturnGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="var(--accent-orange)" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="var(--accent-orange)" stopOpacity="0" />
-            </radialGradient>
-            {/* 고리 한쪽이 밝고 반대쪽이 흐려져 회전이 더 잘 읽힌다 */}
-            <linearGradient id="ringSheen" x1="0" y1="0.1" x2="1" y2="0.9">
-              <stop offset="0%" stopColor="var(--accent-orange)" stopOpacity="0.25" />
-              <stop offset="42%" stopColor="var(--accent-orange)" stopOpacity="1" />
-              <stop offset="100%" stopColor="var(--accent-orange)" stopOpacity="0.35" />
-            </linearGradient>
-          </defs>
-
-          <circle cx="120" cy="120" r="46" fill="url(#saturnGlow)" className="glow-backdrop" pointerEvents="none" />
-
-          <g className="saturn">
-            {/* 행성 뒤로 지나가는 고리 (위쪽 반원) */}
-            <g className="saturn__band saturn__band--back">
-              <path className="ring ring--inner" d="M 68 120 A 52 15 0 0 1 172 120" />
-              <path className="ring ring--dust" d="M 42 120 A 78 22 0 0 1 198 120" />
-              <path className="ring ring--outer" d="M 20 120 A 100 28 0 0 1 220 120" />
-            </g>
-
-            {/* 행성 */}
-            <g className="saturn__planet">
-              <circle cx="120" cy="120" r="24" fill="var(--accent-orange)" />
-              <circle cx="120" cy="120" r="24" stroke="#ffffff" strokeWidth="1" opacity="0.22" />
-            </g>
-
-            {/* 행성 앞으로 지나오는 고리 (아래쪽 반원) */}
-            <g className="saturn__band saturn__band--front">
-              {/* 케이싱 — 행성과 겹치는 구간에서 고리가 묻히지 않게 분리선을 만든다 */}
-              <path className="ring ring--casing ring--inner" d="M 68 120 A 52 15 0 0 0 172 120" />
-              <path className="ring ring--casing ring--dust" d="M 42 120 A 78 22 0 0 0 198 120" />
-              <path className="ring ring--casing ring--outer" d="M 20 120 A 100 28 0 0 0 220 120" />
-
-              <path className="ring ring--inner" d="M 68 120 A 52 15 0 0 0 172 120" />
-              <path className="ring ring--dust" d="M 42 120 A 78 22 0 0 0 198 120" />
-              <path className="ring ring--outer" d="M 20 120 A 100 28 0 0 0 220 120" />
-            </g>
-
-          </g>
-        </svg>
-      </div>
+      />
 
       {/* 검색창 — 모드 전환을 입력창 안에 넣어 요소 수를 줄였다 */}
       <div className="search-container">
