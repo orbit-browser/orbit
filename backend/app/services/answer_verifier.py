@@ -47,8 +47,8 @@ VERIFY_SYSTEM_PROMPT = """\
 - 말투, 표현, 단위 띄어쓰기, 생략은 따지지 마세요.
 - 답변이 "기록에서 찾지 못했어요"처럼 값을 말하지 않으면 claims는 빈 배열입니다.
 
-JSON 객체 하나만 출력하세요:
-{"claims": [{"value": "", "answer_subject": "", "quote": "", "record_subject": "", "same": true}]}"""
+JSON 객체 하나만 들여쓰기 없이 출력하세요. same이 true인 값은 value와 same만 적으세요:
+{"claims": [{"value": "", "answer_subject": "", "quote": "", "record_subject": "", "same": false}, {"value": "", "same": true}]}"""
 
 
 class _Claim(BaseModel):
