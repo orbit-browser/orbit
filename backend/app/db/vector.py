@@ -12,6 +12,7 @@ from qdrant_client.models import (
     PayloadSchemaType,
     PointIdsList,
     PointStruct,
+    SearchParams,
     VectorParams,
 )
 
@@ -21,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 COLLECTION = "orbit_sessions"
 VECTOR_DIM = 4096
+# ef256: 60/60 at 100/1k/5k/10k; fastest passing 10k p50/p95 36.88/118.57 ms (benchmarks/exhibition-2026/recall-fix).
+SEARCH_HNSW_EF = 256
 
 _client: AsyncQdrantClient | None = None
 
@@ -121,6 +124,7 @@ async def search_similar(
         collection_name=COLLECTION,
         query=query_vector,
         query_filter=_scope_filter(user_id, session_ids),
+        search_params=SearchParams(hnsw_ef=SEARCH_HNSW_EF),
         limit=limit,
         score_threshold=settings.search_score_threshold,
     )
@@ -141,6 +145,7 @@ async def search_similar_with_scores(
         collection_name=COLLECTION,
         query=query_vector,
         query_filter=_scope_filter(user_id, None),
+        search_params=SearchParams(hnsw_ef=SEARCH_HNSW_EF),
         limit=limit,
         score_threshold=threshold,
     )

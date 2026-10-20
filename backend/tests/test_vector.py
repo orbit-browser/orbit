@@ -1,7 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
-from qdrant_client.models import FieldCondition, IsEmptyCondition, MatchValue
+import pytest
+from qdrant_client.models import FieldCondition, IsEmptyCondition, MatchValue, SearchParams
 
 from app.db import vector
 
@@ -51,6 +52,42 @@ def test_search_similar_with_scores_filters_by_owner(monkeypatch):
     assert result == [("session-1", 0.8)]
     assert captured["score_threshold"] == 0.5
     assert _owner_of(captured["query_filter"]) == "u2"
+
+
+@pytest.mark.parametrize("search,scope", [
+    (vector.search_similar, {}),
+    (vector.search_similar, {"session_ids": ["session-1"]}),
+    (vector.search_similar_with_scores, {}),
+])
+def test_search_passes_recall_search_params(monkeypatch, search, scope):
+    captured: dict = {}
+
+    class FakeClient:
+        async def query_points(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(points=[])
+
+    monkeypatch.setattr(vector, "get_qdrant", lambda: FakeClient())
+
+    assert asyncio.run(search([0.1], user_id="u1", **scope)) == []
+
+    # The 10,000-session regression loses three answers at ef=64/128.
+    assert captured["search_params"] == SearchParams(hnsw_ef=256)
+
+
+@pytest.mark.parametrize("search", [
+    vector.search_similar,
+    vector.search_similar_with_scores,
+])
+def test_search_propagates_qdrant_failure(monkeypatch, search):
+    class FakeClient:
+        async def query_points(self, **kwargs):
+            raise RuntimeError("Qdrant unavailable")
+
+    monkeypatch.setattr(vector, "get_qdrant", lambda: FakeClient())
+
+    with pytest.raises(RuntimeError, match="Qdrant unavailable"):
+        asyncio.run(search([0.1], user_id="u1"))
 
 
 def test_point_ids_missing_owner_pages_until_offset_ends(monkeypatch):
