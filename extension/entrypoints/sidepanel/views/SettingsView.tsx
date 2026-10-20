@@ -283,7 +283,7 @@ export function SettingsView() {
             description={
               serverSettingsError
                 ? '서버 설정을 불러오지 못했어요'
-                : '새 세션이 기존 폴더와 확실히 비슷하면 자동으로 넣고, 애매하면 Atlas에서 제안해요'
+                : '새 세션이 기존 폴더와 확실히 비슷하면 자동으로 넣고, 애매하면 “정리 안 됨” 목록에서 제안해요'
             }
             checked={serverSettings?.autoFolderEnabled ?? false}
             disabled={serverSettingsLoading || serverSettingsError || updateServerSettings.isPending}

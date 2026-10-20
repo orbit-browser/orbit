@@ -315,7 +315,7 @@ function SessionPage({ serverSettings, saveServerSettings, serverBusy }: PagePro
           description={
             serverSettings.isError
               ? '서버 설정을 불러오지 못했습니다.'
-              : '새 세션이 기존 폴더와 확실히 비슷하면 자동으로 넣고, 애매하면 Atlas에서 제안합니다.'
+              : '새 세션이 기존 폴더와 확실히 비슷하면 자동으로 넣고, 애매하면 “정리 안 됨” 목록에서 제안합니다.'
           }
         >
           <Switch
