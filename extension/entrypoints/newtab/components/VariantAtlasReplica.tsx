@@ -25,7 +25,7 @@ const TRAY_INSET = 250;
 
 export function VariantAtlasReplica() {
   // 팀을 보고 있으면 그 팀에 공유된 세션을 읽기 전용으로 그린다(폴더 없음).
-  const { workspaces, scopeId, select: selectScope } = useActiveWorkspace();
+  const { scopeId } = useActiveWorkspace();
   const readOnly = !!scopeId;
   const atlasQuery = useAtlasData(scopeId);
   const [sharerFilter, setSharerFilter] = useState<string | null>(null);
@@ -295,12 +295,7 @@ export function VariantAtlasReplica() {
       <AtlasHeader
         navOpen={nav.open}
         onToggleNav={toggleNav}
-        workspaces={workspaces}
-        scopeId={scopeId}
-        onScopeChange={(workspaceId) => {
-          setSharerFilter(null);
-          selectScope(workspaceId);
-        }}
+        inTeam={readOnly}
         sharers={sharers}
         sharerFilter={activeSharer}
         onSharerFilterChange={setSharerFilter}

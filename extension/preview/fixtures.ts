@@ -100,7 +100,7 @@ const SESSIONS: SessionSeed[] = [
       ['서귀포 오션뷰 숙소 - 야놀자', 'https://www.yanolja.com/search/서귀포', 7],
       ['제주 3박 4일 동선 총정리 (feat. 렌터카)', 'https://blog.naver.com/jejutrip/223101', 9],
       ['제주 날씨 11월 평균 기온', 'https://www.weather.go.kr/w/index.do', 2],
-      ['애월 카페 베스트 10', 'https://www.mangoplate.com/search/애월', 5],
+      ['애월 카페 베스트 10 - 다이닝코드', 'https://www.diningcode.com/list.dc?query=애월카페', 5],
     ],
   },
   {
