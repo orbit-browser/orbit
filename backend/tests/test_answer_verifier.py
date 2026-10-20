@@ -31,6 +31,25 @@ def test_mismatched_claims_keeps_only_quoted_different_subjects():
     ]
 
 
+def test_mismatched_claims_requires_whole_number_in_quote():
+    raw = _claims(
+        _claim("10개", quote="실측 설정의 최대 파드 수는 110개"),
+        _claim("5%", quote="목표는 2.5%"),
+        _claim("10", quote="최대 10.5개"),
+        _claim("10개", quote="최대 10개입니다."),
+        _claim("21:31", quote="KTX 847 21:31 23:25"),  # 표의 이웃 칸 숫자에 붙지 않는다
+    )
+    assert [issue.value for issue in verifier.mismatched_claims(raw)] == ["10개", "21:31"]
+
+
+def test_mismatched_claims_keeps_aggregates_quoted_from_records():
+    raw = _claims(
+        _claim("18도", quote="부산 평균 기온 18도", record="부산의 평균 기온", answer="서울의 평균 기온"),
+        _claim("12개월", quote="지역마다 상이(예: 12개월)", answer="두 제도의 지원 기간 차이"),
+    )
+    assert [issue.value for issue in verifier.mismatched_claims(raw)] == ["18도"]
+
+
 def test_mismatched_claims_matches_value_in_quote_ignoring_spaces_and_commas():
     raw = _claims(_claim("1억 2천만원", quote="최대 1억2천만원"), _claim("6,500만원", quote="초봉 6500만원"))
     assert [issue.value for issue in verifier.mismatched_claims(raw)] == ["1억 2천만원", "6,500만원"]

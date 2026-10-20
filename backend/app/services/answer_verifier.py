@@ -28,7 +28,7 @@ _REFUSAL = re.compile(r"찾지 못|확인되지 않|나와 있지 않|적혀 있
 _FIRST_SENTENCE = re.compile(r"^.*?(?:[.!?](?:\s|$)|\n|$)", re.S)
 # 프롬프트가 계산값을 빼라고 해도 가끔 넣는다. 계산 결과가 우연히 다른 대상의 값과 같으면(지원 기간 차이 12개월 =
 # 지자체 예시 12개월) 혼동으로 잘못 걸린다.
-_COMPUTED_SUBJECT = re.compile(r"차이|합계|합산|총합|평균")
+_AGGREGATE = re.compile(r"차이|합계|합산|총합|평균")
 logger = logging.getLogger(__name__)
 
 VERIFY_SYSTEM_PROMPT = """\
@@ -66,8 +66,21 @@ class _Verification(BaseModel):
     claims: list[_Claim] = []
 
 
-def _normalize(text: str) -> str:
-    return re.sub(r"[\s,]", "", text)
+def _quoted(value: str, quote: str) -> bool:
+    """인용 원문에 값이 온전히 있는지. 쉼표·값 안의 띄어쓰기는 무시하고("1억 2천만원" = "1억2천만원") 숫자 경계는
+    지킨다("10개"는 "110개"에 없다). 원문의 공백은 남겨 표의 이웃 칸("KTX 847 21:31")이 숫자에 붙지 않게 한다."""
+    chars = [re.escape(char) for char in value.replace(",", "") if not char.isspace()]
+    if not chars:
+        return False
+    pattern = r"(?<!\d)(?<!\d\.)" + r"\s*".join(chars) + r"(?!\.?\d)"
+    return re.search(pattern, quote.replace(",", "")) is not None
+
+
+def _computed_by_answer(claim: "_Claim") -> bool:
+    """대상이 차이·합계·평균인데 인용 원문에는 그 말이 없으면 답변이 계산한 값이다. 원문이 직접 적은 통계
+    ("부산 평균 기온 18도")는 남긴다."""
+    words = set(_AGGREGATE.findall(claim.answer_subject))
+    return bool(words) and not any(word in claim.quote for word in words)
 
 
 def is_refusal(answer: str) -> bool:
@@ -81,11 +94,11 @@ def mismatched_claims(raw: str) -> list[AskVerificationIssue]:
     result = _Verification.model_validate(extract_json(raw))
     issues: dict[str, AskVerificationIssue] = {}
     for claim in result.claims:
-        if claim.same or not claim.record_subject.strip() or _COMPUTED_SUBJECT.search(claim.answer_subject):
+        if claim.same or not claim.record_subject.strip() or _computed_by_answer(claim):
             continue
         # 혼동은 그 값이 기록에 다른 대상의 값으로 실제로 적혀 있을 때다. 인용에 값이 없으면 검증기가 계산값
         # (차이·합계)이나 엉뚱한 원문을 고른 것이라 쓰지 않는다.
-        if not _normalize(claim.value) or _normalize(claim.value) not in _normalize(claim.quote):
+        if not _quoted(claim.value, claim.quote):
             continue
         issues.setdefault(
             claim.value.strip(),
