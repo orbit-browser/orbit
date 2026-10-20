@@ -136,14 +136,23 @@ def test_folder_suggestions_sorts_and_propagates_vector_errors(monkeypatch):
         asyncio.run(fc.folder_suggestions(db, "u1"))
 
 
-def test_dismiss_marks_user_decision_and_hides_foreign_sessions():
+def test_dismiss_updates_only_unfiled_session_and_hides_foreign_sessions():
     mine, foreign, merged = _session("s1"), _session("s2"), _session("s3")
     foreign.user_id = "other"
     merged.status = "merged"
     db = _FakeDB([mine, foreign, merged])
+    statements = []
 
+    async def execute(stmt):
+        statements.append(stmt)
+
+    db.execute = execute
     asyncio.run(folders.dismiss_suggestion("s1", db=db, user_id="u1"))
-    assert (mine.folder_id, mine.folder_assigned_by) == (None, "user")
+
+    sql = str(statements[0].compile(compile_kwargs={"literal_binds": True}))
+    assert sql.startswith("UPDATE sessions SET") and "folder_assigned_by='user'" in sql
+    assert "sessions.folder_id IS NULL" in sql and "sessions.id = 's1'" in sql
+    assert db.committed == 1
 
     for session_id in ("s2", "s3", "missing"):
         with pytest.raises(HTTPException) as exc:

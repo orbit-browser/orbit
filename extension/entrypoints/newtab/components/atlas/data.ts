@@ -486,9 +486,9 @@ export interface SuggestionNode {
 /**
  * 서버 제안을 지금 화면 상태에 맞춘다.
  *
- * 제안은 세션 목록과 따로 오므로 그사이 폴더에 들어갔거나 폴더가 지워졌을 수 있다 —
- * 미정리 세션과 살아 있는 폴더를 가리키는 제안만 남기고, 세션당 점수가 가장 높은
- * 하나(서버가 점수순으로 준다)만 쓴다.
+ * 제안은 세션 목록과 따로 오므로 그사이 폴더에 들어갔거나 폴더가 지워졌거나 사용자가 닫았을
+ * 수 있다 — 아직 아무도 정하지 않은 미정리 세션(folderAssignedBy 없음)과 살아 있는 폴더를
+ * 가리키는 제안만 남기고, 세션당 점수가 가장 높은 하나(서버가 점수순으로 준다)만 쓴다.
  */
 export function buildSuggestionNodes(
   suggestions: FolderSuggestion[],
@@ -497,7 +497,9 @@ export function buildSuggestionNodes(
   sessions: SessionNode[],
 ): SuggestionNode[] {
   const folderById = new Map(folders.map((folder) => [folder.id, folder]));
-  const unfiledIds = new Set(unfiled.map((session) => session.id));
+  const unfiledIds = new Set(
+    unfiled.filter((session) => !session.folderAssignedBy).map((session) => session.id),
+  );
   const titleById = new Map(sessions.map((session) => [session.id, session.title]));
   const seen = new Set<string>();
 

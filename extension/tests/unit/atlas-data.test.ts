@@ -632,6 +632,24 @@ describe('캔버스 씬 구성', () => {
     ]);
   });
 
+  it('사용자가 닫은(이미 정한) 미정리 세션의 제안은 새 목록을 받기 전에도 버린다', () => {
+    const dismissed = toSessionNode(
+      session({ id: 'dismissed', title: '닫은 세션', folderAssignedBy: 'user' }),
+      [],
+      NOW,
+    );
+    const grouped = buildFolderNodes([folder()], [dismissed]);
+
+    expect(
+      buildSuggestionNodes(
+        [{ sessionId: 'dismissed', folderId: 'folder-1', score: 0.5, similarSessionIds: [] }],
+        grouped.folders,
+        grouped.unfiled,
+        [dismissed],
+      ),
+    ).toEqual([]);
+  });
+
   it('제안 모두 넣기는 폴더별로 세션을 묶는다', () => {
     const suggestion = (sessionId: string, folderId: string) => ({
       sessionId,

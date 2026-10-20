@@ -435,8 +435,8 @@ def _summarize_models(counts: dict[str, int]) -> str | None:
     return ",".join(parts)[:50]
 
 
-async def _run_auto_merge(user_id: str) -> None:
-    """자동 병합 실행(배치 후, opt-in). 병합된 생존 세션 재요약 + 흡수 세션 Qdrant 포인트 삭제.
+async def _run_auto_merge(user_id: str) -> set[str]:
+    """자동 병합 실행(배치 후, opt-in). 병합된 생존 세션 재요약 + 흡수 세션 Qdrant 포인트 삭제. 생존 세션 id를 돌려준다.
 
     실패해도 배치 자체는 성공으로 마무리한다(자동 병합은 부가 기능 — 배치 완료를 막지 않는다).
     """
@@ -445,7 +445,7 @@ async def _run_auto_merge(user_id: str) -> None:
             merged_pairs = await auto_merge_duplicates(db, user_id)
     except Exception as exc:
         logger.warning("자동 병합 실패: %s", exc)
-        return
+        return set()
     for survivor_id, absorbed_id in merged_pairs:
         try:
             await delete_point(absorbed_id)
@@ -454,6 +454,7 @@ async def _run_auto_merge(user_id: str) -> None:
             logger.warning("자동 병합 후처리 실패(survivor=%s): %s", survivor_id, exc)
     if merged_pairs:
         logger.info("자동 병합 %d건 완료", len(merged_pairs))
+    return {survivor_id for survivor_id, _ in merged_pairs}
 
 
 async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> None:
@@ -486,7 +487,8 @@ async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> No
         # opt-in 자동 병합(기본 OFF) — 사용자 토글(app_settings, DB) 우선, 없으면 env 기본값.
         # '명백한 중복'만 배치 후 자동 병합(merge-design §2, DecisionLog 2026-08-07).
         if await is_auto_merge_enabled():
-            await _run_auto_merge(user_id)
+            # 생존 세션도 이번 배치에서 바뀐 세션이다(흡수된 세션은 merged라 분류 대상이 아니다).
+            touched |= await _run_auto_merge(user_id)
 
         # 새로 만들어지거나 바뀐 미정리 세션을 사용자 폴더에 확실할 때만 넣는다(§13.4). 애매하면 제안으로 남는다.
         if await is_auto_folder_enabled():

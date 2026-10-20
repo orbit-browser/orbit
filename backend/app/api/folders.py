@@ -115,11 +115,19 @@ async def dismiss_suggestion(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> None:
-    """제안을 닫는다 — 세션을 미정리로 두되 사용자가 정한 것으로 남겨 다시 제안·자동 배정하지 않는다."""
+    """제안을 닫는다 — 세션을 미정리로 두되 사용자가 정한 것으로 남겨 다시 제안·자동 배정하지 않는다.
+
+    제안을 받은 뒤 배치가 이 세션을 자동 배정했으면 아무것도 바꾸지 않는다. 미정리일 때만 조건부로 바꿔야 자동 배정이
+    사용자 결정('user')으로 둔갑해 다른 세션의 분류 근거가 되지 않는다."""
     session = await db.get(SessionModel, session_id)
     if not session or session.user_id != user_id or session.status == "merged":
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
-    session.folder_assigned_by = "user"
+    await db.execute(
+        update(SessionModel)
+        .where(SessionModel.id == session_id, SessionModel.user_id == user_id, SessionModel.folder_id.is_(None))
+        .values(folder_assigned_by="user")
+        .execution_options(synchronize_session=False)
+    )
     await db.commit()
 
 
