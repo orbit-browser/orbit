@@ -3,6 +3,7 @@ import {
   assignSessionsToFolder,
   createFolder,
   deleteFolder,
+  dismissFolderSuggestion,
   removeSessionFromFolder,
   renameFolder,
   setSessionAlias,
@@ -48,6 +49,11 @@ export function useFolderMutations() {
     onSuccess: invalidate,
   });
 
+  const dismissSuggestion = useMutation({
+    mutationFn: (sessionId: string) => dismissFolderSuggestion(sessionId),
+    onSuccess: invalidate,
+  });
+
   /**
    * 세션 이름 변경 — 사용자에게는 이름 수정이지만 서버에는 별칭으로 저장된다.
    * 빈 문자열이면 별칭을 지우고 AI 가 만든 원래 이름으로 돌아간다.
@@ -58,5 +64,5 @@ export function useFolderMutations() {
     onSuccess: invalidate,
   });
 
-  return { create, rename, remove, assign, unassign, renameSessionAlias };
+  return { create, rename, remove, assign, unassign, dismissSuggestion, renameSessionAlias };
 }

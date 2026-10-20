@@ -22,6 +22,7 @@ export default function App() {
   const sessions = atlasQuery.data?.sessions ?? [];
   const folders = atlasQuery.data?.folders ?? [];
   const unfiled = atlasQuery.data?.unfiled ?? [];
+  const suggestions = atlasQuery.data?.suggestions ?? [];
   const recommendationQuery = useRecommendations();
   const {
     turns,
@@ -96,6 +97,7 @@ export default function App() {
         sessions={sessions}
         folders={folders}
         unfiled={unfiled}
+        suggestions={suggestions}
         open={nav.open}
         onClose={toggleNav}
         escapeEnabled

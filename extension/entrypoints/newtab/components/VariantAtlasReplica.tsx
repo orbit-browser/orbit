@@ -25,6 +25,7 @@ export function VariantAtlasReplica() {
   const sessions = atlasQuery.data?.sessions ?? [];
   const folders = atlasQuery.data?.folders ?? [];
   const unfiled = atlasQuery.data?.unfiled ?? [];
+  const suggestions = atlasQuery.data?.suggestions ?? [];
   const { nav, patch, toggleIn, expandIn } = useSharedNavState();
   const searchRef = useRef<HTMLInputElement>(null);
   const initializedRef = useRef(false);
@@ -282,6 +283,7 @@ export function VariantAtlasReplica() {
         folders={sortedFolders}
         unfiled={sortedUnfiled}
         sessions={sessions}
+        suggestions={suggestions}
         query={nav.query}
         onQueryChange={(query) => patch({ query })}
         focusedFolderId={focusedFolder?.id ?? null}

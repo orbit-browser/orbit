@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     #   코사인 >= auto_merge_floor(제안 floor 0.52보다 훨씬 높게) AND 제목 토큰 자카드 >= auto_merge_title_jaccard.
     #   모든 자동 병합은 로그로 남기고 unmerge로 되돌릴 수 있다.
     auto_merge_enabled: bool = False
+    # 배치 끝에 새·변경 세션을 사용자 폴더에 자동 배정(확실할 때만, docs/api-design-v2.md §13.4). 사용자 토글이 우선.
+    auto_folder_enabled: bool = True
     # 코사인 floor는 보조 안전장치, 실제 게이트는 제목 자카드(near-identical title). 0.80이면 실데이터의
     #   제목 완전 동일 중복(예: 가비아 0.847)이 대상이 되고, 제목이 다른 쌍(제주항공권 검색↔예약)은 자카드에서 걸린다.
     auto_merge_floor: float = Field(default=0.80, ge=0.0, le=1.0)

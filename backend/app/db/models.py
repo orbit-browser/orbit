@@ -58,6 +58,10 @@ class Session(Base):
     # 애플리케이션에서 NULL 되돌리기로 처리한다. 조회 측은 존재하지 않는 폴더 id를
     # 미정리로 간주해 방어한다.
     folder_id: Mapped[str | None] = mapped_column(String(36), default=None, index=True)
+    # 폴더 소속을 누가 정했는지. user=사용자(옮김·뺌·제안 닫기), auto=자동 분류, NULL=아직 아무도 정하지 않음.
+    # 자동 분류는 NULL인 세션만 다루고, 근거로는 사용자가 넣은 세션만 쓴다(docs/DecisionLog.md 2026-10-20).
+    # 기능 이전에 폴더에 들어간 세션은 NULL이지만 사용자가 넣은 것이다.
+    folder_assigned_by: Mapped[str | None] = mapped_column(String(10), default=None)
 
     # 사용자가 붙인 표시용 이름. NULL이면 title을 그대로 보여준다.
     #

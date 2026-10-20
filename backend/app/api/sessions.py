@@ -86,6 +86,7 @@ def _to_detail(session: SessionModel) -> SessionDetail:
             session.last_activity_at.isoformat() if session.last_activity_at else None
         ),
         folder_id=session.folder_id,
+        folder_assigned_by=session.folder_assigned_by,
     )
 
 

@@ -203,7 +203,8 @@ Stage 1(이번 MVP)은 `source='browser'` 고정, `event_type ∈ {visit, spa_na
 
 ## 9. `folders` — 사용자 폴더 (신규 테이블)
 
-사용자가 직접 만드는 세션 그룹. 자동 클러스터링이 아니라 수동 정리 수단이다.
+사용자가 직접 만드는 세션 그룹. 폴더 자체는 사용자만 만들고, 새 세션은 사용자 폴더 안에서 확실할 때만 자동
+배정된다(§9.4).
 
 ```sql
 CREATE TABLE folders (
@@ -219,9 +220,10 @@ CREATE INDEX ix_folders_user_position ON folders (user_id, position);
 
 ALTER TABLE sessions ADD COLUMN folder_id VARCHAR(36);  -- NULL = 미정리
 CREATE INDEX ix_sessions_folder_id ON sessions (folder_id);
+ALTER TABLE sessions ADD COLUMN folder_assigned_by VARCHAR(10);  -- user | auto | NULL(미결정)
 ```
 
-신규 테이블이라 `create_all`이 생성하고, `sessions.folder_id`만 §3의 멱등 ALTER
+신규 테이블이라 `create_all`이 생성하고, `sessions.folder_id`·`folder_assigned_by`만 §3의 멱등 ALTER
 러너(`app/db/migrations.py`)가 추가한다.
 
 ### 9.1 단일 소속
@@ -243,3 +245,15 @@ CREATE INDEX ix_sessions_folder_id ON sessions (folder_id);
 병합으로 흡수된 세션(`status='merged'`)은 목록에서 빠지므로 폴더 소속을 따로
 정리하지 않는다. 생존 세션의 폴더는 그대로 유지되고, `session_count` 집계에서만
 흡수된 세션을 제외한다.
+
+### 9.4 `folder_assigned_by` — 소속을 정한 주체
+
+| 값 | 의미 | 바뀌는 경우 |
+|---|---|---|
+| `NULL` | 아무도 정하지 않음. 기능 이전에 폴더에 넣은 세션도 여기에 해당(사용자가 넣은 것으로 본다) | 새 세션, 폴더 삭제로 미정리가 된 세션 |
+| `user` | 사용자가 정함 | 폴더 배정·폴더에서 빼기·제안 닫기 |
+| `auto` | 자동 분류가 넣음 | 배치 끝 자동 배정 |
+
+자동 분류와 제안은 `folder_id`와 `folder_assigned_by`가 모두 NULL인 세션만 다룬다. 사용자가 뺀 세션은
+`folder_id=NULL, folder_assigned_by='user'`로 남아 다시 들어가지 않는다. 자동 배정 세션은 다른 세션을
+분류하는 근거에서 빠진다 — 잘못 넣은 세션이 다음 판단을 끌고 가지 않게 한다.

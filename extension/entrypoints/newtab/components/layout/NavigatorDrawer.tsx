@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { AtlasNavigator } from '../atlas/AtlasNavigator';
-import type { FolderNode, SessionNode } from '../atlas/data';
+import type { FolderNode, SessionNode, SuggestionNode } from '../atlas/data';
 import { navigateToAtlas } from '../../lib/navigation';
 import { useSharedNavState } from '../../lib/nav-state';
 
@@ -8,6 +8,7 @@ interface NavigatorDrawerProps {
   sessions: SessionNode[];
   folders: FolderNode[];
   unfiled: SessionNode[];
+  suggestions: SuggestionNode[];
   open: boolean;
   onClose: () => void;
   escapeEnabled?: boolean;
@@ -17,6 +18,7 @@ export function NavigatorDrawer({
   sessions,
   folders,
   unfiled,
+  suggestions,
   open,
   onClose,
   escapeEnabled = true,
@@ -43,6 +45,7 @@ export function NavigatorDrawer({
         sessions={sessions}
         folders={folders}
         unfiled={unfiled}
+        suggestions={suggestions}
         query={nav.query}
         onQueryChange={(query) => patch({ query })}
         focusedFolderId={nav.focusedFolderId}
