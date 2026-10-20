@@ -1,7 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
 import type { OrbitPoint, SessionNode } from './data';
-import { ringDelta } from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
@@ -20,22 +19,26 @@ const DOT_REACH = 3.5;
 /** 묶음 안 세션 한 줄의 높이. 지금 줄이 늘 가운데 칸에 온다. */
 const ROW_H = 30;
 
+/** 가운데에서 offset 칸 떨어진 점의 모양 — 가운데가 크고 진하며 멀수록 옅어진다. */
+function dotStyle(offset: number) {
+  const reach = Math.min(1, Math.max(0, DOT_REACH + 1 - Math.abs(offset)));
+  const near = Math.max(0, 1 - Math.abs(offset));
+  return {
+    transform: `translateX(${offset * DOT_GAP}px) scale(${1 + near * 0.8})`,
+    opacity: reach * (0.45 + 0.55 * near),
+  };
+}
+
 /**
  * 점들을 지금 위치(가운데 페이지의 연속 인덱스)에 맞춰 놓는다 — 예전 궤도처럼 고른 페이지가
- * 늘 가운데에 오고, 넘기면 고리가 돌듯 양옆으로 흘러간다.
- *
- * 링이 감기는 자리(반대편 끝)에선 점이 다 사라져 있게 해 순간이동이 보이지 않게 한다.
+ * 늘 가운데에 오고, 넘기면 양옆으로 흘러간다. 갤러리처럼 끝이 있다(페이지 수만큼만 점).
  */
 function placeDots(dots: (HTMLElement | null)[], position: number) {
-  const total = dots.length;
   dots.forEach((dot, index) => {
     if (!dot) return;
-    const offset = ringDelta(position, index, total);
-    const wrap = Math.min(1, Math.max(0, (total / 2 - Math.abs(offset)) * 2));
-    const reach = Math.min(1, Math.max(0, DOT_REACH + 1 - Math.abs(offset)));
-    const near = Math.max(0, 1 - Math.abs(offset));
-    dot.style.transform = `translateX(${offset * DOT_GAP}px) scale(${1 + near * 0.8})`;
-    dot.style.opacity = String(Math.min(wrap, reach) * (0.45 + 0.55 * near));
+    const { transform, opacity } = dotStyle(index - position);
+    dot.style.transform = transform;
+    dot.style.opacity = String(opacity);
   });
 }
 
@@ -110,7 +113,7 @@ export function AtlasRail({
         // 막대를 왼쪽으로 끌면 뒤 페이지가 가운데로 온다 — 고리를 손으로 돌리는 셈이다.
         const steps = Math.round((drag.startX - event.clientX) / DOT_GAP);
         if (steps !== 0) drag.moved = true;
-        const index = (((drag.startIndex + steps) % total) + total) % total;
+        const index = Math.min(total - 1, Math.max(0, drag.startIndex + steps));
         if (points[index].id !== selectedPointId) onSelectPoint(points[index].id);
       }}
       onPointerUp={(event) => {
@@ -207,13 +210,8 @@ export function AtlasRail({
                           key={page.id}
                           className="atlas-rail__dot"
                           style={(() => {
-                            const offset = ringDelta(0, pageIndex, session.pages.length);
-                            const fade = Math.min(1, Math.max(0, DOT_REACH + 1 - Math.abs(offset)));
-                            const wrap = Math.min(1, Math.max(0, (session.pages.length / 2 - Math.abs(offset)) * 2));
-                            return {
-                              transform: `translateX(${offset * DOT_GAP}px) scale(${1 + Math.max(0, 1 - Math.abs(offset)) * 0.8})`,
-                              opacity: Math.min(fade, wrap) * 0.7,
-                            };
+                            const { transform, opacity } = dotStyle(pageIndex);
+                            return { transform, opacity: opacity * 0.7 };
                           })()}
                         />
                       ))}

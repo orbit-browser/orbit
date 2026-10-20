@@ -8,7 +8,8 @@ import { pageShot } from './page-shots';
  * 카드가 가로로 늘어서고, 가운데서 멀어질수록 뒤로 물러나며(translateZ) 돌고(rotateY)
  * 옅어진다. 끌면 따라오고 놓으면 관성으로 미끄러진다. 값과 계산식은 원본과 같다.
  * 원본과 달리 저절로 흐르지 않는다(대표 2026-10-20) — 끌기·←→·카드·위 막대로만 움직이고,
- * 멈출 때는 가장 가까운 카드에 붙어 그 페이지를 고른다.
+ * 멈출 때는 가장 가까운 카드에 붙어 그 페이지를 고른다. 원본처럼 끝없이 돌지도 않는다 —
+ * 페이지 수만큼만 카드가 있고(같은 페이지를 이어 붙이지 않는다), 끝을 넘어 끌면 버티다 돌아온다.
  * 사진 대신 페이지 화면을 쓰고, 화면이 없는 페이지는 원본의 빈 사진처럼 회색 칸이다.
  */
 
@@ -18,6 +19,8 @@ const SPACING = 220;
 const FRICTION = 0.95;
 /** 이만큼 넘게 움직였으면 누르기가 아니라 끌기다 */
 const DRAG_SLOP = 5;
+/** 끝을 넘어 끌 때 따라오는 비율 — 고무줄처럼 버틴다 */
+const OVERSCROLL = 0.3;
 
 
 interface AtlasGalleryProps {
@@ -38,16 +41,12 @@ export function AtlasGallery({
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const motion = useRef({ current: 0, target: 0, velocity: 0, dragging: false, lastX: 0, moved: 0 });
 
-  /*
-   * 원본은 사진 15장이 한 바퀴다. 페이지가 적으면 한 바퀴가 화면보다 짧아 끝의 카드가 반대편으로
-   * 튀어 보인다 — 같은 페이지를 이어 붙여 한 바퀴를 원본 길이(15장) 이상으로 만든다.
-   */
-  const copies = points.length > 0 ? Math.max(1, Math.ceil(15 / points.length)) : 0;
-  const cards = Array.from({ length: points.length * copies }, (_, index) => points[index % points.length]);
-  const loop = cards.length * SPACING;
+  const cards = points;
+  /** 마지막 카드가 가운데 올 때의 위치. 위치는 이 범위 안에 머문다. */
+  const end = Math.max(0, cards.length - 1) * SPACING;
   // 창 전체에 건 놓기 핸들러가 최신 카드·콜백을 보도록
-  const latest = useRef({ cards, onSelectPoint, onFrame });
-  latest.current = { cards, onSelectPoint, onFrame };
+  const latest = useRef({ cards, onSelectPoint, onFrame, end });
+  latest.current = { cards, onSelectPoint, onFrame, end };
   /** 멈춰 있던 프레임 루프를 다시 돌린다. 움직일 일이 생길 때마다 부른다. */
   const wakeRef = useRef(() => {});
 
@@ -71,10 +70,9 @@ export function AtlasGallery({
         !state.dragging && Math.abs(state.target - state.current) < 0.05 && Math.abs(state.velocity) < 0.05;
       if (settled) state.current = state.target;
       const width = viewportRef.current?.clientWidth ?? window.innerWidth;
-      cardRefs.current.forEach((card, index) => {
+      cardRefs.current.slice(0, cards.length).forEach((card, index) => {
         if (!card) return;
-        // 한 바퀴 길이 안으로 접어 끝없이 돈다
-        const offset = ((((index * SPACING - state.current + loop / 2) % loop) + loop) % loop) - loop / 2;
+        const offset = index * SPACING - state.current;
         if (Math.abs(offset) >= width) {
           card.style.display = 'none';
           return;
@@ -95,7 +93,7 @@ export function AtlasGallery({
       cancelAnimationFrame(frame);
       wakeRef.current = () => {};
     };
-  }, [cards.length, loop]);
+  }, [cards.length]);
 
   // 끌기 — 누르기는 갤러리에서, 움직임과 놓기는 창 전체에서 받는다(원본과 같다).
   useEffect(() => {
@@ -116,7 +114,9 @@ export function AtlasGallery({
       const delta = event.clientX - state.lastX;
       state.lastX = event.clientX;
       state.moved += Math.abs(delta);
-      state.target -= delta * 1.5;
+      // 끝을 넘어서면 덜 따라온다
+      const beyond = state.target < 0 || state.target > latest.current.end;
+      state.target -= delta * 1.5 * (beyond ? OVERSCROLL : 1);
       state.velocity = -delta * 0.5;
       wakeRef.current();
     };
@@ -125,13 +125,15 @@ export function AtlasGallery({
       state.dragging = false;
       viewport.style.cursor = 'grab';
       if (state.moved <= DRAG_SLOP) return;
-      // 관성이 멈출 자리를 미리 셈해 가장 가까운 카드에 붙이고, 그 페이지를 고른다.
-      const index = Math.round((state.target + state.velocity / (1 - FRICTION)) / SPACING);
+      // 관성이 멈출 자리를 미리 셈해 가장 가까운 카드에 붙이고(끝 안쪽으로), 그 페이지를 고른다.
+      const { cards: current, onSelectPoint: select } = latest.current;
+      if (current.length === 0) return;
+      const rest = Math.round((state.target + state.velocity / (1 - FRICTION)) / SPACING);
+      const index = Math.min(current.length - 1, Math.max(0, rest));
       state.target = index * SPACING;
       state.velocity = 0;
       wakeRef.current();
-      const { cards: current, onSelectPoint: select } = latest.current;
-      if (current.length > 0) select(current[((index % current.length) + current.length) % current.length].id);
+      select(current[index].id);
     };
     viewport.addEventListener('pointerdown', down);
     window.addEventListener('pointermove', move);
@@ -145,36 +147,29 @@ export function AtlasGallery({
     };
   }, []);
 
-  // 고른 페이지를 가운데로 — 이어 붙인 사본 중 지금 향하는 자리에서 가장 가까운 카드로 간다.
+  // 고른 페이지를 가운데로.
   const centeredRef = useRef(false);
   useEffect(() => {
-    if (!selectedPointId || loop === 0) return;
+    const index = cards.findIndex((point) => point.id === selectedPointId);
+    if (index < 0) return;
     const state = motion.current;
-    let best = Number.POSITIVE_INFINITY;
-    for (let index = 0; index < cards.length; index += 1) {
-      if (cards[index].id !== selectedPointId) continue;
-      const offset = ((((index * SPACING - state.target + loop / 2) % loop) + loop) % loop) - loop / 2;
-      if (Math.abs(offset) < Math.abs(best)) best = offset;
-    }
-    if (!Number.isFinite(best)) return;
-    state.target += best;
+    state.target = index * SPACING;
     state.velocity = 0;
     // 처음 열 때는 미끄러지지 않고 그 자리에서 시작한다.
     if (!centeredRef.current) state.current = state.target;
     centeredRef.current = true;
     wakeRef.current();
-    // cards 는 렌더마다 points 에서 새로 만든다 — 고른 페이지가 바뀔 때만 다시 맞춘다.
-  }, [selectedPointId, loop]);
+    // 고른 페이지가 바뀔 때만 다시 맞춘다.
+  }, [selectedPointId, cards.length]);
 
   return (
     <div className="atlas-gallery" ref={viewportRef}>
       <div className="atlas-gallery__strip">
         {cards.map((point, index) => {
           const shot = pageShot(point.url);
-          const copy = index >= points.length;
           return (
             <button
-              key={index}
+              key={point.id}
               ref={(element) => {
                 cardRefs.current[index] = element;
               }}
@@ -186,9 +181,8 @@ export function AtlasGallery({
                 onSelectPoint(point.id);
               }}
               title={point.title}
-              aria-label={`${(index % points.length) + 1}. ${point.title}`}
-              aria-current={point.id === selectedPointId && !copy ? 'true' : undefined}
-              {...(copy ? { 'aria-hidden': true, tabIndex: -1 } : null)}
+              aria-label={`${index + 1}. ${point.title}`}
+              aria-current={point.id === selectedPointId ? 'true' : undefined}
             >
               {shot && <img src={shot} alt="" draggable={false} />}
             </button>
