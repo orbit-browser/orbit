@@ -8,6 +8,7 @@ import type {
   AssistantRouteResult,
   Folder,
   FolderAssignResult,
+  FolderSuggestion,
   MemoryEvent,
   MemorySearchResult,
   MergeSuggestion,
@@ -57,6 +58,7 @@ interface BackendSession {
   updated_at: string;
   last_activity_at: string | null;
   folder_id: string | null;
+  folder_assigned_by: 'user' | 'auto' | null;
 }
 
 interface BackendFolder {
@@ -67,6 +69,13 @@ interface BackendFolder {
   session_count: number;
   created_at: string;
   updated_at: string;
+}
+
+interface BackendFolderSuggestion {
+  session_id: string;
+  folder_id: string;
+  score: number;
+  similar_session_ids: string[];
 }
 
 interface BackendFolderAssignResult {
@@ -126,6 +135,7 @@ interface BackendMergeSuggestion {
 
 interface BackendServerSettings {
   auto_merge_enabled: boolean;
+  auto_folder_enabled: boolean;
 }
 
 interface BackendTabActionResolveResponse {
@@ -180,6 +190,7 @@ function mapSession(b: BackendSession): Session {
     summary: mapSummary(b.summary),
     summaryStatus: b.summary_status,
     folderId: b.folder_id ?? undefined,
+    folderAssignedBy: b.folder_assigned_by ?? undefined,
   };
 }
 
@@ -337,6 +348,22 @@ export async function removeSessionFromFolder(
   await request<void>(`/folders/${folderId}/sessions/${sessionId}`, { method: 'DELETE' });
 }
 
+/** 미정리 세션별 폴더 제안(점수 내림차순). */
+export async function fetchFolderSuggestions(): Promise<FolderSuggestion[]> {
+  const data = await request<BackendFolderSuggestion[]>('/folders/suggestions');
+  return data.map((b) => ({
+    sessionId: b.session_id,
+    folderId: b.folder_id,
+    score: b.score,
+    similarSessionIds: b.similar_session_ids,
+  }));
+}
+
+/** 제안을 닫는다 — 서버가 이 세션을 다시 제안하지 않는다. */
+export async function dismissFolderSuggestion(sessionId: string): Promise<void> {
+  await request<void>(`/folders/suggestions/${sessionId}/dismiss`, { method: 'POST' });
+}
+
 export async function fetchSession(id: string): Promise<Session | undefined> {
   try {
     const data = await request<BackendSession>(`/sessions/${id}`);
@@ -457,9 +484,13 @@ export async function unmergeSessions(survivorId: string, absorbedId: string): P
 
 // ── 서버 설정 ──────────────────────────────────────────
 
+function mapServerSettings(b: BackendServerSettings): ServerSettings {
+  return { autoMergeEnabled: b.auto_merge_enabled, autoFolderEnabled: b.auto_folder_enabled };
+}
+
 export async function fetchServerSettings(): Promise<ServerSettings> {
   const data = await request<BackendServerSettings>('/settings');
-  return { autoMergeEnabled: data.auto_merge_enabled };
+  return mapServerSettings(data);
 }
 
 export async function updateServerSettings(
@@ -469,12 +500,15 @@ export async function updateServerSettings(
   if (patch.autoMergeEnabled !== undefined) {
     body.auto_merge_enabled = patch.autoMergeEnabled;
   }
+  if (patch.autoFolderEnabled !== undefined) {
+    body.auto_folder_enabled = patch.autoFolderEnabled;
+  }
   const data = await request<BackendServerSettings>('/settings', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return { autoMergeEnabled: data.auto_merge_enabled };
+  return mapServerSettings(data);
 }
 
 // ── 이벤트 배치 동기화 (docs/api-design-v2.md §1) ──────────────────

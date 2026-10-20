@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db.session import get_db
 from ..schemas.settings import AppSettingsResponse, UpdateSettingsRequest
-from ..services.app_settings import AUTO_MERGE_KEY, get_bool, set_bool
+from ..services.app_settings import AUTO_FOLDER_KEY, AUTO_MERGE_KEY, get_bool, set_bool
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -12,6 +12,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 async def _current(db: AsyncSession) -> AppSettingsResponse:
     return AppSettingsResponse(
         auto_merge_enabled=await get_bool(db, AUTO_MERGE_KEY, settings.auto_merge_enabled),
+        auto_folder_enabled=await get_bool(db, AUTO_FOLDER_KEY, settings.auto_folder_enabled),
     )
 
 
@@ -29,4 +30,6 @@ async def update_settings(
     """전달된 설정만 갱신. 자동 병합은 파괴적 기능이라 사용자가 명시적으로 켤 때만 활성화된다."""
     if body.auto_merge_enabled is not None:
         await set_bool(db, AUTO_MERGE_KEY, body.auto_merge_enabled)
+    if body.auto_folder_enabled is not None:
+        await set_bool(db, AUTO_FOLDER_KEY, body.auto_folder_enabled)
     return await _current(db)

@@ -6,6 +6,7 @@ import {
   buildFolderNodes,
   buildFolderScene,
   buildSessionScene,
+  buildSuggestionNodes,
   alignOffset,
   buildNavRows,
   folderTopDomains,
@@ -20,6 +21,7 @@ import {
   ringDelta,
   ringPlacement,
   sortSessions,
+  groupSuggestionsByFolder,
   stepNavRow,
   toSessionNode,
 } from '../../entrypoints/newtab/components/atlas/data';
@@ -585,5 +587,87 @@ describe('캔버스 씬 구성', () => {
     );
 
     expect(grouped.folders.map((item) => item.id)).toEqual(['first', 'second']);
+  });
+
+  it('자동 분류 여부를 세션 노드까지 넘긴다', () => {
+    const node = toSessionNode(
+      session({ folderId: 'folder-1', folderAssignedBy: 'auto' }),
+      [],
+      NOW,
+    );
+
+    expect(node.folderAssignedBy).toBe('auto');
+  });
+
+  it('폴더 제안은 미정리 세션과 살아 있는 폴더만 남기고 세션당 하나만 쓴다', () => {
+    const filed = toSessionNode(session({ id: 'filed', folderId: 'folder-1', title: '논문 A' }), [], NOW);
+    const loose = toSessionNode(session({ id: 'loose', title: '새 세션' }), [], NOW);
+    const other = toSessionNode(session({ id: 'other', title: '다른 세션' }), [], NOW);
+    const grouped = buildFolderNodes([folder()], [filed, loose, other]);
+    const all = [filed, loose, other];
+
+    const nodes = buildSuggestionNodes(
+      [
+        { sessionId: 'loose', folderId: 'folder-1', score: 0.5, similarSessionIds: ['filed', 'gone'] },
+        // 같은 세션의 두 번째 제안 — 점수가 낮아 버린다.
+        { sessionId: 'loose', folderId: 'folder-1', score: 0.3, similarSessionIds: [] },
+        // 그사이 폴더에 들어간 세션
+        { sessionId: 'filed', folderId: 'folder-1', score: 0.4, similarSessionIds: [] },
+        // 지워진 폴더
+        { sessionId: 'other', folderId: 'deleted', score: 0.4, similarSessionIds: [] },
+      ],
+      grouped.folders,
+      grouped.unfiled,
+      all,
+    );
+
+    expect(nodes).toEqual([
+      {
+        sessionId: 'loose',
+        folderId: 'folder-1',
+        folderName: '논문 리서치',
+        folderHue: '#ef6f47',
+        similarTitles: ['논문 A'],
+      },
+    ]);
+  });
+
+  it('사용자가 닫은(이미 정한) 미정리 세션의 제안은 새 목록을 받기 전에도 버린다', () => {
+    const dismissed = toSessionNode(
+      session({ id: 'dismissed', title: '닫은 세션', folderAssignedBy: 'user' }),
+      [],
+      NOW,
+    );
+    const grouped = buildFolderNodes([folder()], [dismissed]);
+
+    expect(
+      buildSuggestionNodes(
+        [{ sessionId: 'dismissed', folderId: 'folder-1', score: 0.5, similarSessionIds: [] }],
+        grouped.folders,
+        grouped.unfiled,
+        [dismissed],
+      ),
+    ).toEqual([]);
+  });
+
+  it('제안 모두 넣기는 폴더별로 세션을 묶는다', () => {
+    const suggestion = (sessionId: string, folderId: string) => ({
+      sessionId,
+      folderId,
+      folderName: folderId,
+      folderHue: '#000',
+      similarTitles: [],
+    });
+
+    const groups = groupSuggestionsByFolder([
+      suggestion('s1', 'f1'),
+      suggestion('s2', 'f2'),
+      suggestion('s3', 'f1'),
+    ]);
+
+    expect([...groups]).toEqual([
+      ['f1', ['s1', 's3']],
+      ['f2', ['s2']],
+    ]);
   });
 });

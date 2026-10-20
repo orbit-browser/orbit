@@ -462,17 +462,19 @@ LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 �
 
 ## 13. 사용자 폴더 (`/folders`)
 
-사용자가 직접 만드는 세션 그룹. **자동 분류가 아니다** — 서버가 이름을 지어내거나
-소속을 추론하지 않는다. 세션은 폴더 하나에만 속한다(단일 소속).
+사용자가 직접 만드는 세션 그룹. 서버는 폴더를 만들거나 이름을 짓지 않는다. 사용자 폴더 안에서만 새 세션을
+확실할 때 자동 배정하고 애매하면 제안한다(§13.4). 세션은 폴더 하나에만 속한다(단일 소속).
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | `GET` | `/folders` | 폴더 목록. `position`, `created_at` 순. `session_count`는 병합으로 흡수된 세션(`status='merged'`)을 제외한 수 |
 | `POST` | `/folders` | 생성. 이름만 받고 색(`hue`)과 `position`은 서버가 정한다(팔레트 순환, 항상 맨 뒤) |
 | `PATCH` | `/folders/{folder_id}` | 부분 갱신 — `name` / `hue` / `position` 중 보낸 것만 반영 |
-| `DELETE` | `/folders/{folder_id}` | 폴더만 삭제. **소속 세션은 지우지 않고** `folder_id`를 NULL로 되돌린다 |
-| `POST` | `/folders/{folder_id}/sessions` | 세션 일괄 배정(최대 200건). 다른 폴더에 있던 세션도 이동한다 |
-| `DELETE` | `/folders/{folder_id}/sessions/{session_id}` | 폴더에서 빼 미정리로 되돌린다 |
+| `DELETE` | `/folders/{folder_id}` | 폴더만 삭제. **소속 세션은 지우지 않고** `folder_id`·`folder_assigned_by`를 NULL로 되돌린다(다시 제안될 수 있음) |
+| `POST` | `/folders/{folder_id}/sessions` | 세션 일괄 배정(최대 200건). 다른 폴더에 있던 세션도 이동한다. `folder_assigned_by='user'` |
+| `DELETE` | `/folders/{folder_id}/sessions/{session_id}` | 폴더에서 빼 미정리로 되돌린다. `folder_assigned_by='user'`(자동 배정 되돌리기 포함) |
+| `GET` | `/folders/suggestions` | 미정리 세션의 폴더 제안(§13.4) |
+| `POST` | `/folders/suggestions/{session_id}/dismiss` | 제안 닫기 — 미정리로 두고 `folder_assigned_by='user'`. 204, 남의·병합된 세션은 404 |
 
 ### 13.1 일괄 배정의 부분 성공
 
@@ -495,3 +497,26 @@ LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 �
 
 `folder_id: str | null` 필드를 추가한다(§11 superset 정책). 폴더 기능을 모르는
 클라이언트는 이 필드를 무시하면 그대로 동작한다.
+
+`folder_assigned_by: "user" | "auto" | null` — 폴더 소속을 정한 주체. `auto`면 자동 분류가 넣은 것이라
+클라이언트가 '자동' 표시를 붙인다. `null`은 아직 아무도 정하지 않은 세션이다(기능 이전에 폴더에 넣은 세션도 `null`).
+
+### 13.4 자동 분류와 제안
+
+- 대상 폴더는 사용자가 만든 폴더뿐이다. 근거는 그 폴더에 **사용자가 넣은** 세션들의 벡터다
+  (`folder_assigned_by`가 `user`이거나 `null`이고 요약·임베딩이 성공한 소속 세션, 최근 활동 순 최대 500개). 자동 배정 세션은 근거에서 뺀다.
+- 폴더 점수는 그 폴더 근거 세션 중 가장 비슷한 2개 세션 벡터 유사도의 평균이다.
+- **자동 배정**: 동기화 배치 끝에, 그 배치에서 만들어지거나 바뀐 세션 중 미정리이면서 `folder_assigned_by`가
+  `null`이고 요약·임베딩이 성공한 세션에 대해(재요약 실패 세션은 벡터가 낡아 제외), 1위 폴더 점수 ≥ 0.47이고 2위 폴더와 차이 ≥ 0.12이고 근거 세션이 2개 이상이면
+  `folder_id`를 넣고 `folder_assigned_by='auto'`로 둔다. `GET/PATCH /settings`의 `auto_folder_enabled`
+  (기본 `true`)로 끈다. 실패해도 배치는 성공으로 끝난다.
+- **제안** (`GET /folders/suggestions`): 미정리이면서 `folder_assigned_by`가 `null`이고 요약·임베딩이 끝난 세션
+  (최근 활동 순 최대 50개) 중 1위 폴더 점수 ≥ 0.40인 세션. 자동 기준을 넘더라도 배치 밖의 기존 세션은 제안으로만
+  보여 준다. 점수 내림차순. 벡터 조회·검색 실패 시 `503`. 클라이언트는 Atlas 데이터와 따로 불러와 실패하면 제안 없이 그린다.
+
+```json
+[{"session_id": "s1", "folder_id": "f1", "score": 0.4322, "similar_session_ids": ["s7", "s9"]}]
+```
+
+- 수락은 일반 배정(`POST /folders/{id}/sessions`)이다. 사용자가 옮기거나 빼거나 제안을 닫은 세션은
+  `folder_assigned_by='user'`라 자동 분류와 제안이 다시 다루지 않는다.

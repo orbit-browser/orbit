@@ -1,6 +1,6 @@
 """앱 전역 설정 저장소 (key-value, 런타임에 사용자가 토글하는 선호값).
 
-env(config)는 기본값, app_settings 테이블 값이 있으면 우선한다. 현재 auto_merge_enabled만 사용.
+env(config)는 기본값, app_settings 테이블 값이 있으면 우선한다. auto_merge_enabled, auto_folder_enabled.
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from ..db.models import AppSetting
 from ..db.session import AsyncSessionLocal
 
 AUTO_MERGE_KEY = "auto_merge_enabled"
+AUTO_FOLDER_KEY = "auto_folder_enabled"
 
 
 async def get_bool(db: AsyncSession, key: str, default: bool) -> bool:
@@ -34,3 +35,9 @@ async def is_auto_merge_enabled() -> bool:
     """자동 병합 활성 여부 — DB 사용자 설정 우선, 없으면 env 기본값(settings.auto_merge_enabled)."""
     async with AsyncSessionLocal() as db:
         return await get_bool(db, AUTO_MERGE_KEY, settings.auto_merge_enabled)
+
+
+async def is_auto_folder_enabled() -> bool:
+    """폴더 자동 배정 활성 여부 — DB 사용자 설정 우선, 없으면 env 기본값(settings.auto_folder_enabled)."""
+    async with AsyncSessionLocal() as db:
+        return await get_bool(db, AUTO_FOLDER_KEY, settings.auto_folder_enabled)

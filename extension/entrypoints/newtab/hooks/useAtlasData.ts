@@ -1,7 +1,17 @@
-import { useQuery } from '@tanstack/react-query';
-import { fetchFolders, fetchSessionEvents, fetchSessions } from '../../../lib/api';
-import type { FolderNode, SessionNode } from '../components/atlas/data';
-import { buildAtlasSessions, buildFolderNodes } from '../components/atlas/data';
+import { useMemo } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import {
+  fetchFolderSuggestions,
+  fetchFolders,
+  fetchSessionEvents,
+  fetchSessions,
+} from '../../../lib/api';
+import type { FolderNode, SessionNode, SuggestionNode } from '../components/atlas/data';
+import {
+  buildAtlasSessions,
+  buildFolderNodes,
+  buildSuggestionNodes,
+} from '../components/atlas/data';
 
 const EVENT_REQUEST_CONCURRENCY = 6;
 
@@ -45,4 +55,21 @@ export function useAtlasData() {
     queryKey: ATLAS_QUERY_KEY,
     queryFn: fetchAtlasData,
   });
+}
+
+/**
+ * 미정리 세션별 폴더 제안. Atlas 데이터와 따로 불러와 벡터 검색이 느려도 세션 목록이 먼저 그려진다.
+ * Atlas 데이터가 새로 오면(배정·동기화 뒤) 제안도 다시 받는다. 실패(벡터 DB 장애 503 등)는 제안 없음과 같다.
+ */
+export function useFolderSuggestions(atlas: AtlasData | undefined, atlasUpdatedAt: number): SuggestionNode[] {
+  const { data } = useQuery({
+    queryKey: ['newtab', 'folder-suggestions', atlasUpdatedAt],
+    queryFn: () => fetchFolderSuggestions().catch(() => []),
+    enabled: atlas !== undefined,
+    placeholderData: keepPreviousData,
+  });
+  return useMemo(
+    () => (atlas && data ? buildSuggestionNodes(data, atlas.folders, atlas.unfiled, atlas.sessions) : []),
+    [atlas, data],
+  );
 }

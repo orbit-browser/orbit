@@ -1,7 +1,7 @@
 """사용자 폴더 스키마 (docs/api-design-v2.md §13).
 
-폴더는 사용자가 직접 만드는 세션 그룹이다. 자동 분류가 아니므로 서버가 이름을
-지어내거나 소속을 추론하지 않는다.
+폴더는 사용자가 직접 만드는 세션 그룹이다. 서버는 폴더를 만들거나 이름을 짓지 않는다.
+사용자 폴더 안에서만 새 세션을 확실할 때 자동 배정하고 애매하면 제안한다(§13.4).
 """
 
 from pydantic import BaseModel, Field
@@ -38,6 +38,16 @@ class FolderItem(BaseModel):
     session_count: int
     created_at: str
     updated_at: str
+
+
+class FolderSuggestion(BaseModel):
+    """미정리 세션에 대한 폴더 제안. 수락은 일반 배정(`POST /folders/{id}/sessions`)을 쓴다."""
+
+    session_id: str
+    folder_id: str
+    score: float
+    # 근거가 된 그 폴더의 가장 비슷한 세션들(점수 순, 최대 2개).
+    similar_session_ids: list[str]
 
 
 class AssignResult(BaseModel):

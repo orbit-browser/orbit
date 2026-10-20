@@ -13,7 +13,7 @@ import {
   stepNavRow,
   type NavRow,
 } from './atlas/data';
-import { useAtlasData } from '../hooks/useAtlasData';
+import { useAtlasData, useFolderSuggestions } from '../hooks/useAtlasData';
 import { readAtlasTarget } from '../lib/navigation';
 import { getNavState, useSharedNavState } from '../lib/nav-state';
 
@@ -25,6 +25,7 @@ export function VariantAtlasReplica() {
   const sessions = atlasQuery.data?.sessions ?? [];
   const folders = atlasQuery.data?.folders ?? [];
   const unfiled = atlasQuery.data?.unfiled ?? [];
+  const suggestions = useFolderSuggestions(atlasQuery.data, atlasQuery.dataUpdatedAt);
   const { nav, patch, toggleIn, expandIn } = useSharedNavState();
   const searchRef = useRef<HTMLInputElement>(null);
   const initializedRef = useRef(false);
@@ -282,6 +283,7 @@ export function VariantAtlasReplica() {
         folders={sortedFolders}
         unfiled={sortedUnfiled}
         sessions={sessions}
+        suggestions={suggestions}
         query={nav.query}
         onQueryChange={(query) => patch({ query })}
         focusedFolderId={focusedFolder?.id ?? null}

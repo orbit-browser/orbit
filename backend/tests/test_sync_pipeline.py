@@ -203,6 +203,7 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
     monkeypatch.setattr(sync_pipeline, "refresh_session_ai", fake_refresh)
     monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
     monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
+    _no_auto_folder(monkeypatch)
 
     asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}, {"id": "b"}], "u1"))
 
@@ -210,6 +211,54 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
     assert calls["refresh"] == ["sess-ok"]
     # 감사 필드는 그룹별 모델 카운트 요약(성공 그룹 1개 → "model-x:1")
     assert calls["complete"] == [("batch-1", 2, "model-x:1")]
+
+
+def _no_auto_folder(monkeypatch):
+    async def disabled():
+        return False
+
+    monkeypatch.setattr(sync_pipeline, "is_auto_folder_enabled", disabled)
+
+    async def no_recommendations(_user_id):
+        return None
+
+    monkeypatch.setattr(sync_pipeline, "invalidate_recommendations", no_recommendations)
+
+
+def test_process_batch_auto_files_touched_sessions_and_merge_survivors(monkeypatch):
+    filed: list[tuple[str, set[str]]] = []
+
+    async def fake_process_group(_group, _batch_id, touched, _user_id):
+        touched.update({"new", "absorbed"})
+        return []
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    async def enabled():
+        return True
+
+    async def fake_auto_merge(_user_id):
+        return {"survivor"}
+
+    async def fake_auto_file(user_id, session_ids):
+        filed.append((user_id, set(session_ids)))
+        return 1
+
+    monkeypatch.setattr(sync_pipeline, "dedupe_events", lambda events: (events, []))
+    monkeypatch.setattr(sync_pipeline, "group_by_time_gap", lambda events, **_k: [events])
+    monkeypatch.setattr(sync_pipeline, "_process_group", fake_process_group)
+    monkeypatch.setattr(sync_pipeline, "refresh_session_ai", noop)
+    monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", enabled)
+    monkeypatch.setattr(sync_pipeline, "_run_auto_merge", fake_auto_merge)
+    monkeypatch.setattr(sync_pipeline, "is_auto_folder_enabled", enabled)
+    monkeypatch.setattr(sync_pipeline, "auto_file_sessions", fake_auto_file)
+    monkeypatch.setattr(sync_pipeline, "invalidate_recommendations", noop)
+    monkeypatch.setattr(sync_pipeline, "_complete_batch", noop)
+
+    asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}], "u1"))
+
+    assert filed == [("u1", {"new", "absorbed", "survivor"})]
 
 
 def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
@@ -232,6 +281,7 @@ def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
     monkeypatch.setattr(sync_pipeline, "_set_status", fake_set_status)
     monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
     monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
+    _no_auto_folder(monkeypatch)
 
     asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}], "u1"))
 

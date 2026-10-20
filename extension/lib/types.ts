@@ -89,6 +89,8 @@ export interface Session {
   summaryStatus: 'pending' | 'done' | 'failed';
   /** 사용자가 넣은 폴더. 없으면 미정리(단일 소속). */
   folderId?: string;
+  /** 폴더 소속을 누가 정했는지. 'auto' 면 서버 자동 분류다. 정한 적 없으면 undefined. */
+  folderAssignedBy?: 'user' | 'auto';
 }
 
 // ── 사용자 폴더 (docs/api-design-v2.md §13) ────────────────────────────
@@ -110,6 +112,15 @@ export interface Folder {
   createdAt: string;
   /** ISO 8601 */
   updatedAt: string;
+}
+
+/** 미정리 세션을 넣을 만한 폴더 — 자동으로 넣기엔 애매해 사용자에게 묻는다. */
+export interface FolderSuggestion {
+  sessionId: string;
+  folderId: string;
+  score: number;
+  /** 그 폴더 안에서 이 세션과 가장 비슷한 세션들 — 제안 근거로 보여 준다. */
+  similarSessionIds: string[];
 }
 
 /** 폴더 일괄 배정 결과 — 건너뛴 세션을 그대로 돌려준다. */
@@ -136,6 +147,8 @@ export interface MergeSuggestion {
 export interface ServerSettings {
   /** 다음 동기화부터 명백한 중복만 자동 병합한다. 기본값은 false. */
   autoMergeEnabled: boolean;
+  /** 새 세션이 기존 폴더와 확실히 비슷하면 자동으로 넣고, 애매하면 제안한다. */
+  autoFolderEnabled: boolean;
 }
 
 // ── Timeline / Memory 검색 (M4, docs/api-design-v2.md §3, §6, §8) ──────────

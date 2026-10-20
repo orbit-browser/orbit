@@ -75,6 +75,8 @@ class SessionDetail(BaseModel):
     last_activity_at: str | None = None
     # 사용자 폴더 소속. null=미정리(docs/api-design-v2.md §13).
     folder_id: str | None = None
+    # 폴더 소속을 정한 주체. auto면 자동 분류가 넣은 것(§13.4). null=아직 정하지 않음(기능 이전 배정 포함).
+    folder_assigned_by: Literal["user", "auto"] | None = None
     # Ask 후보 검색의 세션 벡터 점수(서버 내부용, 응답에 싣지 않음). 후보 검색 밖에서 온 세션은 None.
     vector_score: float | None = Field(default=None, exclude=True)
 

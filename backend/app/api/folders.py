@@ -1,6 +1,7 @@
 """사용자 폴더 라우터 (docs/api-design-v2.md §13).
 
 세션은 폴더 하나에만 속한다. 배정은 이동이며, 다른 폴더에 있던 세션도 그대로 옮겨온다.
+사용자가 옮기거나 빼거나 제안을 닫은 세션은 folder_assigned_by='user'로 남겨 자동 분류가 다시 건드리지 않는다.
 """
 
 import logging
@@ -16,8 +17,10 @@ from ..schemas.folder import (
     AssignSessionsRequest,
     CreateFolderRequest,
     FolderItem,
+    FolderSuggestion,
     UpdateFolderRequest,
 )
+from ..services.folder_classifier import folder_suggestions
 from .deps import current_user_id
 
 logger = logging.getLogger(__name__)
@@ -57,6 +60,11 @@ async def _owned_folder(db: AsyncSession, folder_id: str, user_id: str) -> Folde
     return folder
 
 
+async def _lock_folder(db: AsyncSession, folder_id: str, *, shared: bool) -> None:
+    """배정은 공유 잠금, 삭제는 배타 잠금 — 폴더 삭제와 동시에 들어온 배정이 지워진 폴더를 가리키지 않게 한다."""
+    await db.execute(select(Folder.id).where(Folder.id == folder_id).with_for_update(read=shared))
+
+
 async def _count_by_folder(db: AsyncSession, user_id: str) -> dict[str, int]:
     result = await db.execute(
         select(SessionModel.folder_id, func.count())
@@ -82,6 +90,50 @@ async def list_folders(
     )
     counts = await _count_by_folder(db, user_id)
     return [_to_item(folder, counts.get(folder.id, 0)) for folder in result.scalars().all()]
+
+
+@router.get("/suggestions", response_model=list[FolderSuggestion])
+async def list_suggestions(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
+) -> list[FolderSuggestion]:
+    """미정리 세션에 폴더를 제안한다(점수 순). 벡터 검색이 실패하면 503 — 클라이언트는 제안 없이 진행한다."""
+    try:
+        suggestions = await folder_suggestions(db, user_id)
+    except Exception:
+        logger.warning("폴더 제안 계산 실패", exc_info=True)
+        raise HTTPException(status_code=503, detail="Folder suggestions are unavailable")
+    return [
+        FolderSuggestion(
+            session_id=session_id,
+            folder_id=match.folder_id,
+            score=round(match.score, 4),
+            similar_session_ids=match.similar_session_ids,
+        )
+        for session_id, match in suggestions
+    ]
+
+
+@router.post("/suggestions/{session_id}/dismiss", status_code=204)
+async def dismiss_suggestion(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
+) -> None:
+    """제안을 닫는다 — 세션을 미정리로 두되 사용자가 정한 것으로 남겨 다시 제안·자동 배정하지 않는다.
+
+    제안을 받은 뒤 배치가 이 세션을 자동 배정했으면 아무것도 바꾸지 않는다. 미정리일 때만 조건부로 바꿔야 자동 배정이
+    사용자 결정('user')으로 둔갑해 다른 세션의 분류 근거가 되지 않는다."""
+    session = await db.get(SessionModel, session_id)
+    if not session or session.user_id != user_id or session.status == "merged":
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    await db.execute(
+        update(SessionModel)
+        .where(SessionModel.id == session_id, SessionModel.user_id == user_id, SessionModel.folder_id.is_(None))
+        .values(folder_assigned_by="user")
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
 
 
 @router.post("", response_model=FolderItem, status_code=201)
@@ -136,13 +188,16 @@ async def delete_folder(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> None:
-    """폴더만 지우고 세션은 남긴다 — 정리 도구가 데이터를 지우면 안 된다."""
+    """폴더만 지우고 세션은 남긴다 — 정리 도구가 데이터를 지우면 안 된다. 세션은 미결정으로 돌아가 다시 제안될 수 있다."""
     folder = await _owned_folder(db, folder_id, user_id)
+    # 배타 잠금을 먼저 잡아 진행 중인 배정(공유 잠금)이 끝난 뒤 소속을 푼다 — FK가 없어 순서가 어긋나면
+    # 지워진 폴더를 가리키는 세션이 남는다.
+    await _lock_folder(db, folder_id, shared=False)
 
     await db.execute(
         update(SessionModel)
         .where(SessionModel.user_id == user_id, SessionModel.folder_id == folder_id)
-        .values(folder_id=None)
+        .values(folder_id=None, folder_assigned_by=None)
     )
     await db.delete(folder)
     await db.commit()
@@ -157,6 +212,7 @@ async def assign_sessions(
 ) -> AssignResult:
     """세션을 이 폴더로 옮긴다. 다른 폴더에 있던 세션도 이동한다(단일 소속)."""
     await _owned_folder(db, folder_id, user_id)
+    await _lock_folder(db, folder_id, shared=True)
 
     # 중복 id 는 한 번만 처리하되 요청 순서를 유지한다.
     requested = list(dict.fromkeys(body.session_ids))
@@ -176,7 +232,7 @@ async def assign_sessions(
         await db.execute(
             update(SessionModel)
             .where(SessionModel.user_id == user_id, SessionModel.id.in_(assigned))
-            .values(folder_id=folder_id)
+            .values(folder_id=folder_id, folder_assigned_by="user")
         )
         await db.commit()
 
@@ -193,7 +249,7 @@ async def remove_session(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> None:
-    """세션을 폴더에서 빼 미정리로 되돌린다."""
+    """세션을 폴더에서 빼 미정리로 되돌린다. 자동 배정을 되돌린 경우도 사용자가 정한 것으로 남긴다."""
     await _owned_folder(db, folder_id, user_id)
 
     session = await db.get(SessionModel, session_id)
@@ -203,4 +259,5 @@ async def remove_session(
         raise HTTPException(status_code=404, detail="이 폴더에 없는 세션입니다")
 
     session.folder_id = None
+    session.folder_assigned_by = "user"
     await db.commit()

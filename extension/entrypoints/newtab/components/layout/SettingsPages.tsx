@@ -310,6 +310,21 @@ function SessionPage({ serverSettings, saveServerSettings, serverBusy }: PagePro
             onChange={(autoMergeEnabled) => saveServerSettings({ autoMergeEnabled })}
           />
         </Row>
+        <Row
+          label="폴더 자동 정리"
+          description={
+            serverSettings.isError
+              ? '서버 설정을 불러오지 못했습니다.'
+              : '새 세션이 기존 폴더와 확실히 비슷하면 자동으로 넣고, 애매하면 Atlas에서 제안합니다.'
+          }
+        >
+          <Switch
+            label="폴더 자동 정리"
+            checked={serverSettings.data?.autoFolderEnabled ?? false}
+            disabled={serverBusy}
+            onChange={(autoFolderEnabled) => saveServerSettings({ autoFolderEnabled })}
+          />
+        </Row>
       </Section>
 
       <p className="settings-note">

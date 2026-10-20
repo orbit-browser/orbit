@@ -62,6 +62,49 @@ def test_score_sessions_limits_to_ids_and_owner_without_threshold(monkeypatch):
     assert asyncio.run(vector.score_sessions([0.1], [], user_id="u1")) == {}
 
 
+def test_get_vectors_returns_found_points_and_raises_on_error(monkeypatch):
+    class FakeClient:
+        async def retrieve(self, **kwargs):
+            assert kwargs["ids"] == ["s1", "s2"] and kwargs["with_vectors"] is True
+            return [SimpleNamespace(id="s1", vector=[0.1]), SimpleNamespace(id="s2", vector={"named": [0.2]})]
+
+    monkeypatch.setattr(vector, "get_qdrant", lambda: FakeClient())
+    assert asyncio.run(vector.get_vectors(["s1", "s2"])) == {"s1": [0.1]}
+    assert asyncio.run(vector.get_vectors([])) == {}
+
+    class Down:
+        async def retrieve(self, **_kwargs):
+            raise RuntimeError("qdrant down")
+
+    monkeypatch.setattr(vector, "get_qdrant", lambda: Down())
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(vector.get_vectors(["s1"]))
+
+
+def test_score_sessions_many_batches_owner_and_id_filter(monkeypatch):
+    captured: dict = {}
+
+    class FakeClient:
+        async def query_batch_points(self, **kwargs):
+            captured.update(kwargs)
+            return [
+                SimpleNamespace(points=[SimpleNamespace(id="m1", score=0.5)]),
+                SimpleNamespace(points=[SimpleNamespace(id="m2", score=0.3)]),
+            ]
+
+    monkeypatch.setattr(vector, "get_qdrant", lambda: FakeClient())
+    result = asyncio.run(vector.score_sessions_many({"a": [0.1], "b": [0.2]}, ["m1", "m2"], user_id="u1"))
+
+    assert result == {"a": {"m1": 0.5}, "b": {"m2": 0.3}}
+    first = captured["requests"][0]
+    owner, ids = first.filter.must
+    assert owner.key == "user_id" and owner.match.value == "u1"
+    assert ids.has_id == ["m1", "m2"] and first.limit == 2
+    assert asyncio.run(vector.score_sessions_many({"a": [0.1]}, [], user_id="u1")) == {"a": {}}
+
+
 def test_search_requires_user_id():
     import pytest
 
