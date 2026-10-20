@@ -56,6 +56,25 @@ def test_undecided_requires_fresh_summary_and_embedding():
         assert condition in sql
 
 
+def test_evidence_query_uses_only_fresh_user_placed_sessions():
+    statements = []
+
+    class CaptureDB:
+        async def execute(self, stmt):
+            statements.append(stmt)
+            return SimpleNamespace(all=lambda: [("k1", "k8s")])
+
+    assert asyncio.run(fc._evidence(CaptureDB(), "u1")) == {"k1": "k8s"}
+    sql = str(statements[0].compile(compile_kwargs={"literal_binds": True}))
+    for condition in (
+        "sessions.summary_status = 'done'",
+        "sessions.embedding_status = 'done'",
+        "sessions.folder_assigned_by IS NULL OR sessions.folder_assigned_by = 'user'",
+        "FROM folders",
+    ):
+        assert condition in sql
+
+
 class _FakeDB:
     def __init__(self, sessions=None):
         self.sessions = {session.id: session for session in sessions or []}

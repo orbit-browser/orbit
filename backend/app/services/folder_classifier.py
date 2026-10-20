@@ -73,12 +73,15 @@ def decide(match: FolderMatch | None) -> Decision | None:
 
 
 async def _evidence(db: AsyncSession, user_id: str) -> dict[str, str]:
-    """사용자가 폴더에 넣은 세션 → 폴더 id. 기능 이전 배정(NULL)도 사용자가 넣은 것이다. 지워진 폴더 id는 뺀다."""
+    """사용자가 폴더에 넣은 세션 → 폴더 id. 기능 이전 배정(NULL)도 사용자가 넣은 것이다. 지워진 폴더 id와 재요약이
+    실패해 벡터가 낡은 세션은 뺀다."""
     result = await db.execute(
         select(SessionModel.id, SessionModel.folder_id)
         .where(
             SessionModel.user_id == user_id,
             SessionModel.status != "merged",
+            SessionModel.summary_status == "done",
+            SessionModel.embedding_status == "done",
             SessionModel.folder_id.in_(select(Folder.id).where(Folder.user_id == user_id)),
             or_(SessionModel.folder_assigned_by.is_(None), SessionModel.folder_assigned_by == "user"),
         )
