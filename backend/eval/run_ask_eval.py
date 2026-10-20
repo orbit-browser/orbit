@@ -78,6 +78,8 @@ async def _ask(client: httpx.AsyncClient, case: dict, history: list[dict] | None
     sources: list[str] = []
     source_ids: list[str] = []
     answer, model, error, event = "", None, None, None
+    verification: list[dict] = []
+    done_at = None
     body = {"query": case["query"], "intent": intent, "rerank": True, "history": history or []}
     async with client.stream("POST", "/ask/stream", json=body) as response:
         async for line in response.aiter_lines():
@@ -90,8 +92,11 @@ async def _ask(client: httpx.AsyncClient, case: dict, history: list[dict] | None
                     source_ids = [session["session_id"] for session in data["sessions"]]
                 elif event == "delta":
                     answer += data["text"]
+                elif event == "verification":
+                    verification = data["issues"]
                 elif event == "done":
                     model = data.get("model")
+                    done_at = time.monotonic()
                 elif event == "error":
                     error = data
 
@@ -105,14 +110,21 @@ async def _ask(client: httpx.AsyncClient, case: dict, history: list[dict] | None
         "sources": sources,
         "source_ids": source_ids,
         "answer": answer,
+        "verification": verification,
         "model": model,
         "error": error,
-        "latency_s": round(time.monotonic() - started, 1),
+        # 답변 완료(done)까지. 검증 경고는 done 뒤에 오므로 스트림 종료까지는 verify_s로 따로 잰다.
+        "latency_s": round((done_at or time.monotonic()) - started, 1),
+        "verify_s": round(time.monotonic() - started, 1),
         "fact_recall": len(hit) / len(facts) if facts else None,
         "missed_facts": [fact for fact in facts if fact not in hit],
         "refused": bool(_REFUSAL.search(answer)),
         "bad_citation": any(n < 1 or n > len(sources) for n in citations),
     }
+
+
+def _warn(result: dict) -> str:
+    return f" WARN={[issue['value'] for issue in result['verification']]}" if result["verification"] else ""
 
 
 async def ask(base: str, google_sub: str, out: Path | None) -> None:
@@ -127,7 +139,7 @@ async def ask(base: str, google_sub: str, out: Path | None) -> None:
                 if result["fact_recall"] is not None
                 else f"refused={result['refused']}"
             )
-            print(f"{case['id']} [{case['type']}] {score} src={len(result['sources'])} {result['latency_s']}s  {case['query']}")
+            print(f"{case['id']} [{case['type']}] {score} src={len(result['sources'])} {result['latency_s']}s{_warn(result)}  {case['query']}")
         # 후속 질문: 앞 턴의 질문·답변·출처를 UI처럼 history로 넘긴다(최대 3턴).
         followups = []
         for conversation in _CASES.get("conversations", []):
@@ -139,7 +151,7 @@ async def ask(base: str, google_sub: str, out: Path | None) -> None:
                 history.append(
                     {"query": turn["query"], "answer": result["answer"], "source_session_ids": result["source_ids"]}
                 )
-                print(f"{case['id']} [{case['type']}] recall={result['fact_recall']:.2f} src={len(result['sources'])} {result['latency_s']}s  {turn['query']}")
+                print(f"{case['id']} [{case['type']}] recall={result['fact_recall']:.2f} src={len(result['sources'])} {result['latency_s']}s{_warn(result)}  {turn['query']}")
     if out:
         out.write_text(
             json.dumps({"questions": results, "conversations": followups}, ensure_ascii=False, indent=1),
@@ -156,6 +168,7 @@ async def ask(base: str, google_sub: str, out: Path | None) -> None:
         "errors": sum(bool(r["error"]) for r in results),
         "models": sorted({r["model"] for r in results if r["model"]}),
         "mean_latency_s": round(sum(r["latency_s"] for r in results) / len(results), 1),
+        "verification_flagged": [r["id"] for r in [*results, *followups] if r["verification"]],
     }
     second_turns = [r for r in followups if r["type"] == "followup"]
     if second_turns:

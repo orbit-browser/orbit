@@ -2,8 +2,10 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from app.api import ask
-from app.schemas.ask import AskStreamRequest
+from app.schemas.ask import AskStreamRequest, AskVerificationIssue
 from app.schemas.session import SessionDetail, SessionSummary
 from app.services.ask_service import (
     AskContext,
@@ -139,6 +141,14 @@ def test_answer_prompt_contains_only_current_question_and_numbered_sources():
     assert "가격 정보" in prompt
 
 
+@pytest.fixture(autouse=True)
+def _no_answer_verification(monkeypatch):
+    async def none(_prompt, _answer):
+        return []
+
+    monkeypatch.setattr(ask, "find_conflations", none)
+
+
 class _ConnectedRequest:
     async def is_disconnected(self):
         return False
@@ -166,6 +176,28 @@ def test_answer_events_streams_sources_deltas_and_done(monkeypatch):
     assert [event for event, _data in events] == ["sources", "delta", "delta", "done"]
     assert events[0][1]["sessions"][0]["session_id"] == "session-1"
     assert events[-1][1]["model"] == "model-a"
+
+
+def test_answer_events_sends_verification_issues_after_done(monkeypatch):
+    async def fake_stream(_system, _prompt):
+        yield "막차는 21:31입니다 [1].", "model-a"
+
+    seen: list[tuple[str, str]] = []
+
+    async def conflated(prompt, answer):
+        seen.append((prompt, answer))
+        return [AskVerificationIssue(value="21:31", answer_subject="청량리 출발 막차", record_subject="서울역 출발 KTX 847")]
+
+    monkeypatch.setattr(ask, "chat_completion_stream_with_meta", fake_stream)
+    monkeypatch.setattr(ask, "find_conflations", conflated)
+
+    events = asyncio.run(_collect_events(AskContext(sources=[_source()], prompt="prompt")))
+
+    assert [event for event, _data in events] == ["sources", "delta", "done", "verification"]
+    assert events[3][1] == {
+        "issues": [{"value": "21:31", "answer_subject": "청량리 출발 막차", "record_subject": "서울역 출발 KTX 847"}]
+    }
+    assert seen == [("prompt", "막차는 21:31입니다 [1].")]
 
 
 def test_answer_events_without_sources_returns_grounded_empty_message():

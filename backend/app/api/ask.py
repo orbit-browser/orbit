@@ -22,6 +22,7 @@ from ..services.ask_service import (
     prepare_ask_context,
     resolve_followup_query,
 )
+from ..services.answer_verifier import find_conflations
 from .deps import current_user_id
 from .search import _search_sessions_by_vector
 from .sessions import _owned_session, _to_detail
@@ -125,6 +126,7 @@ async def _answer_events(
 
     model: str | None = None
     emitted = False
+    parts: list[str] = []
     try:
         async for text, provider_model in chat_completion_stream_with_meta(
             ASK_SYSTEM_PROMPT,
@@ -135,8 +137,16 @@ async def _answer_events(
                 return
             emitted = True
             model = provider_model
+            parts.append(text)
             yield encode_sse("delta", {"text": text})
         yield encode_sse("done", {"model": model})
+        # 답변을 먼저 끝내(다음 질문을 막지 않도록) 같은 근거로 비슷한 다른 대상의 값을 가져왔는지 검증한다.
+        # 검증은 2~3초 걸린다. 걸린 값만 done 뒤에 경고로 보낸다.
+        if await request.is_disconnected():
+            return
+        issues = await find_conflations(context.prompt, "".join(parts))
+        if issues:
+            yield encode_sse("verification", {"issues": [issue.model_dump() for issue in issues]})
     except asyncio.CancelledError:
         logger.info("Ask stream cancelled")
         raise

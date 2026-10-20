@@ -684,6 +684,18 @@ export async function* streamAsk(
       yield { type: 'sources', sessions: sessions.map(mapSession) };
     } else if (frame.event === 'delta') {
       yield { type: 'delta', text: typeof data.text === 'string' ? data.text : '' };
+    } else if (frame.event === 'verification') {
+      const issues = Array.isArray(data.issues) ? data.issues as Record<string, unknown>[] : [];
+      yield {
+        type: 'verification',
+        issues: issues
+          .filter((issue) => typeof issue.value === 'string' && typeof issue.record_subject === 'string')
+          .map((issue) => ({
+            value: issue.value as string,
+            answerSubject: typeof issue.answer_subject === 'string' ? issue.answer_subject : '',
+            recordSubject: issue.record_subject as string,
+          })),
+      };
     } else if (frame.event === 'done') {
       yield { type: 'done', model: typeof data.model === 'string' ? data.model : null };
     } else if (frame.event === 'error') {

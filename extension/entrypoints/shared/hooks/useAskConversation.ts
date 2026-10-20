@@ -10,6 +10,7 @@ import {
 } from '../../../lib/tab-actions';
 import type {
   AskHistoryTurn,
+  AskVerificationIssue,
   AssistantRetrievalIntent,
   OpenTabItem,
   Session,
@@ -25,6 +26,8 @@ export interface AskTurn {
   status: AskTurnStatus;
   model: string | null;
   error: string | null;
+  /** 서버 검증이 기록에서는 비슷한 다른 대상의 값으로 본 답변 속 값들. 답변은 그대로 두고 경고로만 보여 준다. */
+  verificationIssues: AskVerificationIssue[];
   tabCandidates: OpenTabItem[];
   tabCandidateError: string | null;
 }
@@ -85,11 +88,10 @@ function cancelActiveTurn() {
   activeController = null;
   activeTurnId = null;
   if (turnId) {
-    updateTurn(turnId, (turn) => ({
-      ...turn,
-      status: 'cancelled',
-      error: '답변 생성을 중단했어요.',
-    }));
+    // 답변이 끝난 뒤 검증 경고를 기다리던 턴은 답변 그대로 둔다(경고만 받지 못한다).
+    updateTurn(turnId, (turn) => (turn.status === 'streaming'
+      ? { ...turn, status: 'cancelled', error: '답변 생성을 중단했어요.' }
+      : turn));
   }
   useAskConversationStore.setState({ isStreaming: false });
 }
@@ -277,6 +279,7 @@ export function useAskConversation({
           status: 'streaming',
           model: null,
           error: null,
+          verificationIssues: [],
           tabCandidates: [],
           tabCandidateError: null,
         },
@@ -313,9 +316,13 @@ export function useAskConversation({
           updateTurn(id, (turn) => ({ ...turn, sources: event.sessions }));
         } else if (event.type === 'delta' && event.text) {
           updateTurn(id, (turn) => ({ ...turn, answer: turn.answer + event.text }));
+        } else if (event.type === 'verification') {
+          updateTurn(id, (turn) => ({ ...turn, verificationIssues: event.issues }));
         } else if (event.type === 'done') {
           terminalEvent = true;
           updateTurn(id, (turn) => ({ ...turn, status: 'done', model: event.model }));
+          // 서버는 done 뒤에 검증 경고(verification)를 보낼 수 있다. 스트림은 계속 읽되 다음 질문은 받는다.
+          if (activeTurnId === id) useAskConversationStore.setState({ isStreaming: false });
         } else if (event.type === 'error') {
           terminalEvent = true;
           updateTurn(id, (turn) => ({
