@@ -1373,12 +1373,54 @@ body.atlas-resizing .atlas-nav__resizer::after {
   transform: translateX(-50%);
 }
 
+/* 그룹 이름 + 그룹 이동 단추(⌃⌄) — 그룹 안 이동(↑↓·줄)과 따로 둔다 */
 .atlas-rail__group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   margin-bottom: 4px;
   color: var(--text-tertiary);
   font-size: 11px;
   letter-spacing: 0.02em;
-  text-align: center;
+}
+
+.atlas-rail__group span {
+  margin-right: 4px;
+}
+
+.atlas-rail__group-step {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.atlas-rail__group-step:hover:not(:disabled) {
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+}
+
+.atlas-rail__group-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 그룹이 바뀌면 새 줄 묶음이 살짝 떠오르며 나타난다 */
+.atlas-rail__window {
+  animation: rail-group-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes rail-group-in {
+  from { opacity: 0; transform: translateY(8px); }
 }
 
 /* 세 줄 창 — 지금 세션이 늘 가운데 줄. 위아래로 옮기면 줄 묶음이 미끄러진다 */
@@ -1419,17 +1461,6 @@ body.atlas-resizing .atlas-nav__resizer::after {
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* 이웃 그룹의 줄 — 그룹 이름을 작은 꼬리표로 */
-.atlas-rail__row-group {
-  margin-right: 6px;
-  padding: 1px 6px;
-  border-radius: var(--r-pill);
-  background: var(--bg-sunken);
-  color: var(--text-tertiary);
-  font-size: 10.5px;
-  font-weight: 500;
 }
 
 .atlas-rail__row--current .atlas-rail__title {

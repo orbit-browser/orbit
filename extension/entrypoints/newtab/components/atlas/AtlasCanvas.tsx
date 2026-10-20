@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { OrbitPoint, OrbitScene, OrbitTrack } from './data';
-import type { RailRow } from './AtlasRail';
+import type { RailGroup } from './AtlasRail';
 import { AtlasGallery } from './AtlasGallery';
 import { AtlasRail } from './AtlasRail';
 import {
@@ -123,9 +123,12 @@ interface AtlasCanvasProps {
   onClearSelection: () => void;
   bottomInset: number;
   emptyMessage?: string;
-  /** 모든 세션을 네비게이터 순서로 이은 줄(그룹 이름과 함께) — 막대가 쌓고 위아래로 넘나든다. */
-  railRows?: RailRow[] | null;
+  /** 지금 세션의 그룹 — 막대가 이 그룹의 세션만 쌓는다. 이웃 그룹 이름은 그룹 이동 단추에 쓴다. */
+  railGroup?: RailGroup | null;
+  /** 모든 세션의 네비게이터 순서 — 세션이 바뀔 때 갤러리가 위·아래 어느 쪽으로 미끄러질지 정한다. */
+  sessionOrder?: string[];
   onSelectSession?: (sessionId: string) => void;
+  onStepGroup?: (direction: 1 | -1) => void;
 }
 
 export function AtlasCanvas({
@@ -137,8 +140,10 @@ export function AtlasCanvas({
   onClearSelection,
   bottomInset,
   emptyMessage,
-  railRows,
+  railGroup,
+  sessionOrder,
   onSelectSession,
+  onStepGroup,
 }: AtlasCanvasProps) {
   /*
    * 씬이 통째로 바뀔 때(폴더 → 세션)는 그리는 씬을 한 박자 늦춘다.
@@ -558,7 +563,7 @@ export function AtlasCanvas({
     setLayers((previous) => {
       const current = previous.find((layer) => !layer.leaving);
       if ((current?.key ?? null) === (live?.key ?? null)) return previous;
-      const order = railRows?.map((row) => row.session.id) ?? [];
+      const order = sessionOrder ?? [];
       const from = current ? order.indexOf(current.sessionId) : -1;
       const to = live ? order.indexOf(live.sessionId) : -1;
       // 아래 세션으로 가면 새 갤러리가 아래에서 올라오고 지금 갤러리는 위로 밀려난다. 위로 가면 반대.
@@ -601,9 +606,10 @@ export function AtlasCanvas({
           points={live.track.points}
           selectedPointId={selectedPointId}
           onSelectPoint={(pointId) => onSelectPoint(pointId, live.track.sessionId)}
-          rows={railRows ?? null}
+          group={railGroup ?? null}
           currentSessionId={live.sessionId}
           onSelectSession={(sessionId) => onSelectSession?.(sessionId)}
+          onStepGroup={(direction) => onStepGroup?.(direction)}
           positionRef={railPositionRef}
         />
       )}
@@ -931,7 +937,7 @@ export function AtlasCanvas({
         >
           <span>
             {live
-              ? '카드를 끌어 넘겨 보세요 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'
+              ? '카드를 끌어 넘겨 보세요 · ←→ 페이지 · ↑↓ 그룹 안 세션 · Shift+↑↓ 그룹 이동'
               : isFolder
                 ? '궤도나 레이블을 클릭하면 세션이 펼쳐집니다 · ↑↓ 폴더·세션 이동, ←→ 페이지 이동'
                 : '페이지는 방문 순서대로 배치됩니다 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'}

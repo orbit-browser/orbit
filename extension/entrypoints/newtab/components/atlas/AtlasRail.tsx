@@ -5,10 +5,12 @@ import { ringDelta } from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
-/** 막대의 한 줄 — 세션과 그 세션이 속한 그룹(폴더 이름, 없으면 "정리 안 된 세션") */
-export interface RailRow {
-  session: SessionNode;
-  group: string;
+/** 지금 세션의 그룹(폴더, 없으면 "정리 안 된 세션")과 이웃 그룹 이름 */
+export interface RailGroup {
+  name: string;
+  sessions: SessionNode[];
+  prev: string | null;
+  next: string | null;
 }
 
 /** 이웃한 점 사이 간격(px) */
@@ -43,10 +45,12 @@ interface AtlasRailProps {
   points: OrbitPoint[];
   selectedPointId: string | null;
   onSelectPoint: (pointId: string) => void;
-  /** 모든 세션을 네비게이터 순서로 이은 줄. 없으면 지금 세션 한 줄만 그린다. */
-  rows: RailRow[] | null;
+  /** 지금 세션의 그룹. 없으면 지금 세션 한 줄만 그린다. */
+  group: RailGroup | null;
   currentSessionId: string;
   onSelectSession: (sessionId: string) => void;
+  /** 이전·다음 그룹으로(그 그룹의 첫 세션). Shift+↑↓ 와 같다. */
+  onStepGroup: (direction: 1 | -1) => void;
   /** 갤러리가 프레임마다 위치를 넘겨 주는 통로. 막대가 여기에 점 배치 함수를 건다. */
   positionRef: MutableRefObject<(position: number) => void>;
 }
@@ -56,9 +60,8 @@ interface AtlasRailProps {
  *
  * 가운데 줄이 지금 세션이다. 점 하나가 페이지 하나이고, 고른 페이지가 늘 가운데에 온다.
  * 점을 누르거나 막대를 옆으로 끌면 페이지를 옮기고, 갤러리를 끌면 점도 함께 돈다.
- * 위·아래 줄은 네비게이터 순서의 이웃 세션이다 — 그룹 끝에서는 이웃 그룹의 세션이 이어지고,
- * 그 줄에는 그룹 이름이 붙는다. 누르거나 ↑↓ 로 옮겨 가면 줄들이 미끄러져 지금 세션이 다시
- * 가운데 줄에 선다.
+ * 위·아래 줄은 같은 그룹의 다른 세션이다 — 누르거나 ↑↓ 로 옮겨 가면 줄들이 미끄러져 지금
+ * 세션이 다시 가운데 줄에 선다. 그룹 사이 이동은 따로다: 그룹 이름 옆 ⌃⌄ 단추와 Shift+↑↓.
  */
 export function AtlasRail({
   title,
@@ -66,9 +69,10 @@ export function AtlasRail({
   points,
   selectedPointId,
   onSelectPoint,
-  rows: railRows,
+  group,
   currentSessionId,
   onSelectSession,
+  onStepGroup,
   positionRef,
 }: AtlasRailProps) {
   const total = points.length;
@@ -88,11 +92,9 @@ export function AtlasRail({
     };
   }, [total, positionRef, currentSessionId]);
 
-  const rows = railRows ?? [];
-  const currentRow = Math.max(0, rows.findIndex((row) => row.session.id === currentSessionId));
+  const rows = group?.sessions ?? [];
+  const currentRow = Math.max(0, rows.findIndex((session) => session.id === currentSessionId));
   const stacked = rows.length > 0;
-  const currentGroup = rows[currentRow]?.group;
-  const groupSize = rows.filter((row) => row.group === currentGroup).length;
 
   const currentTrack = (
     <div
@@ -140,22 +142,43 @@ export function AtlasRail({
 
   return (
     <div className="atlas-rail" style={{ '--rail-hue': hue } as React.CSSProperties}>
-      {stacked && (
+      {group && (
         <div className="atlas-rail__group">
-          {currentGroup} · 세션 {groupSize}개
+          <span>
+            {group.name} · 세션 {rows.length}개
+          </span>
+          <button
+            type="button"
+            className="atlas-rail__group-step"
+            onClick={() => onStepGroup(-1)}
+            disabled={!group.prev}
+            title={group.prev ? `이전 그룹: ${group.prev} (Shift+↑)` : undefined}
+            aria-label={group.prev ? `이전 그룹으로: ${group.prev}` : '이전 그룹 없음'}
+          >
+            <i className="ph ph-caret-up" />
+          </button>
+          <button
+            type="button"
+            className="atlas-rail__group-step"
+            onClick={() => onStepGroup(1)}
+            disabled={!group.next}
+            title={group.next ? `다음 그룹: ${group.next} (Shift+↓)` : undefined}
+            aria-label={group.next ? `다음 그룹으로: ${group.next}` : '다음 그룹 없음'}
+          >
+            <i className="ph ph-caret-down" />
+          </button>
         </div>
       )}
-      <div className="atlas-rail__window">
+      {/* 그룹이 바뀌면 줄 묶음을 새로 세운다(key) — 다른 그룹의 줄이 미끄러져 지나가지 않게. */}
+      <div className="atlas-rail__window" key={group?.name ?? 'single'}>
         <div
           className="atlas-rail__stack"
           style={{ transform: `translateY(${(1 - (stacked ? currentRow : 0)) * ROW_H}px)` }}
         >
           {stacked ? (
-            rows.map(({ session, group }, index) => {
+            rows.map((session, index) => {
               const distance = Math.abs(index - currentRow);
               const current = index === currentRow;
-              // 다른 그룹의 줄이면 그룹 이름을 붙여 경계를 알린다.
-              const otherGroup = group !== currentGroup;
               return (
                 <div
                   key={session.id}
@@ -173,10 +196,7 @@ export function AtlasRail({
                         },
                       })}
                 >
-                  <span className="atlas-rail__title" title={`${group} · ${session.title}`}>
-                    {otherGroup && <span className="atlas-rail__row-group">{group}</span>}
-                    {session.title}
-                  </span>
+                  <span className="atlas-rail__title" title={session.title}>{session.title}</span>
                   {current ? (
                     currentTrack
                   ) : (

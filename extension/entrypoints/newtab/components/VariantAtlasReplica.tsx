@@ -241,27 +241,47 @@ export function VariantAtlasReplica() {
   );
 
   /**
-   * 모든 세션을 네비게이터 순서대로(폴더별, 그다음 정리 안 된 세션) 한 줄로 이은 것.
-   * 갤러리 위 막대가 이 줄을 쌓아 보여 주고, ↑↓ 는 그룹 끝에서 다음·이전 그룹으로 넘어간다.
+   * 세션 그룹 — 네비게이터 순서대로 폴더(세션이 있는 것만), 그다음 정리 안 된 세션.
+   * 막대는 지금 그룹의 세션만 쌓고, ↑↓ 는 그룹 안에서만, Shift+↑↓ 는 그룹 사이를 오간다
+   * (대표 2026-10-20 "그룹 내부 이동과 아닌 것들의 이동이 분리되었으면").
    */
-  const railRows = useMemo(
+  const sessionGroups = useMemo(
     () => [
-      ...sortedFolders.flatMap((folder) => folder.sessions.map((session) => ({ session, group: folder.name }))),
-      ...sortedUnfiled.map((session) => ({ session, group: '정리 안 된 세션' })),
+      ...sortedFolders
+        .filter((folder) => folder.sessions.length > 0)
+        .map((folder) => ({ id: folder.id, name: folder.name, sessions: folder.sessions })),
+      ...(sortedUnfiled.length > 0 ? [{ id: 'unfiled', name: '정리 안 된 세션', sessions: sortedUnfiled }] : []),
     ],
     [sortedFolders, sortedUnfiled],
   );
-  const onRail = !!activeSession && railRows.some((row) => row.session.id === activeSession.id);
+  const groupIndex = activeSession
+    ? sessionGroups.findIndex((group) => group.sessions.some((session) => session.id === activeSession.id))
+    : -1;
+  const currentGroup = groupIndex >= 0 ? sessionGroups[groupIndex] : null;
+  /** 갤러리가 위아래 어느 쪽으로 미끄러질지 정하는 전체 순서 */
+  const sessionOrder = useMemo(
+    () => sessionGroups.flatMap((group) => group.sessions.map((session) => session.id)),
+    [sessionGroups],
+  );
 
-  /** 위·아래 세션으로 — 그룹 끝이면 이웃 그룹의 첫(또는 마지막) 세션으로 넘어간다. */
+  /** 그룹 안에서 위·아래 세션으로. 끝이면 멈춘다. */
   const stepSession = useCallback(
     (direction: 1 | -1) => {
-      if (!activeSession) return;
-      const index = railRows.findIndex((row) => row.session.id === activeSession.id);
-      const next = railRows[index + direction];
-      if (next) selectSession(next.session.id);
+      if (!currentGroup || !activeSession) return;
+      const index = currentGroup.sessions.findIndex((session) => session.id === activeSession.id);
+      const next = currentGroup.sessions[index + direction];
+      if (next) selectSession(next.id);
     },
-    [activeSession, railRows, selectSession],
+    [currentGroup, activeSession, selectSession],
+  );
+
+  /** 이전·다음 그룹의 첫 세션으로. */
+  const stepGroup = useCallback(
+    (direction: 1 | -1) => {
+      const target = sessionGroups[groupIndex + direction];
+      if (groupIndex >= 0 && target) selectSession(target.sessions[0].id);
+    },
+    [sessionGroups, groupIndex, selectSession],
   );
 
   /*
@@ -288,7 +308,8 @@ export function VariantAtlasReplica() {
         event.preventDefault();
         const direction = event.key === 'ArrowDown' ? 1 : -1;
         // 세션을 보고 있으면 그 묶음 안에서만, 폴더 전체를 보고 있으면 네비게이터 순서대로.
-        if (onRail) stepSession(direction);
+        if (currentGroup && event.shiftKey) stepGroup(direction);
+        else if (currentGroup) stepSession(direction);
         else stepVertically(direction);
         return;
       }
@@ -300,7 +321,7 @@ export function VariantAtlasReplica() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedPageId, patch, stepVertically, onRail, stepSession]);
+  }, [selectedPageId, patch, stepVertically, currentGroup, stepSession, stepGroup]);
 
   return (
     <div
@@ -355,8 +376,19 @@ export function VariantAtlasReplica() {
             onSelectTrack={openTrack}
             onClearSelection={() => patch({ selectedPageId: null, selectedSessionId: null })}
             bottomInset={activeSession ? TRAY_INSET : 40}
-            railRows={onRail ? railRows : null}
+            railGroup={
+              currentGroup
+                ? {
+                    name: currentGroup.name,
+                    sessions: currentGroup.sessions,
+                    prev: sessionGroups[groupIndex - 1]?.name ?? null,
+                    next: sessionGroups[groupIndex + 1]?.name ?? null,
+                  }
+                : null
+            }
+            sessionOrder={sessionOrder}
             onSelectSession={selectSession}
+            onStepGroup={stepGroup}
           />
         )}
 
