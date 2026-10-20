@@ -252,6 +252,20 @@ export function VariantAtlasReplica() {
     [activeSession, selectSession, sessions],
   );
 
+  /** 세션 씬 막대의 위·아래 칸 — ↑↓ 로 갈 줄의 이름(세션 제목 또는 폴더 이름). */
+  const verticalNeighbors = useMemo(() => {
+    const current: NavRow = {
+      folderId: openFolderId,
+      sessionId: focusedFolder ? nav.selectedSessionId : focusedSession?.id ?? null,
+    };
+    const label = (row: NavRow | null) => {
+      if (!row) return null;
+      if (row.sessionId) return sessions.find((session) => session.id === row.sessionId)?.title ?? null;
+      return sortedFolders.find((folder) => folder.id === row.folderId)?.name ?? null;
+    };
+    return { prev: label(stepNavRow(navRows, current, -1)), next: label(stepNavRow(navRows, current, 1)) };
+  }, [navRows, openFolderId, focusedFolder, focusedSession, nav.selectedSessionId, sessions, sortedFolders]);
+
   /*
    * ↑↓ 는 네비게이터 세로 이동, ←→ 는 캔버스가 궤도 안 페이지 이동에 쓴다.
    * 그 밖에 검색 열기와 선택 해제를 여기서 다룬다.
@@ -347,6 +361,8 @@ export function VariantAtlasReplica() {
             onSelectTrack={openTrack}
             onClearSelection={() => patch({ selectedPageId: null, selectedSessionId: null })}
             bottomInset={activeSession ? TRAY_INSET : 40}
+            verticalNeighbors={verticalNeighbors}
+            onStepVertical={stepVertically}
           />
         )}
 

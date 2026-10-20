@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { OrbitScene, OrbitTrack } from './data';
 import { AtlasGallery } from './AtlasGallery';
+import { AtlasRail } from './AtlasRail';
 import { LivingPlanet } from '../planet/LivingPlanet';
 import {
   alignOffset,
@@ -17,6 +18,8 @@ import {
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
 const HINT_STORAGE_KEY = 'orbit.atlas.hint-dismissed';
+/** 세션 씬 위쪽 일자 막대(예전 궤도)가 차지하는 높이. 갤러리는 그 아래에 선다. */
+const RAIL_H = 112;
 /** 궤도 타원의 세로/가로 비 — 위에서 비스듬히 내려다본 느낌 */
 const RATIO = 0.8;
 const PLANET_Y_MIN = 118;
@@ -109,6 +112,9 @@ interface AtlasCanvasProps {
   onClearSelection: () => void;
   bottomInset: number;
   emptyMessage?: string;
+  /** 네비게이터 세로 순서에서 바로 위·아래 줄 이름 — 세션 씬 막대의 위·아래 칸에 쓴다. */
+  verticalNeighbors?: { prev: string | null; next: string | null };
+  onStepVertical?: (direction: 1 | -1) => void;
 }
 
 export function AtlasCanvas({
@@ -120,6 +126,8 @@ export function AtlasCanvas({
   onClearSelection,
   bottomInset,
   emptyMessage,
+  verticalNeighbors,
+  onStepVertical,
 }: AtlasCanvasProps) {
   /*
    * 씬이 통째로 바뀔 때(폴더 → 세션)는 그리는 씬을 한 박자 늦춘다.
@@ -503,18 +511,33 @@ export function AtlasCanvas({
   const totalPoints = tracks.reduce((sum, track) => sum + track.points.length, 0);
 
   /*
-   * 세션 씬은 레퍼런스(원근 갤러리)를 그대로 쓴다 — 페이지 화면 카드가 가로로 흐르고 끌어서
-   * 넘긴다. 폴더 씬(궤도 = 세션)은 아래의 호 그림을 그대로 쓴다.
+   * 세션 하나를 보고 있으면(세션 씬, 또는 폴더 안에서 펼친 세션) 위에 일자 막대, 그 아래에
+   * 레퍼런스(원근 갤러리) 그대로의 페이지 화면 카드를 그린다. 폴더만 보고 있으면 아래의 호
+   * 그림(세션 궤도들)을 그대로 쓴다. 세션이 바뀌면 갤러리를 새로 세운다(key).
    */
+  const galleryTrack = isFolder ? tracks.find((track) => track.id === activeTrackId) : tracks[0];
   const gallery =
-    scene?.kind === 'session' && tracks[0] ? (
-      <AtlasGallery
-        key={scene.id}
-        points={tracks[0].points}
-        selectedPointId={selectedPointId}
-        onSelectPoint={(pointId) => onSelectPoint(pointId, null)}
-        bottomInset={inset}
-      />
+    scene && galleryTrack && galleryTrack.points.length > 0 ? (
+      <>
+        <AtlasRail
+          title={isFolder ? galleryTrack.label : scene.title}
+          hue={galleryTrack.hue}
+          points={galleryTrack.points}
+          selectedPointId={selectedPointId}
+          onSelectPoint={(pointId) => onSelectPoint(pointId, galleryTrack.sessionId)}
+          prevLabel={verticalNeighbors?.prev ?? null}
+          nextLabel={verticalNeighbors?.next ?? null}
+          onStepVertical={(direction) => onStepVertical?.(direction)}
+        />
+        <AtlasGallery
+          key={`${scene.id}-${galleryTrack.id}`}
+          points={galleryTrack.points}
+          selectedPointId={selectedPointId}
+          onSelectPoint={(pointId) => onSelectPoint(pointId, galleryTrack.sessionId)}
+          top={RAIL_H}
+          bottomInset={inset}
+        />
+      </>
     ) : null;
 
   return (
@@ -817,9 +840,11 @@ export function AtlasCanvas({
           }
         >
           <span>
-            {isFolder
-              ? '궤도나 레이블을 클릭하면 세션이 펼쳐집니다 · ↑↓ 폴더·세션 이동, ←→ 페이지 이동'
-              : '카드를 끌어 넘겨 보세요 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'}
+            {gallery
+              ? '카드를 끌어 넘겨 보세요 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'
+              : isFolder
+                ? '궤도나 레이블을 클릭하면 세션이 펼쳐집니다 · ↑↓ 폴더·세션 이동, ←→ 페이지 이동'
+                : '페이지는 방문 순서대로 배치됩니다 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'}
           </span>
           <span
             className="atlas-stage__hint-actions"

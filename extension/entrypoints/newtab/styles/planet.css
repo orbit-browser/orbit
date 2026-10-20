@@ -91,14 +91,85 @@
   }
 }
 
-/* ═══════════════ 홈 시그니처 — 누르면 아틀라스 ═══════════════ */
+/* ═══════════════ 홈 시그니처 — 원래 그래픽과 같은 틀(208px) ═══════════════ */
 .signature-orbit {
   display: flex;
   justify-content: center;
+  padding: 20px 0;
   cursor: pointer;
   transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .signature-orbit:hover {
   transform: scale(1.03);
+}
+
+.signature-orbit__stage {
+  position: relative;
+  width: 208px;
+  height: 208px;
+}
+
+.signature-orbit__rings {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.signature-orbit__planet {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 고리계 기울기 — 원래 그래픽과 같은 각도로 아주 느리게 바뀐다. 두 층이 같은 값으로 돈다. */
+.signature-orbit__tilt {
+  transform-origin: 0 0;
+  animation: so-tilt 26s ease-in-out infinite;
+}
+
+@keyframes so-tilt {
+  0%, 100% { transform: rotate(-16deg) scaleY(1); }
+  50% { transform: rotate(-11deg) scaleY(1.12); }
+}
+
+/* 구의 실선과 같은 살구빛 가는 선. 안쪽이 조금 더 또렷하다. */
+.so-ring {
+  fill: none;
+  stroke: rgb(255, 160, 122);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.so-ring--inner {
+  opacity: 0.55;
+}
+
+.so-ring--outer {
+  opacity: 0.3;
+}
+
+.so-moon {
+  fill: #fff;
+  stroke: rgba(255, 160, 122, 0.7);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 2px rgba(255, 160, 122, 0.55));
+}
+
+/* 뒤로 지나가는 반쪽은 구 그늘에 든 것처럼 옅게 */
+.signature-orbit__rings--back {
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signature-orbit__tilt {
+    animation: none;
+    transform: rotate(-16deg);
+  }
+  .so-moon {
+    display: none;
+  }
 }
