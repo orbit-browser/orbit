@@ -13,3 +13,21 @@ PREVIEW_LABEL="A 기억 데스크" pnpm preview:ui --port 5201
 - 탭 열기·창 만들기는 실제로 열지 않고 아래쪽 안내로 보여 준다.
 - "데이터 처음으로"는 미리보기 저장소를 지우고 다시 시드한다.
 - 파비콘은 미리보기 서버가 합성 데이터의 도메인만 받아 온다. 확장 빌드(`pnpm build`)에는 이 폴더가 들어가지 않는다.
+
+## 주소 옵션 (같은 화면을 다시 열거나 스크린샷을 찍을 때)
+
+- `/preview/?route=atlas&theme=dark&scope=w-capstone&panel=0`
+  - `route=atlas`: 새 탭을 아틀라스로 연다(없으면 홈)
+  - `theme=light|dark|system`, `scope=<팀 id>`(빈 값이면 개인 기록), `panel=0`: 사이드패널 숨김
+  - 팀 id: `w-capstone`(졸업 프로젝트 팀, 내가 owner), `w-travel`(여행 동아리, 내가 member)
+- `/preview/team.html?theme=dark`: 팀 설정과 공유 시트를 사이드패널 폭으로 나란히
+
+헤드리스 크롬 스크린샷(대표의 화면을 건드리지 않는다):
+
+```sh
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --hide-scrollbars \
+  --user-data-dir=/tmp/orbit-preview-shots --window-size=1440,900 --virtual-time-budget=15000 \
+  --screenshot=home-dark.png "http://127.0.0.1:5200/preview/?theme=dark&panel=0"
+```
+
+새 파일을 만들면 미리보기 서버를 다시 띄워야 Tailwind 가 그 파일의 클래스를 만든다.

@@ -3,11 +3,24 @@ const label = document.getElementById('variant')!;
 label.textContent = `· ${import.meta.env.VITE_PREVIEW_LABEL ?? '현재 화면'}`;
 document.title = `Orbit 미리보기 — ${import.meta.env.VITE_PREVIEW_LABEL ?? '현재 화면'}`;
 
+// 주소 옵션: ?route=atlas&theme=dark&scope=w-capstone&panel=0 — 같은 화면을 다시 열거나 스크린샷을 찍을 때.
+const params = new URLSearchParams(location.search);
+const passOn = new URLSearchParams();
+for (const key of ['theme', 'scope']) {
+  const value = params.get(key);
+  if (value !== null) passOn.set(key, value);
+}
+const query = passOn.toString() ? `?${passOn}` : '';
+(document.getElementById('newtab') as HTMLIFrameElement).src = `./newtab.html${query}${params.get('route') === 'atlas' ? '#/orbit-atlas' : ''}`;
+(document.getElementById('sidepanel') as HTMLIFrameElement).src = `./sidepanel.html${query}`;
+if (params.get('panel') === '0') document.body.classList.add('no-panel');
+
 const panelButton = document.getElementById('toggle-panel')!;
 panelButton.addEventListener('click', () => {
   const hidden = document.body.classList.toggle('no-panel');
   panelButton.textContent = hidden ? '사이드패널 보이기' : '사이드패널 숨기기';
 });
+if (document.body.classList.contains('no-panel')) panelButton.textContent = '사이드패널 보이기';
 
 document.getElementById('reset')!.addEventListener('click', () => {
   Object.keys(localStorage).filter((key) => key.startsWith('orbit-preview:')).forEach((key) => localStorage.removeItem(key));

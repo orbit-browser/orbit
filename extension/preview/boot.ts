@@ -19,4 +19,15 @@ local['orbit:auth'] ??= {
   user: { id: me.user_id, email: me.email, name: me.name, picture: me.picture },
 };
 local['orbit:onboarding'] ??= { status: 'complete', step: 0 };
+
+// 주소로 테마와 범위를 고정할 수 있다(스크린샷을 같은 조건으로 찍기 위해). 예: ?theme=dark&scope=w-capstone
+const params = new URLSearchParams(location.search);
+const theme = params.get('theme');
+const scope = params.get('scope');
+if (theme || scope !== null) {
+  const settings = (local['orbit:settings'] ?? {}) as Record<string, unknown>;
+  if (theme === 'light' || theme === 'dark' || theme === 'system') settings.theme = theme;
+  if (scope !== null) settings.activeWorkspaceId = scope || null;
+  local['orbit:settings'] = settings;
+}
 localStorage.setItem('orbit-preview:storage:local', JSON.stringify(local));
