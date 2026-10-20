@@ -185,7 +185,11 @@ export function TechBanner() {
               );
             })}
           </table>
-          <p className="ex-fineprint">● 찾음 ○ 못 찾음 — 기능 없음 · TBD 시험 전 · 제품마다 조건이 달라 속도는 비교하지 않는다.</p>
+          <p className="ex-fineprint">
+            {keepDots(
+              '직접 시험 2026-10-20 · 빈 브라우저 프로필에 공개 웹페이지 26개를 방문한 뒤 같은 질문 8개(기록 있음 6 · 없음 2)를 질문마다 한 번씩 · Comet은 로그인한 에이전트 모드 기준이며 찾은 1건은 답까지 5분 넘게 걸렸다 · Chrome은 한국의 시험 계정에서 Gemini 기록 검색이 제공되지 않아 기본 기록 검색으로 시험 · 제품마다 조건이 달라 속도는 비교하지 않는다.',
+            )}
+          </p>
         </section>
 
         <section className="ex-slots" aria-label="행사와 팀">

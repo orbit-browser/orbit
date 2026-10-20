@@ -64,7 +64,7 @@ describe('비교표 CSV', () => {
     ]);
   });
 
-  it('함께 둔 표본 파일은 대표가 정한 범위 그대로다(6개 제품 · 기능 4개 · 모두 시험 전)', () => {
+  it('함께 둔 비교표는 대표가 정한 범위다(직접 시험은 설치된 제품만, Aside는 문서 기준)', () => {
     const text = readFileSync(new URL('../../preview/exhibition/competitor_matrix.csv', import.meta.url), 'utf8');
     const rows = parseCsv(text);
     expect(Object.keys(rows[0])).toEqual(['product', 'capability', 'value', 'basis', 'source_ids', 'checked_on']);
@@ -72,13 +72,15 @@ describe('비교표 CSV', () => {
     expect(matrix.products).toEqual([
       { name: 'Orbit', documentOnly: false },
       { name: 'Perplexity Comet', documentOnly: false },
-      { name: 'Aside', documentOnly: false },
-      { name: 'Google Chrome (Gemini 기록 검색)', documentOnly: false },
+      { name: 'Google Chrome', documentOnly: false },
+      { name: 'Aside', documentOnly: true },
       { name: 'Dia', documentOnly: true },
       { name: 'Microsoft Edge', documentOnly: true },
     ]);
     expect(matrix.capabilities).toHaveLength(4);
-    const kinds = matrix.products.flatMap((product) => matrix.capabilities.map((capability) => matrix.cell(product.name, capability).kind));
-    expect(new Set(kinds)).toEqual(new Set(['pending']));
+    // 경쟁 제품은 직접 시험을 마쳤고, Orbit 행은 같은 조건의 시험 결과가 올 때까지 비워 둔다.
+    const kinds = (name: string) => matrix.capabilities.map((capability) => matrix.cell(name, capability).kind);
+    expect(new Set(kinds('Orbit'))).toEqual(new Set(['pending']));
+    for (const name of ['Perplexity Comet', 'Google Chrome']) expect(kinds(name)).not.toContain('pending');
   });
 });
