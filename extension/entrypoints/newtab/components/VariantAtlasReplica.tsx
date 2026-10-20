@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '../styles/atlas.css';
 import { AtlasHeader } from './atlas/AtlasHeader';
 import { AtlasNavigator } from './atlas/AtlasNavigator';
@@ -9,8 +9,6 @@ import {
   buildFolderScene,
   buildNavRows,
   buildSessionScene,
-  filterBySharer,
-  sessionSharers,
   sortSessions,
   stepNavRow,
   type NavRow,
@@ -28,19 +26,9 @@ export function VariantAtlasReplica() {
   const { scopeId } = useActiveWorkspace();
   const readOnly = !!scopeId;
   const atlasQuery = useAtlasData(scopeId);
-  const [sharerFilter, setSharerFilter] = useState<string | null>(null);
-  const sharers = useMemo(() => sessionSharers(atlasQuery.data?.sessions ?? []), [atlasQuery.data]);
-  // 고른 사람이 더는 목록에 없으면(범위를 바꿨거나 공유가 풀림) 필터를 풀어 빈 화면을 막는다.
-  const activeSharer = sharers.some((sharer) => sharer.userId === sharerFilter) ? sharerFilter : null;
-  const sessions = useMemo(
-    () => filterBySharer(atlasQuery.data?.sessions ?? [], activeSharer),
-    [atlasQuery.data, activeSharer],
-  );
+  const sessions = useMemo(() => atlasQuery.data?.sessions ?? [], [atlasQuery.data]);
   const folders = atlasQuery.data?.folders ?? [];
-  const unfiled = useMemo(
-    () => filterBySharer(atlasQuery.data?.unfiled ?? [], activeSharer),
-    [atlasQuery.data, activeSharer],
-  );
+  const unfiled = useMemo(() => atlasQuery.data?.unfiled ?? [], [atlasQuery.data]);
   const { nav, patch, toggleIn, expandIn } = useSharedNavState();
   const searchRef = useRef<HTMLInputElement>(null);
   const initializedRef = useRef(false);
@@ -323,14 +311,7 @@ export function VariantAtlasReplica() {
       className={cx('atlas-page', !nav.open && 'atlas-page--nav-closed')}
       style={{ '--atlas-nav-w': `${nav.open ? nav.width : 0}px` } as React.CSSProperties}
     >
-      <AtlasHeader
-        navOpen={nav.open}
-        onToggleNav={toggleNav}
-        inTeam={readOnly}
-        sharers={sharers}
-        sharerFilter={activeSharer}
-        onSharerFilterChange={setSharerFilter}
-      />
+      <AtlasHeader navOpen={nav.open} onToggleNav={toggleNav} />
 
       <AtlasNavigator
         folders={sortedFolders}

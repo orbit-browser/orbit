@@ -70,15 +70,16 @@ export function AtlasRail({
   const dotRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const dragRef = useRef<{ pointerId: number; startX: number; startIndex: number; moved: boolean } | null>(null);
 
+  // 세션이 바뀌면 가운데 줄의 점이 새 요소라 다시 건다. 고른 페이지가 바뀔 때는 다시 놓지 않는다 —
+  // 그 뒤로는 갤러리가 프레임마다 위치를 넘겨 준다.
   useLayoutEffect(() => {
-    const dots = dotRefs.current.slice(0, total);
-    placeDots(dots, selectedIndex);
-    positionRef.current = (position) => placeDots(dots, position);
+    const dots = () => dotRefs.current.slice(0, total);
+    placeDots(dots(), selectedIndex);
+    positionRef.current = (position) => placeDots(dots(), position);
     return () => {
       positionRef.current = () => {};
     };
-    // 고른 페이지가 바뀌어도 다시 놓지 않는다 — 그 뒤로는 갤러리가 프레임마다 위치를 넘겨 준다.
-  }, [total, positionRef]);
+  }, [total, positionRef, currentSessionId]);
 
   const rows = group?.sessions ?? [];
   const currentRow = Math.max(0, rows.findIndex((session) => session.id === currentSessionId));

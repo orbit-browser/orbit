@@ -19,16 +19,13 @@ const FRICTION = 0.95;
 /** 이만큼 넘게 움직였으면 누르기가 아니라 끌기다 */
 const DRAG_SLOP = 5;
 
+
 interface AtlasGalleryProps {
   points: OrbitPoint[];
   selectedPointId: string | null;
   onSelectPoint: (pointId: string) => void;
   /** 프레임마다 지금 위치(가운데 카드의 연속 인덱스)를 알린다 — 위 막대의 점이 따라 돈다. */
   onFrame?: (position: number) => void;
-  /** 위 막대가 차지하는 높이. */
-  top: number;
-  /** 아래 트레이가 차지하는 높이. 갤러리는 그 사이 영역의 가운데에 선다. */
-  bottomInset: number;
 }
 
 export function AtlasGallery({
@@ -36,8 +33,6 @@ export function AtlasGallery({
   selectedPointId,
   onSelectPoint,
   onFrame,
-  top,
-  bottomInset,
 }: AtlasGalleryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -55,6 +50,7 @@ export function AtlasGallery({
   latest.current = { cards, onSelectPoint, onFrame };
   /** 멈춰 있던 프레임 루프를 다시 돌린다. 움직일 일이 생길 때마다 부른다. */
   const wakeRef = useRef(() => {});
+
 
   /*
    * 프레임마다 카드 위치를 원본과 같은 식으로 다시 놓는다. 상태 대신 DOM 을 직접 고친다(원본과 같다).
@@ -171,7 +167,7 @@ export function AtlasGallery({
   }, [selectedPointId, loop]);
 
   return (
-    <div className="atlas-gallery" ref={viewportRef} style={{ top, bottom: bottomInset }}>
+    <div className="atlas-gallery" ref={viewportRef}>
       <div className="atlas-gallery__strip">
         {cards.map((point, index) => {
           const shot = pageShot(point.url);

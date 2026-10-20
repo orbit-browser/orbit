@@ -296,10 +296,14 @@ body {
   flex-shrink: 0;
 }
 
-/* 지금 있는 워크스페이스 이름 — 노션 왼쪽 위 이름처럼 어디에 있는지 알린다 */
+/* 지금 있는 워크스페이스(아이콘 + 이름) — 노션 왼쪽 위 이름처럼 어디에 있는지 알린다 */
+.user-menu__trigger:has(.user-menu__workspace) {
+  gap: 7px;
+  padding: 4px 8px 4px 5px;
+}
+
 .user-menu__workspace {
   max-width: 180px;
-  margin: 0 8px 0 9px;
   overflow: hidden;
   color: var(--text-main);
   font-size: 13px;
@@ -308,10 +312,18 @@ body {
   white-space: nowrap;
 }
 
-.user-menu__space--active {
-  background: var(--wash-1);
+.user-menu__label {
+  padding: 6px 12px 4px;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
+/* 지금 워크스페이스는 체크와 굵은 이름으로만 — 배경까지 칠하면 표시가 겹친다 */
+.user-menu__space--active .user-menu__space-name {
+  font-weight: 600;
+}
+
+/* 팀 — 팀 색의 옅은 네모와 짙은 첫 글자 */
 .user-menu__space-icon {
   display: grid;
   flex-shrink: 0;
@@ -319,10 +331,26 @@ body {
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  background: var(--space-hue, var(--accent-orange));
-  color: #fff;
+  background: color-mix(in oklab, var(--space-hue) 16%, var(--bg-canvas));
+  color: color-mix(in oklab, var(--space-hue) 80%, #000);
   font-size: 11px;
   font-weight: 700;
+}
+
+/* 내 Orbit — 내 아바타(동그라미)를 같은 크기로 */
+.user-menu__space-me {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+}
+
+.user-menu__space-me .user-menu__avatar,
+.user-menu__space-me .user-menu__photo {
+  width: 22px;
+  height: 22px;
+  font-size: 9px;
 }
 
 .user-menu__space-name {
@@ -336,6 +364,7 @@ body {
 .user-menu__item svg.user-menu__check {
   color: var(--accent-orange);
 }
+
 
 /* ═══════════════ 설정 작업 공간 (프로필 메뉴 → 설정) ═══════════════ */
 /*

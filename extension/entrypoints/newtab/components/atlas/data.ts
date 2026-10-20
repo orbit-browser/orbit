@@ -475,24 +475,6 @@ export function buildFolderNodes(
   return { folders: ordered, unfiled };
 }
 
-// ── 팀 화면: 공유한 사람 ──────────────────────────────────────────────
-
-/** 팀 화면에서 세션을 공유한 사람들 — 처음 나온 순서로 한 번씩. 개인 화면이면 빈 배열. */
-export function sessionSharers(sessions: SessionNode[]): MemberBrief[] {
-  const seen = new Map<string, MemberBrief>();
-  sessions.forEach((session) => {
-    if (session.sharedBy && !seen.has(session.sharedBy.userId)) {
-      seen.set(session.sharedBy.userId, session.sharedBy);
-    }
-  });
-  return [...seen.values()];
-}
-
-/** userId 가 공유한 세션만. null 이면 그대로 돌려준다. */
-export function filterBySharer(sessions: SessionNode[], userId: string | null): SessionNode[] {
-  return userId ? sessions.filter((session) => session.sharedBy?.userId === userId) : sessions;
-}
-
 // ── 네비게이터 정렬 ───────────────────────────────────────────────────
 
 export type SessionSort = 'recent' | 'title';

@@ -1391,7 +1391,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
 }
 
 .atlas-rail__stack {
-  transition: transform 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .atlas-rail__row {
@@ -1399,7 +1399,7 @@ body.atlas-resizing .atlas-nav__resizer::after {
   align-items: center;
   gap: 14px;
   height: 30px;
-  transition: opacity 0.38s ease;
+  transition: opacity 0.55s ease;
 }
 
 .atlas-rail__row[role='button'] {
@@ -1471,11 +1471,68 @@ body.atlas-resizing .atlas-nav__resizer::after {
 }
 
 /* ── 세션 씬 — 레퍼런스(Lumière Archive)의 원근 갤러리 그대로. 사진 대신 페이지 화면 ── */
-.atlas-gallery {
+/*
+ * 세션을 옮길 때 갤러리 층이 위아래로 미끄러진다 — 아래 세션이면 지금 층은 위로 밀려 나가고
+ * 새 층이 아래에서 올라온다. 막대 줄(.atlas-rail__stack)과 같은 시간·곡선이다.
+ */
+.atlas-gallery-band {
   position: absolute;
-  top: 0;
   right: 0;
   left: 0;
+  overflow: hidden;
+}
+
+.atlas-gallery-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.atlas-gallery-layer--appear,
+.atlas-gallery-layer--from-below {
+  animation: gallery-from-below 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.atlas-gallery-layer--from-above {
+  animation: gallery-from-above 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.atlas-gallery-layer--to-above {
+  animation: gallery-to-above 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  pointer-events: none;
+}
+
+.atlas-gallery-layer--to-below {
+  animation: gallery-to-below 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes gallery-from-below {
+  from { opacity: 0; transform: translateY(70%); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes gallery-from-above {
+  from { opacity: 0; transform: translateY(-70%); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes gallery-to-above {
+  to { opacity: 0; transform: translateY(-70%); }
+}
+
+@keyframes gallery-to-below {
+  to { opacity: 0; transform: translateY(70%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atlas-gallery-layer {
+    animation-duration: 1ms !important;
+  }
+}
+
+.atlas-gallery {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2882,26 +2939,6 @@ body.atlas-resizing .atlas-nav__resizer::after {
 }
 
 /* ── 팀 범위 (팀 워크스페이스 1단계) ─────────────────────────────── */
-
-.atlas-header__scope {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  min-width: 0;
-}
-
-.atlas-header__select {
-  max-width: 180px;
-  padding: 5px 8px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
 
 .atlas-row__avatar {
   width: 14px;
