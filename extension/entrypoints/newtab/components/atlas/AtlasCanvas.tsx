@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
-import type { OrbitScene, OrbitTrack } from './data';
+import type { OrbitScene, OrbitTrack, SessionNode } from './data';
 import { AtlasGallery } from './AtlasGallery';
 import { AtlasRail } from './AtlasRail';
-import { LivingPlanet } from '../planet/LivingPlanet';
 import {
   alignOffset,
   formatMinutes,
@@ -19,7 +18,7 @@ const cx = (...classes: (string | false | undefined | null)[]) => classes.filter
 
 const HINT_STORAGE_KEY = 'orbit.atlas.hint-dismissed';
 /** 세션 씬 위쪽 일자 막대(예전 궤도)가 차지하는 높이. 갤러리는 그 아래에 선다. */
-const RAIL_H = 112;
+const RAIL_H = 128;
 /** 궤도 타원의 세로/가로 비 — 위에서 비스듬히 내려다본 느낌 */
 const RATIO = 0.8;
 const PLANET_Y_MIN = 118;
@@ -112,9 +111,9 @@ interface AtlasCanvasProps {
   onClearSelection: () => void;
   bottomInset: number;
   emptyMessage?: string;
-  /** 네비게이터 세로 순서에서 바로 위·아래 줄 이름 — 세션 씬 막대의 위·아래 칸에 쓴다. */
-  verticalNeighbors?: { prev: string | null; next: string | null };
-  onStepVertical?: (direction: 1 | -1) => void;
+  /** 지금 세션이 속한 묶음(폴더 또는 정리 안 된 세션들) — 막대가 이 세션들을 줄로 쌓는다. */
+  group?: { name: string; sessions: SessionNode[] } | null;
+  onSelectSession?: (sessionId: string) => void;
 }
 
 export function AtlasCanvas({
@@ -126,8 +125,8 @@ export function AtlasCanvas({
   onClearSelection,
   bottomInset,
   emptyMessage,
-  verticalNeighbors,
-  onStepVertical,
+  group,
+  onSelectSession,
 }: AtlasCanvasProps) {
   /*
    * 씬이 통째로 바뀔 때(폴더 → 세션)는 그리는 씬을 한 박자 늦춘다.
@@ -200,6 +199,8 @@ export function AtlasCanvas({
   const insetRef = useRef<Motion>({ value: bottomInset, target: bottomInset });
   const frameRef = useRef<number | null>(null);
   const [, drawFrame] = useReducer((tick: number) => tick + 1, 0);
+  /** 갤러리가 프레임마다 알려 주는 연속 위치를 막대의 점에 그대로 옮기는 통로 */
+  const railPositionRef = useRef<(position: number) => void>(() => {});
 
   const runSpin = useCallback(() => {
     if (frameRef.current !== null) return;
@@ -525,15 +526,17 @@ export function AtlasCanvas({
           points={galleryTrack.points}
           selectedPointId={selectedPointId}
           onSelectPoint={(pointId) => onSelectPoint(pointId, galleryTrack.sessionId)}
-          prevLabel={verticalNeighbors?.prev ?? null}
-          nextLabel={verticalNeighbors?.next ?? null}
-          onStepVertical={(direction) => onStepVertical?.(direction)}
+          group={group ?? null}
+          currentSessionId={galleryTrack.sessionId ?? scene.id}
+          onSelectSession={(sessionId) => onSelectSession?.(sessionId)}
+          positionRef={railPositionRef}
         />
         <AtlasGallery
           key={`${scene.id}-${galleryTrack.id}`}
           points={galleryTrack.points}
           selectedPointId={selectedPointId}
           onSelectPoint={(pointId) => onSelectPoint(pointId, galleryTrack.sessionId)}
+          onFrame={(position) => railPositionRef.current(position)}
           top={RAIL_H}
           bottomInset={inset}
         />
@@ -570,6 +573,10 @@ export function AtlasCanvas({
                 >
                   <rect x={-centerX} y={-40} width={centerX * 2} height={size.h} fill="url(#atlas-arc-fade)" />
                 </mask>
+                <radialGradient id="atlas-node-glow" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor={hue} stopOpacity="0.14" />
+                  <stop offset="100%" stopColor={hue} stopOpacity="0" />
+                </radialGradient>
               </defs>
 
               {/* 클릭 히트 영역 (마스크 밖에 둬서 페이드와 무관하게 잡히도록) */}
@@ -625,20 +632,16 @@ export function AtlasCanvas({
                 const point = pointOnArc(layout.rx, layout.ry, placement.angle);
                 return <line className="atlas-arc__link" x1={0} y1={0} x2={point.x} y2={point.y} />;
               })()}
+
+              <g className="atlas-node" onClick={onClearSelection}>
+                <title>{scene.title} — 전체 보기</title>
+                <circle r={PLANET_R * 3.6} fill="url(#atlas-node-glow)" pointerEvents="none" />
+                <circle className="atlas-node__halo" r={PLANET_R * 1.85} />
+                <circle className="atlas-node__core" r={PLANET_R} />
+                <circle className="atlas-node__rim" r={PLANET_R} vectorEffect="non-scaling-stroke" />
+              </g>
             </g>
           </svg>
-
-          {/* 중심 행성 — 홈과 같은 구(레퍼런스 그대로) */}
-          <button
-            type="button"
-            className="atlas-node"
-            style={{ left: centerX, top: planetY }}
-            onClick={onClearSelection}
-            title={`${scene.title} — 전체 보기`}
-            aria-label={`${scene.title} — 전체 보기`}
-          >
-            <LivingPlanet size={PLANET_R * 2.6} />
-          </button>
 
           <div className="atlas-planet-label" style={{ left: centerX, top: planetY + PLANET_R + 20 }}>
             <div className="atlas-planet-label__title">{scene.title}</div>

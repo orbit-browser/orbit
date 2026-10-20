@@ -23,13 +23,22 @@ interface AtlasGalleryProps {
   points: OrbitPoint[];
   selectedPointId: string | null;
   onSelectPoint: (pointId: string) => void;
+  /** 프레임마다 지금 위치(가운데 카드의 연속 인덱스)를 알린다 — 위 막대의 점이 따라 돈다. */
+  onFrame?: (position: number) => void;
   /** 위 막대가 차지하는 높이. */
   top: number;
   /** 아래 트레이가 차지하는 높이. 갤러리는 그 사이 영역의 가운데에 선다. */
   bottomInset: number;
 }
 
-export function AtlasGallery({ points, selectedPointId, onSelectPoint, top, bottomInset }: AtlasGalleryProps) {
+export function AtlasGallery({
+  points,
+  selectedPointId,
+  onSelectPoint,
+  onFrame,
+  top,
+  bottomInset,
+}: AtlasGalleryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const motion = useRef({ current: 0, target: 0, velocity: 0, dragging: false, lastX: 0, moved: 0 });
@@ -42,8 +51,8 @@ export function AtlasGallery({ points, selectedPointId, onSelectPoint, top, bott
   const cards = Array.from({ length: points.length * copies }, (_, index) => points[index % points.length]);
   const loop = cards.length * SPACING;
   // 창 전체에 건 놓기 핸들러가 최신 카드·콜백을 보도록
-  const latest = useRef({ cards, onSelectPoint });
-  latest.current = { cards, onSelectPoint };
+  const latest = useRef({ cards, onSelectPoint, onFrame });
+  latest.current = { cards, onSelectPoint, onFrame };
   /** 멈춰 있던 프레임 루프를 다시 돌린다. 움직일 일이 생길 때마다 부른다. */
   const wakeRef = useRef(() => {});
 
@@ -79,6 +88,7 @@ export function AtlasGallery({ points, selectedPointId, onSelectPoint, top, bott
         card.style.transform = `translateX(${offset}px) translateZ(${-(progress ** 2) * 500}px) rotateY(${progress * 45}deg)`;
         card.style.opacity = String(1 - Math.abs(progress) ** 3);
       });
+      latest.current.onFrame?.(state.current / SPACING);
       frame = settled ? 0 : requestAnimationFrame(step);
     };
     wakeRef.current = () => {

@@ -252,19 +252,33 @@ export function VariantAtlasReplica() {
     [activeSession, selectSession, sessions],
   );
 
-  /** 세션 씬 막대의 위·아래 칸 — ↑↓ 로 갈 줄의 이름(세션 제목 또는 폴더 이름). */
-  const verticalNeighbors = useMemo(() => {
-    const current: NavRow = {
-      folderId: openFolderId,
-      sessionId: focusedFolder ? nav.selectedSessionId : focusedSession?.id ?? null,
-    };
-    const label = (row: NavRow | null) => {
-      if (!row) return null;
-      if (row.sessionId) return sessions.find((session) => session.id === row.sessionId)?.title ?? null;
-      return sortedFolders.find((folder) => folder.id === row.folderId)?.name ?? null;
-    };
-    return { prev: label(stepNavRow(navRows, current, -1)), next: label(stepNavRow(navRows, current, 1)) };
-  }, [navRows, openFolderId, focusedFolder, focusedSession, nav.selectedSessionId, sessions, sortedFolders]);
+  /**
+   * 지금 보고 있는 세션이 속한 묶음 — 그 세션의 폴더, 폴더가 없으면 정리 안 된 세션들.
+   * 갤러리 위 막대가 이 세션들을 줄로 쌓고, ↑↓ 는 이 안에서만 오간다.
+   */
+  const group = useMemo(() => {
+    if (!activeSession) return null;
+    const folder = activeSession.folderId
+      ? sortedFolders.find((candidate) => candidate.id === activeSession.folderId)
+      : undefined;
+    const members = folder ? folder.sessions : sortedUnfiled;
+    // 필터(공유한 사람)로 지금 세션이 목록에서 빠졌으면 묶음을 그리지 않는다.
+    if (!members.some((session) => session.id === activeSession.id)) return null;
+    return { name: folder?.name ?? '정리 안 된 세션', sessions: members };
+  }, [activeSession, sortedFolders, sortedUnfiled]);
+
+  /** 묶음 안에서 위·아래 세션으로. 폴더 화면이면 그 폴더 안에서 펼친 궤도를 바꾼다. */
+  const stepInGroup = useCallback(
+    (direction: 1 | -1) => {
+      if (!group || !activeSession) return;
+      const index = group.sessions.findIndex((session) => session.id === activeSession.id);
+      const next = group.sessions[index + direction];
+      if (!next) return;
+      if (focusedFolder) patch({ selectedSessionId: next.id, selectedPageId: null });
+      else selectSession(next.id);
+    },
+    [group, activeSession, focusedFolder, patch, selectSession],
+  );
 
   /*
    * ↑↓ 는 네비게이터 세로 이동, ←→ 는 캔버스가 궤도 안 페이지 이동에 쓴다.
@@ -288,7 +302,10 @@ export function VariantAtlasReplica() {
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
         if (event.metaKey || event.ctrlKey || event.altKey) return;
         event.preventDefault();
-        stepVertically(event.key === 'ArrowDown' ? 1 : -1);
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        // 세션을 보고 있으면 그 묶음 안에서만, 폴더 전체를 보고 있으면 네비게이터 순서대로.
+        if (group) stepInGroup(direction);
+        else stepVertically(direction);
         return;
       }
 
@@ -299,7 +316,7 @@ export function VariantAtlasReplica() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedPageId, patch, stepVertically]);
+  }, [selectedPageId, patch, stepVertically, group, stepInGroup]);
 
   return (
     <div
@@ -361,8 +378,11 @@ export function VariantAtlasReplica() {
             onSelectTrack={openTrack}
             onClearSelection={() => patch({ selectedPageId: null, selectedSessionId: null })}
             bottomInset={activeSession ? TRAY_INSET : 40}
-            verticalNeighbors={verticalNeighbors}
-            onStepVertical={stepVertically}
+            group={group}
+            onSelectSession={(sessionId) => {
+              if (focusedFolder) patch({ selectedSessionId: sessionId, selectedPageId: null });
+              else selectSession(sessionId);
+            }}
           />
         )}
 

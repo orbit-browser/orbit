@@ -2188,7 +2188,131 @@ body {
   box-shadow: 0 0 0 1px rgba(240, 117, 80, 0.08);
 }
 
-/* 시그니처 행성은 styles/planet.css (LivingPlanet 이 불러온다) */
+/* ═══════════════ 시그니처 오빗 그래픽 (토성 고리) ═══════════════ */
+
+.signature-orbit {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+  cursor: pointer;
+  transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.signature-orbit:hover {
+  transform: scale(1.03);
+}
+
+.signature-orbit svg {
+  overflow: visible;
+  filter: drop-shadow(0 10px 26px var(--wash-2));
+  transition: filter 0.55s ease;
+}
+
+.signature-orbit:hover svg {
+  filter: drop-shadow(0 16px 36px rgba(240, 117, 80, 0.1));
+}
+
+/* 고리계 전체 기울기 — 아주 느리게 각도가 변해 입체감이 생긴다 */
+.saturn {
+  transform-origin: 120px 120px;
+  animation: saturn-tilt 26s ease-in-out infinite;
+}
+
+@keyframes saturn-tilt {
+  0%, 100% { transform: rotate(-16deg) scaleY(1); }
+  50%      { transform: rotate(-11deg) scaleY(1.12); }
+}
+
+/* 고리 — 실선 두 겹으로 형태를 잡고, 가운데 입자대만 천천히 흐른다 */
+.ring {
+  fill: none;
+  stroke: var(--accent-orange);
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.ring--inner {
+  stroke-width: 1;
+  opacity: 0.28;
+}
+
+.ring--outer {
+  stroke-width: 1.1;
+  opacity: 0.4;
+}
+
+/* 입자대만 대시를 흘려 회전을 표현한다 */
+.ring--dust {
+  stroke: url(#ringSheen);
+  stroke-width: 2.4;
+  stroke-dasharray: 2 16;
+  opacity: 0.85;
+  animation: ring-flow 22s linear infinite;
+}
+
+@keyframes ring-flow {
+  to { stroke-dashoffset: -216; }
+}
+
+/*
+ * offset-path: ellipse() 는 12시에서 시작해 시계방향으로 돈다.
+ * 시계방향이면 화면 아래쪽(앞)은 오른→왼쪽, 위쪽(뒤)은 왼→오른쪽으로 흘러야
+ * 위성과 고리가 같은 방향으로 도는 것으로 읽힌다.
+ */
+.saturn__band--front .ring--dust {
+  animation-direction: reverse;
+}
+
+/* 뒤쪽 반원은 행성 그림자에 들어간 것처럼 옅게 */
+.saturn__band--back .ring {
+  opacity: 0.16;
+}
+
+.saturn__band--back .ring--dust {
+  opacity: 0.34;
+}
+
+/* 배경색 케이싱 — 샌드 배경 위에선 보이지 않고 행성 위에서만 분리선으로 보인다 */
+.ring--casing {
+  stroke: var(--bg-sand) !important;
+  opacity: 1 !important;
+}
+
+.ring--casing.ring--inner { stroke-width: 2.6; }
+.ring--casing.ring--outer { stroke-width: 2.8; }
+.ring--casing.ring--dust  { stroke-width: 4.2; }
+
+.saturn__planet circle:first-child {
+  transition: r 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glow-backdrop {
+  opacity: 0.14;
+  transform-origin: 120px 120px;
+  animation: glow-breathe 6s ease-in-out infinite;
+}
+
+@keyframes glow-breathe {
+  0%, 100% { transform: scale(1);    opacity: 0.14; }
+  50%      { transform: scale(1.14); opacity: 0.22; }
+}
+
+.signature-orbit:hover .ring--dust {
+  opacity: 1;
+}
+
+.signature-orbit:hover .saturn__band--back .ring--dust {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .saturn,
+  .ring,
+  .glow-backdrop {
+    animation: none;
+  }
+  .saturn { transform: rotate(-16deg); }
+}
 
 /* ═══════════════ 탐색 카드 (이어서 탐색 · 추천 세션 공용) ═══════════════ */
 
