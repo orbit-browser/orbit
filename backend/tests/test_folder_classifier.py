@@ -40,6 +40,22 @@ def test_decide_auto_only_when_confident():
     assert fc.decide(None) is None
 
 
+def test_undecided_requires_fresh_summary_and_embedding():
+    from sqlalchemy import select
+
+    from app.db.models import Session as SessionModel
+
+    sql = str(select(SessionModel.id).where(*fc._undecided("u1")).compile(compile_kwargs={"literal_binds": True}))
+    for condition in (
+        "sessions.summary_status = 'done'",
+        "sessions.embedding_status = 'done'",
+        "sessions.folder_id IS NULL",
+        "sessions.folder_assigned_by IS NULL",
+        "sessions.status != 'merged'",
+    ):
+        assert condition in sql
+
+
 class _FakeDB:
     def __init__(self, sessions=None):
         self.sessions = {session.id: session for session in sessions or []}

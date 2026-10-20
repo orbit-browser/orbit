@@ -89,9 +89,11 @@ async def _evidence(db: AsyncSession, user_id: str) -> dict[str, str]:
 
 
 def _undecided(user_id: str):
+    # 재요약이 실패하면 embedding_status는 done으로 남지만 벡터는 이벤트가 붙기 전 것이다 — 요약까지 성공한 세션만 본다.
     return (
         SessionModel.user_id == user_id,
         SessionModel.status != "merged",
+        SessionModel.summary_status == "done",
         SessionModel.embedding_status == "done",
         SessionModel.folder_id.is_(None),
         SessionModel.folder_assigned_by.is_(None),
