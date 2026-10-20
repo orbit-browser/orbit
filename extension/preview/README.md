@@ -30,4 +30,10 @@ PREVIEW_LABEL="A 기억 데스크" pnpm preview:ui --port 5201
   --screenshot=home-dark.png "http://127.0.0.1:5200/preview/?theme=dark&panel=0"
 ```
 
+Windows 에서는 크롬 경로만 다르다: `"C:\Program Files\Google\Chrome\Application\chrome.exe"`, 프로필 폴더는 `--user-data-dir=%TEMP%\orbit-preview-shots`.
+
 새 파일을 만들면 미리보기 서버를 다시 띄워야 Tailwind 가 그 파일의 클래스를 만든다.
+
+## 디자인 방향 시안
+
+`/preview/mockups/` — 같은 합성 데이터로 홈·아틀라스·팀 범위를 조작해 보는 방향 시안 ①기록 보관소 ②탐색 표본 ③관측 장비. 시안의 글꼴은 Google Fonts 에서 불러온다(미리보기 전용. 확장에 들일 때는 로컬 번들로 넣는다).
