@@ -166,6 +166,36 @@ describe('Ask AI request', () => {
     conversation!.startNewConversation();
   });
 
+  it('검증 경고를 기다리다 연결이 끊겨도 끝난 답변은 그대로 두고 대화 맥락에 남긴다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/assistant/route')) {
+        return new Response(JSON.stringify({ intent: 'search_memory', reason: 'rule' }), { status: 200 });
+      }
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(
+            'event: delta\ndata: {"text":"막차는 21:31입니다 [1]"}\n\nevent: done\ndata: {"model":"A.X-K2"}\n\n',
+          ));
+          setTimeout(() => controller.error(new TypeError('network error')), 0);
+        },
+      }), { status: 200 });
+    }));
+
+    let conversation: ReturnType<typeof useAskConversation> | undefined;
+    function Probe() {
+      conversation = useAskConversation();
+      return null;
+    }
+    renderToString(createElement(Probe));
+    conversation!.startNewConversation();
+    await conversation!.ask('청량리 출발 막차 몇 시였지?');
+
+    const turns = getAskConversationSnapshot().turns;
+    expect(turns.map((turn) => [turn.status, turn.error])).toEqual([['done', null]]);
+    expect(buildAskHistory(turns)).toHaveLength(1);
+    conversation!.startNewConversation();
+  });
+
   it('검증 경고를 기다리던 턴은 다음 질문이 와도 취소로 바뀌지 않는다', async () => {
     const encoder = new TextEncoder();
     let streamCount = 0;

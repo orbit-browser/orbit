@@ -340,7 +340,8 @@ export function useAskConversation({
         }));
       }
     } catch (error) {
-      if (!controller.signal.aborted) {
+      // done 뒤(검증 경고 대기 중)에 연결이 끊기면 경고만 잃는다. 끝난 답변을 오류로 바꾸지 않는다.
+      if (!controller.signal.aborted && !terminalEvent) {
         updateTurn(id, (turn) => ({
           ...turn,
           status: 'error',
