@@ -11,6 +11,7 @@ import {
   Shield,
   SlidersHorizontal,
   Sparkles,
+  Users,
   X,
 } from 'lucide-react';
 import { checkHealth, fetchServerSettings, updateServerSettings } from '../../../../lib/api';
@@ -20,6 +21,7 @@ import { SETTINGS_PAGES } from './SettingsPages';
 import { filterSettingsNav, type SettingsNavItem, type SettingsPageId } from './settings-nav';
 
 const NAV_ICONS: Record<SettingsNavItem['icon'], typeof SlidersHorizontal> = {
+  users: Users,
   sliders: SlidersHorizontal,
   download: Download,
   layers: Layers,
@@ -38,8 +40,17 @@ const NAV_ICONS: Record<SettingsNavItem['icon'], typeof SlidersHorizontal> = {
  *
  * body 로 포털한다 — 프로필 메뉴 안에 두면 그 컨테이너의 위치·겹침 규칙에 갇힌다.
  */
-export function SettingsPanel({ onClose }: { onClose: () => void }) {
-  const [page, setPage] = useState<SettingsPageId>('general');
+export function SettingsPanel({
+  onClose,
+  initialPage = 'general',
+  workspaceId,
+}: {
+  onClose: () => void;
+  initialPage?: SettingsPageId;
+  /** 워크스페이스 페이지로 열 때 보여 줄 워크스페이스(프로필 메뉴의 오른쪽 클릭에서) */
+  workspaceId?: string | null;
+}) {
+  const [page, setPage] = useState<SettingsPageId>(initialPage);
   const [query, setQuery] = useState('');
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -158,6 +169,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                   void signOut();
                 }}
                 onNavigate={setPage}
+                workspaceId={workspaceId}
               />
             </div>
           </div>

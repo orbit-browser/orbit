@@ -20,6 +20,8 @@ export interface OrbitSettings {
    * 사이드패널·새 탭 아틀라스·Ask 가 같은 범위를 보도록 여기 둔다.
    */
   activeWorkspaceId: string | null;
+  /** 개인 워크스페이스 이름. 비우면 "내 Orbit" 으로 보인다(서버에 두지 않는 내 화면 이름). */
+  personalWorkspaceName: string | null;
 }
 
 export const DEFAULT_SETTINGS: OrbitSettings = {
@@ -33,6 +35,7 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
   countThreshold: 20,
   rerankEnabled: false,
   activeWorkspaceId: null,
+  personalWorkspaceName: null,
 };
 
 const STORAGE_KEY = 'orbit:settings';

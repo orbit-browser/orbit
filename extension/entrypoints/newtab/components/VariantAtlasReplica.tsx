@@ -387,6 +387,11 @@ export function VariantAtlasReplica() {
             onSelectTrack={openTrack}
             onClearSelection={() => patch({ selectedPageId: null, selectedSessionId: null })}
             bottomInset={activeSession ? TRAY_INSET : 40}
+            emptyMessage={
+              readOnly && sessions.length === 0
+                ? '이 워크스페이스에 공유된 세션이 아직 없어요. 사이드패널에서 세션을 공유하거나, 워크스페이스 설정에서 팀원을 초대해 보세요.'
+                : undefined
+            }
             railGroup={
               currentGroup
                 ? {
