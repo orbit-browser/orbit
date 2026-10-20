@@ -60,6 +60,11 @@ async def _owned_folder(db: AsyncSession, folder_id: str, user_id: str) -> Folde
     return folder
 
 
+async def _lock_folder(db: AsyncSession, folder_id: str, *, shared: bool) -> None:
+    """배정은 공유 잠금, 삭제는 배타 잠금 — 폴더 삭제와 동시에 들어온 배정이 지워진 폴더를 가리키지 않게 한다."""
+    await db.execute(select(Folder.id).where(Folder.id == folder_id).with_for_update(read=shared))
+
+
 async def _count_by_folder(db: AsyncSession, user_id: str) -> dict[str, int]:
     result = await db.execute(
         select(SessionModel.folder_id, func.count())
@@ -185,6 +190,9 @@ async def delete_folder(
 ) -> None:
     """폴더만 지우고 세션은 남긴다 — 정리 도구가 데이터를 지우면 안 된다. 세션은 미결정으로 돌아가 다시 제안될 수 있다."""
     folder = await _owned_folder(db, folder_id, user_id)
+    # 배타 잠금을 먼저 잡아 진행 중인 배정(공유 잠금)이 끝난 뒤 소속을 푼다 — FK가 없어 순서가 어긋나면
+    # 지워진 폴더를 가리키는 세션이 남는다.
+    await _lock_folder(db, folder_id, shared=False)
 
     await db.execute(
         update(SessionModel)
@@ -204,6 +212,7 @@ async def assign_sessions(
 ) -> AssignResult:
     """세션을 이 폴더로 옮긴다. 다른 폴더에 있던 세션도 이동한다(단일 소속)."""
     await _owned_folder(db, folder_id, user_id)
+    await _lock_folder(db, folder_id, shared=True)
 
     # 중복 id 는 한 번만 처리하되 요청 순서를 유지한다.
     requested = list(dict.fromkeys(body.session_ids))

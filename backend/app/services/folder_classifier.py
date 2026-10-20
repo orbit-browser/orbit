@@ -111,14 +111,15 @@ async def _matches(
 
 async def _file_if_undecided(db: AsyncSession, session_id: str, folder_id: str, user_id: str) -> bool:
     """Qdrant를 기다리는 사이 사용자가 옮기거나 제안을 닫았거나 폴더를 지웠으면 덮어쓰지 않는다 — 아직 미결정이고
-    폴더가 남아 있을 때만 넣는다."""
+    폴더가 남아 있을 때만 넣는다. 폴더 행 공유 잠금으로 폴더 삭제(배타 잠금 후 소속 해제)와 순서를 맞춘다."""
+    locked = await db.scalar(
+        select(Folder.id).where(Folder.id == folder_id, Folder.user_id == user_id).with_for_update(read=True)
+    )
+    if locked is None:
+        return False
     result = await db.execute(
         update(SessionModel)
-        .where(
-            SessionModel.id == session_id,
-            *_undecided(user_id),
-            select(Folder.id).where(Folder.id == folder_id, Folder.user_id == user_id).exists(),
-        )
+        .where(SessionModel.id == session_id, *_undecided(user_id))
         .values(folder_id=folder_id, folder_assigned_by="auto")
         .execution_options(synchronize_session=False)
     )

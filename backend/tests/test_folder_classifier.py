@@ -152,6 +152,35 @@ def test_folder_suggestions_sorts_and_propagates_vector_errors(monkeypatch):
         asyncio.run(fc.folder_suggestions(db, "u1"))
 
 
+def test_file_if_undecided_locks_folder_and_updates_only_undecided_session():
+    from sqlalchemy.dialects import postgresql
+
+    statements = []
+
+    class LockDB:
+        def __init__(self, folder_exists, rowcount=1):
+            self.folder_exists, self.rowcount = folder_exists, rowcount
+
+        async def scalar(self, stmt):
+            statements.append(stmt)
+            return "k8s" if self.folder_exists else None
+
+        async def execute(self, stmt):
+            statements.append(stmt)
+            return SimpleNamespace(rowcount=self.rowcount)
+
+    assert asyncio.run(fc._file_if_undecided(LockDB(True), "s1", "k8s", "u1")) is True
+    lock = str(statements[0].compile(dialect=postgresql.dialect()))
+    assert "FOR SHARE" in lock
+    update_sql = str(statements[1].compile(compile_kwargs={"literal_binds": True}))
+    assert "folder_assigned_by='auto'" in update_sql and "sessions.folder_assigned_by IS NULL" in update_sql
+
+    statements.clear()
+    assert asyncio.run(fc._file_if_undecided(LockDB(False), "s1", "gone", "u1")) is False
+    assert len(statements) == 1  # 지워진 폴더면 UPDATE하지 않는다
+    assert asyncio.run(fc._file_if_undecided(LockDB(True, rowcount=0), "s1", "k8s", "u1")) is False
+
+
 def test_dismiss_updates_only_unfiled_session_and_hides_foreign_sessions():
     mine, foreign, merged = _session("s1"), _session("s2"), _session("s3")
     foreign.user_id = "other"
