@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { RotateCcw, Sparkles, Square, Trash2 } from 'lucide-react';
+import { RotateCcw, Sparkles, Square, Trash2, TriangleAlert } from 'lucide-react';
 import type { AskTurn } from '../../../shared/hooks/useAskConversation';
 import { cleanAnswerText } from '../../../../lib/ask-answer';
 import type { Session } from '../../../../lib/types';
@@ -72,6 +72,21 @@ export function AskConversationPanel({
                 {cleanAnswerText(turn.answer, turn.sources.length)}
                 {turn.status === 'streaming' && <span className="ask-turn__cursor" />}
               </p>
+              {turn.verificationIssues.length > 0 && (
+                <div className="ask-turn__verify" role="note">
+                  <strong>
+                    <TriangleAlert size={13} /> 다른 대상의 값일 수 있어요
+                  </strong>
+                  <ul>
+                    {turn.verificationIssues.map((issue) => (
+                      <li key={issue.value}>
+                        <b>{issue.value}</b>
+                        {` · 기록에서는 ${issue.recordSubject}의 값`}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {turn.tabCandidates.length > 0 && (
                 <div className="ask-tab-candidates" aria-label="이동할 탭 후보">
                   {turn.tabCandidates.map((tab) => (

@@ -39,3 +39,11 @@ class AskStreamRequest(BaseModel):
         if not stripped:
             raise ValueError("query must not be blank")
         return stripped
+
+
+class AskVerificationIssue(BaseModel):
+    """답변이 한 대상의 값이라고 말한 값이 기록에서는 비슷한 다른 대상의 값인 경우 (`verification` SSE 이벤트)."""
+
+    value: str
+    answer_subject: str
+    record_subject: str

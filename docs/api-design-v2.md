@@ -284,10 +284,19 @@ data: {"text":"선택지는 A사였습니다 [1]."}
 
 event: done
 data: {"model":"A.X-K2"}
+
+event: verification
+data: {"issues":[{"value":"21:31","answer_subject":"청량리에서 출발하는 강릉행 KTX 막차","record_subject":"서울역 출발 KTX 847 (막차)"}]}
 ```
 
-이벤트 순서는 `sources` → `delta` 0개 이상 → `done` 또는 `error`다. 오류 이벤트는
-`{"code":"stream_interrupted|generation_failed","partial":true|false,"retryable":true}` 형식이다.
+이벤트 순서는 `sources` → `delta` 0개 이상 → `done` 또는 `error`이고, `done` 뒤에 `verification`이 0~1개 올 수
+있다. 오류 이벤트는 `{"code":"stream_interrupted|generation_failed","partial":true|false,"retryable":true}` 형식이다.
+
+`verification`은 비슷한 대상 혼동 검증 결과다. 답변이 끝나면(`done`) 서버가 같은 답변 프롬프트와 답변을 A.X-K2에
+다시 보내, 답변의 값마다 답변이 말한 대상(`answer_subject`)·기록 원문·원문의 대상(`record_subject`)을 적게 한다.
+원문에 그 값이 실제로 있으면서 대상이 다른 값만 최대 3개 보낸다(계산값과 원문 없는 값은 제외). 답변은 고치지 않으며 클라이언트는 답변 아래에 경고로 보여 준다. 첫 문장에서 못 찾았다고 답한 경우,
+`find_sessions`, 검증 호출의 실패·타임아웃(15초)·형식 오류·EXAONE 폴백이면 이벤트를 보내지 않는다(서버 로그만).
+클라이언트는 `done`에서 다음 질문을 받을 수 있고, 그 사이 새 질문으로 스트림을 끊으면 경고만 받지 못한다.
 검색/DB 오류처럼 스트림 시작 전 실패는 기존 HTTP 오류 계약을 따른다.
 
 `search_memory`의 출처 선택: 벡터 검색으로 후보를 최대 5개(점수 하한 0.15) 받는다. 후보 세션이 모두

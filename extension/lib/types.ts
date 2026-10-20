@@ -209,9 +209,17 @@ export interface AskStreamRequest {
   history?: AskHistoryTurn[];
 }
 
+/** 답변이 한 대상의 값이라고 말한 값이 기록에서는 비슷한 다른 대상의 값인 경우 (`verification` 이벤트). */
+export interface AskVerificationIssue {
+  value: string;
+  answerSubject: string;
+  recordSubject: string;
+}
+
 export type AskStreamEvent =
   | { type: 'sources'; sessions: Session[] }
   | { type: 'delta'; text: string }
+  | { type: 'verification'; issues: AskVerificationIssue[] }
   | { type: 'done'; model: string | null }
   | {
       type: 'error';
