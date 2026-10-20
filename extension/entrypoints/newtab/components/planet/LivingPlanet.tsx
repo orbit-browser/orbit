@@ -1,32 +1,25 @@
 import '../../styles/planet.css';
 
 interface LivingPlanetProps {
-  /** 지름(px). 숨 쉬는 애니메이션은 이 크기를 기준으로 조금 부푼다. */
+  /** 구의 지름(px). 원본(400px)의 비율 그대로 줄인다. 바깥 틀은 지름의 1.25배다. */
   size: number;
-  /** 행성 색. 없으면 강조색 — 아틀라스는 세션 색을 넘긴다. */
-  hue?: string;
-  className?: string;
 }
 
 /**
- * 홈과 아틀라스의 중심 행성.
- *
- * 단색 원 대신 윤곽이 천천히 바뀌는 말랑한 구로 그린다. 빛을 받는 쪽은 거의 흰색,
- * 반대쪽은 행성 색으로 짙어지고, 안쪽의 실선 두 줄이 조금씩 어긋나 돈다.
- * 그림은 전부 CSS(planet.css)라 SVG 안팎 어디에나 얹을 수 있다.
+ * 홈·아틀라스의 행성 — 레퍼런스(Aura · Daily Sync)의 구를 그대로 옮겼다.
+ * 색·그림자·흐림·숨쉬기·윤곽 출렁임·실선 두 줄의 값은 원본과 같고, 크기만 size 로 줄인다.
  */
-export function LivingPlanet({ size, hue, className }: LivingPlanetProps) {
+export function LivingPlanet({ size }: LivingPlanetProps) {
   return (
     <span
-      className={`living-planet${className ? ` ${className}` : ''}`}
-      style={{ '--lp-size': `${size}px`, ...(hue ? { '--lp-hue': hue } : null) } as React.CSSProperties}
+      className="planet-orb"
+      style={{ '--s': size / 400 } as React.CSSProperties}
       aria-hidden
     >
-      <span className="living-planet__glow" />
-      <span className="living-planet__body" />
-      <span className="living-planet__sheen" />
-      <span className="living-planet__vein" />
-      <span className="living-planet__vein living-planet__vein--light" />
+      <span className="planet-orb__glow" />
+      <span className="planet-orb__base" />
+      <span className="planet-orb__vein" />
+      <span className="planet-orb__vein planet-orb__vein--inner" />
     </span>
   );
 }

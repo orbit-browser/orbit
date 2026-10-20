@@ -13,7 +13,7 @@ import {
 } from '../../lib/search-history';
 import { SearchHistoryDropdown } from './SearchHistoryDropdown';
 import { Shortcuts } from './Shortcuts';
-import { SignatureOrbit } from './SignatureOrbit';
+import { LivingPlanet } from '../planet/LivingPlanet';
 
 const HISTORY_LISTBOX_ID = 'hero-search-history';
 
@@ -172,12 +172,16 @@ export function OrbitHero({
         이 경로로만 네비게이터를 펼친 채 연다(카드·타임라인에서 특정 세션으로 들어갈 때는
         오른쪽 내용에 집중하도록 닫힌 채 둔다).
       */}
-      <SignatureOrbit
-        onOpen={() => {
+      <div
+        className="signature-orbit"
+        title="대시보드 열기"
+        onClick={() => {
           patchNavState({ open: true });
           navigateToAtlas();
         }}
-      />
+      >
+        <LivingPlanet size={240} />
+      </div>
 
       {/* 검색창 — 모드 전환을 입력창 안에 넣어 요소 수를 줄였다 */}
       <div className="search-container">

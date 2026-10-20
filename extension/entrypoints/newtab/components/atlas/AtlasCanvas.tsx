@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { OrbitScene, OrbitTrack } from './data';
+import { AtlasGallery } from './AtlasGallery';
 import { LivingPlanet } from '../planet/LivingPlanet';
-import { PageFavicon } from './PageFavicon';
-import { pageShot } from './page-shots';
 import {
   alignOffset,
   formatMinutes,
@@ -11,9 +10,7 @@ import {
   ORBIT_RING_HINTS,
   ORBIT_RING_REACH,
   ORBIT_RING_SIDE,
-  orbitGap,
   orbitPlacement,
-  ringDelta,
   ringPlacement,
 } from './data';
 
@@ -53,22 +50,6 @@ const SPIN_TAU = 105;
 
 /** 이보다 가까우면 목표에 붙여 놓고 루프를 멈춘다. */
 const SPIN_EPSILON = 0.002;
-
-/**
- * 세션 씬의 페이지 카드 — 점 대신 실제 페이지 화면을 궤도 위에 세운다(레퍼런스: 원근 갤러리).
- * 세로 비는 레퍼런스 카드(200×260)를 따르고, 궤도 가장자리로 갈수록 뒤로 물러나며
- * (translateZ) 바깥을 향해 돌고(rotateY) 옅어진다(1 - |p|³). 카드 밑변이 궤도선에 닿는다.
- */
-const CARD_RATIO = 1.3;
-const CARD_DEPTH = 500;
-const CARD_TURN = 45;
-/** 궤도 최하단 아래에 남기는 몫 — 카드는 궤도 위에 서므로 아래엔 회전 단추만 온다. */
-const CARD_ROOM = 50;
-/** 이만큼 움직여야 끌기로 본다. 그 전에는 누르기다. */
-const DRAG_THRESHOLD = 5;
-/** 놓을 때 남은 속도를 이 시간(ms)만큼 더 굴린다. 관성으로 더 가는 건 최대 FLING_MAX 장. */
-const FLING_MS = 220;
-const FLING_MAX = 2;
 
 /** 씬이 통째로 바뀔 때 옅어졌다 짙어지는 한쪽 구간의 길이(ms). CSS 전이와 맞춘다. */
 const SCENE_FADE_MS = 180;
@@ -211,20 +192,6 @@ export function AtlasCanvas({
   const insetRef = useRef<Motion>({ value: bottomInset, target: bottomInset });
   const frameRef = useRef<number | null>(null);
   const [, drawFrame] = useReducer((tick: number) => tick + 1, 0);
-
-  /** 카드 끌기 상태. 속도는 회전량 칸/ms, 최근 움직임에 무게를 둔 평균이다. */
-  const dragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startValue: number;
-    lastX: number;
-    lastTime: number;
-    velocity: number;
-    active: boolean;
-  } | null>(null);
-  /** 끌고 난 직후의 click 은 카드 누르기가 아니다. */
-  const draggedRef = useRef(false);
-  const [dragging, setDragging] = useState(false);
 
   const runSpin = useCallback(() => {
     if (frameRef.current !== null) return;
@@ -471,23 +438,17 @@ export function AtlasCanvas({
    * 한 번의 스와이프가 여러 칸을 넘기지 않도록 관성 구간을 잠근다.
    */
   const wheelLockRef = useRef(0);
-  /** 세션 씬에서 카드로 그리는 궤도. 휠·끌기가 이 궤도를 돌린다. */
-  const pageTrack = !isFolder && tracks[0] && tracks[0].points.length > 1 ? tracks[0] : null;
   useEffect(() => {
     const element = stageRef.current;
-    if (!element || (!pageTrack && (!isFolder || tracks.length <= 1))) return;
+    if (!element || !isFolder || tracks.length <= 1) return;
 
     const onWheel = (event: WheelEvent) => {
-      // 세션 씬은 가로 스크롤도 받는다 — 트랙패드로 옆으로 밀어 카드를 넘긴다.
-      const delta =
-        pageTrack && Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-      if (Math.abs(delta) < 4) return;
+      if (Math.abs(event.deltaY) < 4) return;
       event.preventDefault();
       const now = performance.now();
       if (now < wheelLockRef.current) return;
       wheelLockRef.current = now + 260;
-      if (pageTrack) stepPage(pageTrack, delta > 0 ? 1 : -1);
-      else stepFocus(delta > 0 ? 1 : -1);
+      stepFocus(event.deltaY > 0 ? 1 : -1);
     };
 
     element.addEventListener('wheel', onWheel, { passive: false });
@@ -497,8 +458,7 @@ export function AtlasCanvas({
   // 반경은 트레이가 열린 최악의 높이 기준으로 잡아 어떤 상태에서도 넘치지 않게 한다.
   const rxCap = Math.max(150, size.w / 2 - 28);
   const availableHeight = Math.max(240, size.h - INSET_MAX);
-  const cardRoom = isFolder ? 0 : CARD_ROOM;
-  const ryCap = Math.max(96, availableHeight - PLANET_Y_MIN - LABEL_GUTTER - 32 - cardRoom);
+  const ryCap = Math.max(96, availableHeight - PLANET_Y_MIN - LABEL_GUTTER - 32);
   const rMax = Math.min(rxCap, ryCap / RATIO, R_ABS_MAX);
   const rInner = Math.min(R_INNER_MIN, rMax);
 
@@ -519,12 +479,11 @@ export function AtlasCanvas({
   const orbitLayouts = tracks.flatMap((track, index) => {
     const placement = ringPlacement(index, layoutFocus, tracks.length);
     if (!placement) return [];
-    // 세션 씬은 궤도가 하나라 가장 큰 반경을 쓴다 — 카드가 나란히 설 자리가 필요하다.
-    const rx = isFolder ? rFocus + placement.offset * ringSpacing : rMax;
+    const rx = rFocus + placement.offset * ringSpacing;
     return [{ track, rx, ry: rx * RATIO, index, placement }];
   });
 
-  const systemHeight = rMax * RATIO + LABEL_GUTTER + cardRoom;
+  const systemHeight = rMax * RATIO + LABEL_GUTTER;
   const planetY = Math.max(
     PLANET_Y_MIN,
     (Math.max(240, size.h - inset) - systemHeight) / 2,
@@ -543,82 +502,28 @@ export function AtlasCanvas({
 
   const totalPoints = tracks.reduce((sum, track) => sum + track.points.length, 0);
 
-  // 레퍼런스처럼 이웃 카드 사이에 틈이 남도록 궤도 간격보다 조금 좁게.
-  const cardW = Math.min(170, Math.max(112, (orbitLayouts[0]?.rx ?? rMax) * 0.34));
-  const cardH = cardW * CARD_RATIO;
-
   /*
-   * 카드 끌기. 끄는 동안은 회전량을 포인터에 붙이고, 놓으면 남은 속도만큼 조금 더 굴린 뒤
-   * 가장 가까운 카드에 붙여 그 페이지를 고른다 — 선택이 곧 회전이라는 규칙은 그대로다.
-   * 누르는 순간 포인터를 잡지 않는다. 잡으면 카드 click 이 카드에 가지 않는다.
+   * 세션 씬은 레퍼런스(원근 갤러리)를 그대로 쓴다 — 페이지 화면 카드가 가로로 흐르고 끌어서
+   * 넘긴다. 폴더 씬(궤도 = 세션)은 아래의 호 그림을 그대로 쓴다.
    */
-  const pxPerCard = Math.max(
-    80,
-    ((orbitLayouts[0]?.rx ?? rMax) * orbitGap(pageTrack?.points.length ?? 1) * Math.PI) / 180 / 1.5,
-  );
-  const onStagePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!pageTrack || event.button !== 0) return;
-    draggedRef.current = false;
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startValue: spinValue(pageTrack.id),
-      lastX: event.clientX,
-      lastTime: event.timeStamp,
-      velocity: 0,
-      active: false,
-    };
-  };
-  const onStagePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    const spin = pageTrack ? spinRef.current.get(pageTrack.id) : undefined;
-    if (!drag || drag.pointerId !== event.pointerId || !spin) return;
-    const dx = event.clientX - drag.startX;
-    if (!drag.active) {
-      if (Math.abs(dx) < DRAG_THRESHOLD) return;
-      drag.active = true;
-      setDragging(true);
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
-    // 이벤트가 몰려 오면 dt 가 0 에 가까워 속도가 튄다 — 한 프레임 아래로는 재지 않는다.
-    const dt = Math.max(8, event.timeStamp - drag.lastTime);
-    drag.velocity = drag.velocity * 0.6 + (-(event.clientX - drag.lastX) / pxPerCard / dt) * 0.4;
-    drag.lastX = event.clientX;
-    drag.lastTime = event.timeStamp;
-    // 오른쪽으로 끌면 카드도 오른쪽으로 — 왼쪽 카드가 최하단으로 온다.
-    spin.value = drag.startValue - dx / pxPerCard;
-    spin.target = spin.value;
-    drawFrame();
-  };
-  const onStagePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    dragRef.current = null;
-    const spin = pageTrack ? spinRef.current.get(pageTrack.id) : undefined;
-    if (!drag.active || !pageTrack || !spin) return;
-    draggedRef.current = true;
-    setDragging(false);
-    // 멈춘 채로 놓으면 관성 없이 그 자리에서 붙는다.
-    const fling =
-      event.timeStamp - drag.lastTime > 90
-        ? 0
-        : Math.max(-FLING_MAX, Math.min(FLING_MAX, drag.velocity * FLING_MS));
-    spin.target = Math.round(spin.value + fling);
-    runSpin();
-    const total = pageTrack.points.length;
-    onSelectPoint(pageTrack.points[normalizeRotation(spin.target, total)].id, pageTrack.sessionId);
-  };
+  const gallery =
+    scene?.kind === 'session' && tracks[0] ? (
+      <AtlasGallery
+        key={scene.id}
+        points={tracks[0].points}
+        selectedPointId={selectedPointId}
+        onSelectPoint={(pointId) => onSelectPoint(pointId, null)}
+        bottomInset={inset}
+      />
+    ) : null;
 
   return (
-    <div
-      className={cx('atlas-stage', pageTrack && 'atlas-stage--pages', dragging && 'atlas-stage--dragging')}
-      ref={stageRef}
-      onPointerDown={onStagePointerDown}
-      onPointerMove={onStagePointerMove}
-      onPointerUp={onStagePointerUp}
-      onPointerCancel={onStagePointerUp}
-    >
-      {scene && (
+    <div className="atlas-stage" ref={stageRef}>
+      {gallery && (
+        <div className={cx('atlas-stage__scaler', leaving && 'atlas-stage__scaler--leaving')}>{gallery}</div>
+      )}
+
+      {scene && !gallery && (
         <div className={cx('atlas-stage__scaler', leaving && 'atlas-stage__scaler--leaving')}>
           <svg className="atlas-stage__svg" width={size.w} height={size.h} aria-hidden>
             <g
@@ -700,7 +605,7 @@ export function AtlasCanvas({
             </g>
           </svg>
 
-          {/* 중심 행성 — 홈·세션 씬과 같은 살아 있는 행성 */}
+          {/* 중심 행성 — 홈과 같은 구(레퍼런스 그대로) */}
           <button
             type="button"
             className="atlas-node"
@@ -709,8 +614,7 @@ export function AtlasCanvas({
             title={`${scene.title} — 전체 보기`}
             aria-label={`${scene.title} — 전체 보기`}
           >
-            {/* 홈과 같은 행성 — 세션 색으로 물들이지 않는다(질감이 달라 보인다) */}
-            <LivingPlanet size={PLANET_R * 2.8} />
+            <LivingPlanet size={PLANET_R * 2.6} />
           </button>
 
           <div className="atlas-planet-label" style={{ left: centerX, top: planetY + PLANET_R + 20 }}>
@@ -798,64 +702,6 @@ export function AtlasCanvas({
               const isEdge = placement.beyond > 0;
               const fade = isEdge ? 1 - placement.beyond / ORBIT_EDGE_HINTS : 1;
 
-              if (!isFolder) {
-                // 최하단에서 얼마나 멀어졌는지(-1 왼쪽 끝 … 0 최하단 … 1 오른쪽 끝)
-                const lean = (placement.angle - 90) / 90;
-                /*
-                 * 페이지가 적으면 한쪽 끝의 카드가 반대쪽 끝으로 건너뛴다. 그 자리에선
-                 * 다 사라져 있게 해 순간이동이 보이지 않게 한다.
-                 */
-                const wrap = Math.min(1, Math.max(0, (total / 2 - Math.abs(ringDelta(offset, index, total))) * 2));
-                const opacity = fade * wrap * (1 - Math.abs(lean) ** 3);
-                if (opacity <= 0.02) return null;
-                const shot = pageShot(point.url);
-                return (
-                  <button
-                    key={`${layout.track.id}-${point.id}`}
-                    type="button"
-                    className={cx('atlas-shot', isActive && 'atlas-shot--active')}
-                    style={{
-                      left: centerX + at.x,
-                      top: planetY + at.y,
-                      width: cardW,
-                      height: cardH,
-                      opacity,
-                      zIndex: 20 + Math.round((1 - Math.abs(lean)) * 40),
-                      transform: `translate(-50%, -100%) perspective(1200px) translateZ(${-lean * lean * CARD_DEPTH}px) rotateY(${lean * CARD_TURN}deg)`,
-                      pointerEvents: opacity > 0.3 ? undefined : 'none',
-                    }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (draggedRef.current) {
-                        draggedRef.current = false;
-                        return;
-                      }
-                      onSelectPoint(point.id, layout.track.sessionId);
-                    }}
-                    aria-label={`${index + 1}. ${point.title}`}
-                    aria-current={isActive ? 'true' : undefined}
-                    {...(isEdge ? { 'aria-hidden': true, tabIndex: -1 } : null)}
-                  >
-                    {shot ? (
-                      <img className="atlas-shot__img" src={shot} alt="" draggable={false} />
-                    ) : (
-                      <span className="atlas-shot__blank">
-                        <PageFavicon url={point.url} domain={point.domain} className="atlas-shot__favicon" />
-                        <span>{point.title}</span>
-                      </span>
-                    )}
-                    <span className="atlas-shot__tip">
-                      <span className="atlas-sat__tip-title">{index + 1}. {point.title}</span>
-                      <span className="atlas-sat__tip-meta">
-                        <span className="atlas-sat__tip-domain">{point.domain}</span>
-                        {point.minutes > 0 && <span>· {point.minutes}분</span>}
-                        {point.visits > 1 && <span>· 총 {point.visits}회 방문</span>}
-                      </span>
-                    </span>
-                  </button>
-                );
-              }
-
               return (
                 <button
                   key={`${layout.track.id}-${point.id}`}
@@ -916,8 +762,7 @@ export function AtlasCanvas({
                 className="atlas-rotate"
                 style={{
                   left: centerX,
-                  // 세션 씬은 최하단 카드 밑으로 내린다.
-                  top: planetY + layout.ry + (track.chip ? CHIP_DROP + CHIP_H + 10 : isFolder ? 30 : 16),
+                  top: planetY + layout.ry + (track.chip ? CHIP_DROP + CHIP_H + 10 : 30),
                   opacity: near,
                   pointerEvents: near > 0.9 ? undefined : 'none',
                 }}
@@ -974,7 +819,7 @@ export function AtlasCanvas({
           <span>
             {isFolder
               ? '궤도나 레이블을 클릭하면 세션이 펼쳐집니다 · ↑↓ 폴더·세션 이동, ←→ 페이지 이동'
-              : '카드를 끌어 돌려 보세요 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'}
+              : '카드를 끌어 넘겨 보세요 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'}
           </span>
           <span
             className="atlas-stage__hint-actions"

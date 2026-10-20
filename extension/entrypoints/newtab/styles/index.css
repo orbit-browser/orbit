@@ -2188,7 +2188,7 @@ body {
   box-shadow: 0 0 0 1px rgba(240, 117, 80, 0.08);
 }
 
-/* 시그니처 오빗 그래픽은 styles/planet.css (SignatureOrbit 이 불러온다) */
+/* 시그니처 행성은 styles/planet.css (LivingPlanet 이 불러온다) */
 
 /* ═══════════════ 탐색 카드 (이어서 탐색 · 추천 세션 공용) ═══════════════ */
 

@@ -1,238 +1,104 @@
-/* ═══════════════ 살아 있는 행성 (홈·아틀라스 공용) ═══════════════ */
-
+/* ═══════════════ 행성 — 레퍼런스(Aura · Daily Sync)의 구 그대로 ═══════════════ */
 /*
- * 빛을 받는 왼쪽 위는 거의 흰색, 반대쪽은 행성 색으로 짙어진다. 색은 --lp-hue 하나로
- * 정하고 나머지는 섞어서 만든다 — 아틀라스는 세션마다 색이 달라서다.
+ * 값은 원본(구 지름 400px)과 같다. --s(지름/400)로 크기만 줄인다. 길이는 나눌 수 없어서
+ * 배율을 숫자로 받아 calc 로 곱한다.
  */
-.living-planet {
-  --lp-size: 104px;
-  --lp-hue: var(--accent-orange, var(--accent, #f07550));
-  --lp-light: color-mix(in oklab, var(--lp-hue) 6%, #fff);
-  --lp-mid: color-mix(in oklab, var(--lp-hue) 20%, #fff);
-  --lp-deep: color-mix(in oklab, var(--lp-hue) 40%, #fff);
-  --lp-glow: color-mix(in oklab, var(--lp-hue) 24%, transparent);
-  --lp-vein: color-mix(in oklab, var(--lp-hue) 38%, transparent);
+.planet-orb {
+  --s: 1;
+  --orb-easing: cubic-bezier(0.25, 0.8, 0.25, 1);
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(500px * var(--s));
+  height: calc(500px * var(--s));
+  animation: planet-breathe 8s var(--orb-easing) infinite;
+}
+
+.planet-orb > span {
   display: block;
-  width: var(--lp-size);
-  height: var(--lp-size);
-  animation: lp-breathe 8s cubic-bezier(0.37, 0, 0.63, 1) infinite;
 }
 
-html[data-theme='dark'] .living-planet {
-  --lp-light: color-mix(in oklab, var(--lp-hue) 14%, #fff);
-  --lp-mid: color-mix(in oklab, var(--lp-hue) 45%, #fff);
-  --lp-deep: color-mix(in oklab, var(--lp-hue) 78%, #4a2a1d);
-  --lp-glow: color-mix(in oklab, var(--lp-hue) 46%, transparent);
-}
-
-.living-planet > span {
+.planet-orb__glow {
   position: absolute;
-  display: block;
-}
-
-/* 행성 밖으로 번지는 빛 — 가장자리를 흐리게 만든다 */
-.living-planet__glow {
-  inset: -42%;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, var(--lp-glow) 0%, color-mix(in oklab, var(--lp-glow) 40%, transparent) 52%, transparent 100%);
-  filter: blur(calc(var(--lp-size) * 0.08));
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, rgba(255, 240, 245, 0.8) 0%, rgba(255, 255, 255, 0) 70%);
   opacity: 0.6;
-  animation: lp-glow 8s cubic-bezier(0.37, 0, 0.63, 1) infinite;
 }
 
-/* 몸통 — 윤곽이 천천히 출렁인다 */
-.living-planet__body {
-  inset: 0;
-  border-radius: 46% 54% 58% 42% / 47% 44% 56% 53%;
-  background: radial-gradient(circle at 32% 28%, var(--lp-light) 0%, var(--lp-mid) 44%, var(--lp-deep) 100%);
+.planet-orb__base {
+  position: absolute;
+  width: calc(400px * var(--s));
+  height: calc(400px * var(--s));
+  border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%;
+  background: radial-gradient(circle at 30% 30%, #fff5f0 0%, #ffe4e1 40%, #ffebcd 100%);
   box-shadow:
-    inset calc(var(--lp-size) * 0.06) calc(var(--lp-size) * 0.06) calc(var(--lp-size) * 0.16) rgba(255, 255, 255, 0.85),
-    inset calc(var(--lp-size) * -0.05) calc(var(--lp-size) * -0.06) calc(var(--lp-size) * 0.18) color-mix(in oklab, var(--lp-hue) 18%, transparent),
-    0 0 calc(var(--lp-size) * 0.16) color-mix(in oklab, var(--lp-hue) 22%, transparent),
-    0 calc(var(--lp-size) * 0.1) calc(var(--lp-size) * 0.34) color-mix(in oklab, var(--lp-hue) 12%, transparent);
+    inset calc(10px * var(--s)) calc(10px * var(--s)) calc(40px * var(--s)) rgba(255, 255, 255, 0.8),
+    inset calc(-10px * var(--s)) calc(-10px * var(--s)) calc(40px * var(--s)) rgba(255, 218, 185, 0.4),
+    calc(20px * var(--s)) calc(20px * var(--s)) calc(60px * var(--s)) rgba(255, 228, 225, 0.4);
   filter: blur(1px);
-  animation: lp-morph 13s ease-in-out infinite alternate;
+  animation: planet-morph 12s var(--orb-easing) infinite alternate;
 }
 
-/* 빛 맺힘 — 몸통보다 조금 늦게 움직여 표면이 말랑해 보인다 */
-.living-planet__sheen {
-  left: 15%;
-  top: 11%;
-  width: 46%;
-  height: 34%;
+.planet-orb__vein {
+  position: absolute;
+  width: calc(380px * var(--s));
+  height: calc(380px * var(--s));
+  border: 1px solid rgba(255, 160, 122, 0.3);
   border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0));
-  filter: blur(calc(var(--lp-size) * 0.035));
-  animation: lp-sheen 9s ease-in-out infinite alternate;
+  clip-path: ellipse(60% 80% at 50% 50%);
+  transform: rotate(45deg);
+  animation: planet-spin 25s linear infinite;
 }
 
-/* 안쪽 실선 두 줄 — 한 줄은 끊어져 돌고, 흰 줄은 살짝 납작하게 반대로 돈다 */
-.living-planet__vein {
-  inset: 4%;
+.planet-orb__vein::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.8);
   border-radius: 50%;
-  border: 1px solid var(--lp-vein);
-  -webkit-mask: conic-gradient(from 20deg, #000 0 68%, transparent 74% 82%, #000 88%);
-  mask: conic-gradient(from 20deg, #000 0 68%, transparent 74% 82%, #000 88%);
-  animation: lp-spin 24s linear infinite;
+  transform: scale(0.95) rotate(-10deg);
 }
 
-.living-planet__vein--light {
-  inset: 7.5%;
-  border-color: rgba(255, 255, 255, 0.88);
-  -webkit-mask: none;
-  mask: none;
-  animation: lp-wobble 17s ease-in-out infinite alternate;
+.planet-orb__vein--inner {
+  width: calc(360px * var(--s));
+  height: calc(360px * var(--s));
+  border-color: rgba(255, 255, 255, 0.6);
+  animation-duration: 20s;
 }
 
-html[data-theme='dark'] .living-planet__vein--light {
-  border-color: rgba(255, 255, 255, 0.62);
-}
-
-@keyframes lp-breathe {
+@keyframes planet-breathe {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.045); }
+  50% { transform: scale(1.05); }
 }
 
-@keyframes lp-glow {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50% { opacity: 0.72; transform: scale(1.07); }
+@keyframes planet-morph {
+  0% { border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%; }
+  100% { border-radius: 50% 50% 40% 60% / 50% 50% 50% 50%; }
 }
 
-@keyframes lp-morph {
-  0% { border-radius: 44% 56% 60% 40% / 46% 42% 58% 54%; }
-  35% { border-radius: 56% 44% 45% 55% / 54% 58% 42% 46%; }
-  70% { border-radius: 48% 52% 39% 61% / 59% 46% 54% 41%; }
-  100% { border-radius: 41% 59% 53% 47% / 45% 55% 45% 55%; }
+@keyframes planet-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
-@keyframes lp-sheen {
-  from { transform: translate(0, 0) scale(1); }
-  to { transform: translate(6%, 5%) scale(1.08, 0.94); }
+@media (prefers-reduced-motion: reduce) {
+  .planet-orb,
+  .planet-orb > span {
+    animation: none;
+  }
 }
 
-@keyframes lp-spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes lp-wobble {
-  from { transform: rotate(-12deg) scale(1, 0.965); }
-  to { transform: rotate(14deg) scale(0.975, 1); }
-}
-
-/* ═══════════════ 홈 시그니처 그래픽 (행성 + 궤도) ═══════════════ */
-
+/* ═══════════════ 홈 시그니처 — 누르면 아틀라스 ═══════════════ */
 .signature-orbit {
   display: flex;
   justify-content: center;
-  padding: 4px 0 0;
   cursor: pointer;
   transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .signature-orbit:hover {
   transform: scale(1.03);
-}
-
-.signature-orbit__stage {
-  position: relative;
-  width: 344px;
-  height: 216px;
-}
-
-.signature-orbit__rings {
-  position: absolute;
-  inset: 0;
-  overflow: visible;
-}
-
-.signature-orbit__planet {
-  position: absolute;
-  left: calc(50% - var(--lp-size) / 2);
-  top: calc(50% - var(--lp-size) / 2);
-}
-
-/* 궤도계 전체 기울기 — 아주 느리게 각도가 바뀌어 입체감이 생긴다. 두 층이 같은 값으로 돈다. */
-.signature-orbit__tilt {
-  transform-origin: 0 0;
-  animation: so-tilt 28s ease-in-out infinite;
-}
-
-@keyframes so-tilt {
-  0%, 100% { transform: rotate(-15deg) scaleY(1); }
-  50% { transform: rotate(-10deg) scaleY(1.14); }
-}
-
-/* 실선 두 겹: 행성 색 한 줄 + 흰 줄. 바탕 위에선 색 줄이, 행성과 빛 위에선 흰 줄이 보인다. */
-.so-ring {
-  fill: none;
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.so-ring--tint {
-  stroke: color-mix(in oklab, var(--accent-orange) 70%, #fff);
-  opacity: 0.5;
-}
-
-.so-ring--light {
-  stroke: #fff;
-  opacity: 0.9;
-}
-
-/* 입자대 안개 — 굵고 흐린 띠 */
-.so-haze {
-  fill: none;
-  stroke: var(--accent-orange);
-  stroke-width: 9;
-  opacity: 0.07;
-  filter: blur(3px);
-}
-
-.so-dust circle {
-  fill: #fff;
-  filter: drop-shadow(0 0 2.5px color-mix(in oklab, var(--accent-orange) 80%, transparent));
-}
-
-/* 뒤로 지나가는 반쪽은 행성 그늘에 든 것처럼 옅게 */
-.signature-orbit__rings--back {
-  opacity: 0.62;
-}
-
-html[data-theme='dark'] .so-ring--tint {
-  stroke: color-mix(in oklab, var(--accent-orange) 75%, #fff);
-  opacity: 0.55;
-}
-
-html[data-theme='dark'] .so-ring--light {
-  opacity: 0.32;
-}
-
-html[data-theme='dark'] .so-haze {
-  opacity: 0.14;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .living-planet,
-  .living-planet > span,
-  .signature-orbit__tilt {
-    animation: none;
-  }
-  .signature-orbit__tilt {
-    transform: rotate(-14deg);
-  }
-  .so-dust {
-    display: none;
-  }
-}
-
-/* 줄마다 무게를 달리한다 — 안쪽이 또렷하고 바깥으로 갈수록 옅다 */
-.so-orbit--dust .so-ring--tint {
-  opacity: 0.32;
-}
-
-.so-orbit--faint .so-ring--tint {
-  opacity: 0.2;
-  stroke-dasharray: 1 5;
-  stroke-linecap: round;
 }
