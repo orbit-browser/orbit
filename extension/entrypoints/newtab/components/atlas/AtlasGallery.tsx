@@ -29,6 +29,8 @@ interface AtlasGalleryProps {
   onSelectPoint: (pointId: string) => void;
   /** 프레임마다 지금 위치(가운데 카드의 연속 인덱스)를 알린다 — 위 막대의 점이 따라 돈다. */
   onFrame?: (position: number) => void;
+  /** 팀 화면에서 이 세션을 공유한 사람. 카드마다 이름을 붙인다(그 사람이 들어갔던 페이지다). */
+  sharerName?: string | null;
 }
 
 export function AtlasGallery({
@@ -36,6 +38,7 @@ export function AtlasGallery({
   selectedPointId,
   onSelectPoint,
   onFrame,
+  sharerName = null,
 }: AtlasGalleryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -185,6 +188,7 @@ export function AtlasGallery({
               aria-current={point.id === selectedPointId ? 'true' : undefined}
             >
               {shot && <img src={shot} alt="" draggable={false} />}
+              {sharerName && <span className="atlas-gallery__who">{sharerName}</span>}
             </button>
           );
         })}

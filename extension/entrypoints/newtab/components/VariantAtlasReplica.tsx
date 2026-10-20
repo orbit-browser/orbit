@@ -12,7 +12,6 @@ import {
   sortSessions,
   stepNavRow,
   type NavRow,
-  type SessionNode,
 } from './atlas/data';
 import { useAtlasData } from '../hooks/useAtlasData';
 import { useActiveWorkspace } from '../../../lib/useWorkspaces';
@@ -246,25 +245,18 @@ export function VariantAtlasReplica() {
    * 막대는 지금 그룹의 세션만 쌓고, ↑↓ 는 그룹 안에서만, Shift+↑↓ 는 그룹 사이를 오간다
    * (대표 2026-10-20 "그룹 내부 이동과 아닌 것들의 이동이 분리되었으면").
    */
-  const sessionGroups = useMemo(() => {
-    // 팀에는 폴더가 없다 — 공유한 사람별로 묶어 그룹 사이(Shift+↑↓) 이동이 팀에서도 되게 한다.
-    if (readOnly) {
-      const bySharer = new Map<string, { id: string; name: string; sessions: SessionNode[] }>();
-      sortedUnfiled.forEach((session) => {
-        const id = session.sharedBy?.userId ?? 'unknown';
-        const group = bySharer.get(id) ?? { id, name: session.sharedBy?.name ?? '팀원', sessions: [] };
-        group.sessions.push(session);
-        bySharer.set(id, group);
-      });
-      return [...bySharer.values()];
-    }
-    return [
+  const sessionGroups = useMemo(
+    () => [
       ...sortedFolders
         .filter((folder) => folder.sessions.length > 0)
         .map((folder) => ({ id: folder.id, name: folder.name, sessions: folder.sessions })),
-      ...(sortedUnfiled.length > 0 ? [{ id: 'unfiled', name: '정리 안 된 세션', sessions: sortedUnfiled }] : []),
-    ];
-  }, [readOnly, sortedFolders, sortedUnfiled]);
+      // 팀에는 폴더가 없어 공유된 세션 전부가 한 목록이다 — 누가 공유했는지는 그룹이 아니라 이름으로 보인다.
+      ...(sortedUnfiled.length > 0
+        ? [{ id: 'unfiled', name: readOnly ? '공유된 세션' : '정리 안 된 세션', sessions: sortedUnfiled }]
+        : []),
+    ],
+    [readOnly, sortedFolders, sortedUnfiled],
+  );
   const groupIndex = activeSession
     ? sessionGroups.findIndex((group) => group.sessions.some((session) => session.id === activeSession.id))
     : -1;
@@ -403,6 +395,7 @@ export function VariantAtlasReplica() {
                 : null
             }
             sessionOrder={sessionOrder}
+            sharerName={readOnly ? activeSession?.sharedBy?.name ?? null : null}
             onSelectSession={selectSession}
             onStepGroup={stepGroup}
           />

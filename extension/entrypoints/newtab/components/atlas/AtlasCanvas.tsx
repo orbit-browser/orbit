@@ -25,7 +25,7 @@ interface GalleryLayer {
   leaving: boolean;
   motion: 'appear' | 'from-below' | 'from-above' | 'to-above' | 'to-below';
   /** 나가는 층이 붙들고 있는 마지막 내용 */
-  frozen: { points: OrbitPoint[]; selectedPointId: string | null } | null;
+  frozen: { points: OrbitPoint[]; selectedPointId: string | null; sharerName: string | null } | null;
 }
 
 const HINT_STORAGE_KEY = 'orbit.atlas.hint-dismissed';
@@ -129,6 +129,8 @@ interface AtlasCanvasProps {
   sessionOrder?: string[];
   onSelectSession?: (sessionId: string) => void;
   onStepGroup?: (direction: 1 | -1) => void;
+  /** 팀 화면에서 지금 세션을 공유한 사람 — 갤러리 카드마다 이름을 붙인다. */
+  sharerName?: string | null;
 }
 
 export function AtlasCanvas({
@@ -144,6 +146,7 @@ export function AtlasCanvas({
   sessionOrder,
   onSelectSession,
   onStepGroup,
+  sharerName,
 }: AtlasCanvasProps) {
   /*
    * 씬이 통째로 바뀔 때(폴더 → 세션)는 그리는 씬을 한 박자 늦춘다.
@@ -558,7 +561,9 @@ export function AtlasCanvas({
   const [layers, setLayers] = useState<GalleryLayer[]>([]);
   const layerSeq = useRef(0);
   /** 바로 앞 렌더의 갤러리 내용. 나가는 층은 이것을 붙들고 미끄러져 나간다. */
-  const committedRef = useRef<{ points: OrbitPoint[]; selectedPointId: string | null } | null>(null);
+  const committedRef = useRef<{ points: OrbitPoint[]; selectedPointId: string | null; sharerName: string | null } | null>(
+    null,
+  );
   useLayoutEffect(() => {
     setLayers((previous) => {
       const current = previous.find((layer) => !layer.leaving);
@@ -574,7 +579,7 @@ export function AtlasCanvas({
           ...current,
           leaving: true,
           motion: downward ? 'to-above' : 'to-below',
-          frozen: committedRef.current ?? { points: [], selectedPointId: null },
+          frozen: committedRef.current ?? { points: [], selectedPointId: null, sharerName: null },
         });
       }
       if (live) {
@@ -594,7 +599,7 @@ export function AtlasCanvas({
   }, [live?.key]);
   // 위의 효과가 앞 렌더의 내용을 쓴 다음에 지금 내용으로 갈아 둔다(같은 렌더 안에서 순서대로 돈다).
   useLayoutEffect(() => {
-    committedRef.current = live ? { points: live.track.points, selectedPointId } : null;
+    committedRef.current = live ? { points: live.track.points, selectedPointId, sharerName: sharerName ?? null } : null;
   });
 
   return (
@@ -635,6 +640,7 @@ export function AtlasCanvas({
                     if (current) onSelectPoint(pointId, current.track.sessionId);
                   }}
                   onFrame={current ? (position) => railPositionRef.current(position) : undefined}
+                  sharerName={current ? sharerName ?? null : layer.frozen?.sharerName ?? null}
                 />
               </div>
             );

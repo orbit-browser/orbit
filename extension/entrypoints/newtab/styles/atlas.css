@@ -1463,6 +1463,27 @@ body.atlas-resizing .atlas-nav__resizer::after {
   white-space: nowrap;
 }
 
+/* 제목이 길면 제목만 줄이고 이름은 끝까지 보인다 */
+.atlas-rail__title {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.atlas-rail__title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-rail__who {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
 .atlas-rail__row--current .atlas-rail__title {
   color: var(--text-primary);
   font-size: 13px;
@@ -1624,6 +1645,21 @@ body.atlas-resizing .atlas-nav__resizer::after {
   object-position: top center;
   filter: grayscale(20%) contrast(95%);
   pointer-events: none;
+}
+
+/* 팀 화면 — 이 페이지에 들어갔던(세션을 공유한) 사람 */
+.atlas-gallery__who {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  background: rgba(20, 16, 12, 0.62);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
 }
 
 .atlas-gallery__card:hover {

@@ -199,7 +199,10 @@ export function AtlasRail({
                         },
                       })}
                 >
-                  <span className="atlas-rail__title" title={session.title}>{session.title}</span>
+                  <span className="atlas-rail__title" title={session.title}>
+                    <span className="atlas-rail__title-text">{session.title}</span>
+                    {session.sharedBy?.name && <span className="atlas-rail__who">{session.sharedBy.name}</span>}
+                  </span>
                   {current ? (
                     currentTrack
                   ) : (
