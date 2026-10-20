@@ -203,9 +203,25 @@ function PrintSheet() {
   );
 }
 
+/** 현수막 글꼴(Google Fonts)이 실제로 들어왔는지 — 오프라인이면 시스템 글꼴로 바뀌어 글줄이 달라진다. */
+function fontsMissing(): string[] {
+  const loaded = new Set([...document.fonts].filter((face) => face.status === 'loaded').map((face) => face.family.replace(/["']/g, '')));
+  return ['Inter', 'Noto Sans KR', 'JetBrains Mono'].filter((family) => !loaded.has(family));
+}
+
 /** 글꼴과 이미지가 다 들어온 뒤 표시 — 내보내기 스크립트와 검증이 이 표시를 기다린다. */
 async function markReady() {
   await document.fonts.ready;
+  const missing = fontsMissing();
+  if (missing.length > 0) {
+    // 성공처럼 숨기지 않는다: 인쇄 화면 맨 위에도 찍혀 나오게 한다
+    const warning = document.createElement('div');
+    warning.className = 'ex-font-warning';
+    warning.setAttribute('role', 'alert');
+    warning.textContent = `글꼴을 불러오지 못했습니다(${missing.join(', ')}). 인터넷 연결을 확인하고 다시 여세요 — 이대로 인쇄하면 글줄이 달라집니다.`;
+    document.body.prepend(warning);
+    console.error(`Exhibition fonts missing: ${missing.join(', ')}`);
+  }
   await Promise.all(
     [...document.images].map((image) =>
       image.complete

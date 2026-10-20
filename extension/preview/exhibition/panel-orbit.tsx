@@ -37,6 +37,8 @@ export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, intera
         <div className="ex-orbit__gallery" key={session.id}>
           <SessionGallery session={session} selected={pageIndex} onSelect={onPage} interactive={interactive} scaleRef={scaleRef} />
         </div>
+        {/* 화면에서만 — 아틀라스의 안내 알약과 같은 말. 인쇄·정적 모드에는 없다 */}
+        {interactive && <p className="ex-hint">카드를 끌어 넘겨 보세요 · ← → 페이지 · ↑ ↓ 세션</p>}
         <Timeline session={session} pageIndex={pageIndex} />
         {/* 아틀라스 세부 정보의 "세션 요약" — 방문을 읽고 AI가 쓴 개요와 핵심(합성 데이터) */}
         <div className="ex-orbit__summary">

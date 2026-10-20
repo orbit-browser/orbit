@@ -12,30 +12,33 @@ import { BannerFrame, BrowserCard } from './frame';
 const CAMERA = { perspective: 2400, x: 720, y: 1080 };
 const LIGHT = normalize([-0.45, -0.65, 0.62]);
 
-/** 흩어지는 페이지 — 사진·색이 많은 것을 앞에 둔다(앞쪽 카드일수록 가까운 겹에 크게 나오기 쉽다). */
+/** 흩어지는 페이지 — 앞에 둘수록 가까운 겹(크게)에 놓인다. 사진·색이 많은 페이지를 앞에, 어두운 문서는 가운데에. */
 const CLOUD = [
+  // 앞 겹 — 사진과 색
   'https://blog.naver.com/osaka_eat/2231',
-  'https://www.compuzone.co.kr/search/search.htm?SearchProductKey=5070',
-  'https://react.dev/reference/react/useOptimistic',
   'https://www.musinsa.com/category/103004',
-  'https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html',
-  'https://prod.danawa.com/list/?cate=112753',
-  'https://blog.naver.com/runner/2231',
-  'https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/',
-  'https://github.com/sqlalchemy/sqlalchemy/discussions/9312',
   'https://www.google.com/maps/place/Dotonbori',
-  'https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle',
-  'https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates',
-  'https://qdrant.tech/documentation/concepts/filtering/',
+  'https://prod.danawa.com/list/?cate=112753',
   'https://velog.io/@react/react19',
   'https://brunch.co.kr/@techtalk/42',
+  'https://www.compuzone.co.kr/search/search.htm?SearchProductKey=5070',
+  'https://blog.naver.com/runner/2231',
+  // 가운데 — 글 문서
+  'https://react.dev/reference/react/useOptimistic',
+  'https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html',
+  'https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/',
+  'https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle',
+  'https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates',
+  'https://github.com/sqlalchemy/sqlalchemy/discussions/9312',
   'https://blog.naver.com/gadget/2231',
   'https://exam.toeic.co.kr/receipt/examSchList.php',
-  'https://github.com/qdrant/qdrant/discussions/2416',
   'https://www.khug.or.kr/hug/web/ig/dr/igdr000001.jsp',
+  'https://github.com/qdrant/qdrant/discussions/2416',
   'https://fastapi.tiangolo.com/tutorial/background-tasks/',
-  'https://qdrant.tech/documentation/concepts/indexing/',
+  // 뒤 겹 — 어두운 문서와 작은 것
+  'https://qdrant.tech/documentation/concepts/filtering/',
   'https://github.com/GoogleChrome/chrome-extensions-samples',
+  'https://qdrant.tech/documentation/concepts/indexing/',
   'https://developer.chrome.com/docs/extensions/reference/api/alarms',
   'https://velog.io/@vector/qdrant-filter',
   'https://blog.naver.com/toss_im3/2231',
@@ -107,11 +110,15 @@ function layout(): Spec[] {
     placed.push(best);
     return best;
   };
-  const cloud = CLOUD.map((url): Spec => {
+  // 자리를 먼저 뿌리고 가까운 자리부터 목록 순서로 페이지를 놓는다 — 사진·색이 많은 페이지가 앞 겹에 크게 나온다
+  const spots = CLOUD.map(() => {
     const [ax, ay] = pick();
     const across = (ax - AREA.left) / (AREA.right - AREA.left);
     const down = (ay - AREA.top) / (AREA.bottom - AREA.top);
-    const nearness = Math.min(1, Math.max(0, 0.55 * (1 - across) + 0.45 * down + jitter(0.28)));
+    return { ax, ay, across, nearness: Math.min(1, Math.max(0, 0.55 * (1 - across) + 0.45 * down + jitter(0.28))) };
+  }).sort((a, b) => b.nearness - a.nearness);
+  const cloud = CLOUD.map((url, index): Spec => {
+    const { ax, ay, across, nearness } = spots[index];
     const wild = 0.45 + 0.55 * nearness;
     return {
       url,

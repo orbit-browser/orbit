@@ -179,6 +179,19 @@ body {
   box-shadow: 0 6px 24px rgba(60, 40, 25, 0.16), 0 0 0 1px rgba(60, 40, 25, 0.06);
 }
 
+/* 글꼴을 못 불러왔을 때 — 화면과 인쇄 모두 맨 위에 */
+.ex-font-warning {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: 10px 16px;
+  background: #b8452b;
+  color: #fff;
+  font: 600 14px/1.4 system-ui, sans-serif;
+}
+
 /* ═══════════════════════════════ 인쇄 ═══════════════════════════════ */
 
 @page {
@@ -1126,6 +1139,25 @@ body {
   height: 6px;
   border-radius: 50%;
   background: var(--accent-muted);
+}
+
+.ex-hint {
+  position: absolute;
+  /* 타임라인 층 아래, 기능 세 줄 위 */
+  top: 1040px;
+  left: 50%;
+  z-index: 40;
+  margin: 0;
+  padding: 8px 18px;
+  border: 1.5px solid var(--border-subtle);
+  border-radius: 99px;
+  background: var(--bg-card);
+  box-shadow: 0 4px 20px var(--shadow-warm);
+  color: var(--text-secondary);
+  font: 500 14px var(--kr);
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 /* ── 핵심 기능 세 줄 ── */
