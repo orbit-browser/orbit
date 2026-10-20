@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
-import type { OrbitPoint, OrbitScene, OrbitTrack, SessionNode } from './data';
+import type { OrbitPoint, OrbitScene, OrbitTrack } from './data';
+import type { RailRow } from './AtlasRail';
 import { AtlasGallery } from './AtlasGallery';
 import { AtlasRail } from './AtlasRail';
 import {
@@ -122,8 +123,8 @@ interface AtlasCanvasProps {
   onClearSelection: () => void;
   bottomInset: number;
   emptyMessage?: string;
-  /** 지금 세션이 속한 묶음(폴더 또는 정리 안 된 세션들) — 막대가 이 세션들을 줄로 쌓는다. */
-  group?: { name: string; sessions: SessionNode[] } | null;
+  /** 모든 세션을 네비게이터 순서로 이은 줄(그룹 이름과 함께) — 막대가 쌓고 위아래로 넘나든다. */
+  railRows?: RailRow[] | null;
   onSelectSession?: (sessionId: string) => void;
 }
 
@@ -136,7 +137,7 @@ export function AtlasCanvas({
   onClearSelection,
   bottomInset,
   emptyMessage,
-  group,
+  railRows,
   onSelectSession,
 }: AtlasCanvasProps) {
   /*
@@ -557,7 +558,7 @@ export function AtlasCanvas({
     setLayers((previous) => {
       const current = previous.find((layer) => !layer.leaving);
       if ((current?.key ?? null) === (live?.key ?? null)) return previous;
-      const order = group?.sessions.map((session) => session.id) ?? [];
+      const order = railRows?.map((row) => row.session.id) ?? [];
       const from = current ? order.indexOf(current.sessionId) : -1;
       const to = live ? order.indexOf(live.sessionId) : -1;
       // 아래 세션으로 가면 새 갤러리가 아래에서 올라오고 지금 갤러리는 위로 밀려난다. 위로 가면 반대.
@@ -600,7 +601,7 @@ export function AtlasCanvas({
           points={live.track.points}
           selectedPointId={selectedPointId}
           onSelectPoint={(pointId) => onSelectPoint(pointId, live.track.sessionId)}
-          group={group ?? null}
+          rows={railRows ?? null}
           currentSessionId={live.sessionId}
           onSelectSession={(sessionId) => onSelectSession?.(sessionId)}
           positionRef={railPositionRef}

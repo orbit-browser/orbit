@@ -1421,6 +1421,17 @@ body.atlas-resizing .atlas-nav__resizer::after {
   white-space: nowrap;
 }
 
+/* 이웃 그룹의 줄 — 그룹 이름을 작은 꼬리표로 */
+.atlas-rail__row-group {
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--bg-sunken);
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
 .atlas-rail__row--current .atlas-rail__title {
   color: var(--text-primary);
   font-size: 13px;

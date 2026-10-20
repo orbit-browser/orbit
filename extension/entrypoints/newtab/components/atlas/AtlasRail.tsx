@@ -5,6 +5,12 @@ import { ringDelta } from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
+/** 막대의 한 줄 — 세션과 그 세션이 속한 그룹(폴더 이름, 없으면 "정리 안 된 세션") */
+export interface RailRow {
+  session: SessionNode;
+  group: string;
+}
+
 /** 이웃한 점 사이 간격(px) */
 const DOT_GAP = 34;
 /** 가운데에서 이만큼(칸)까지 또렷하고, 그 바깥 한 칸 동안 사라진다 */
@@ -37,8 +43,8 @@ interface AtlasRailProps {
   points: OrbitPoint[];
   selectedPointId: string | null;
   onSelectPoint: (pointId: string) => void;
-  /** 지금 세션이 속한 묶음. 없으면 지금 세션 한 줄만 그린다. */
-  group: { name: string; sessions: SessionNode[] } | null;
+  /** 모든 세션을 네비게이터 순서로 이은 줄. 없으면 지금 세션 한 줄만 그린다. */
+  rows: RailRow[] | null;
   currentSessionId: string;
   onSelectSession: (sessionId: string) => void;
   /** 갤러리가 프레임마다 위치를 넘겨 주는 통로. 막대가 여기에 점 배치 함수를 건다. */
@@ -50,8 +56,9 @@ interface AtlasRailProps {
  *
  * 가운데 줄이 지금 세션이다. 점 하나가 페이지 하나이고, 고른 페이지가 늘 가운데에 온다.
  * 점을 누르거나 막대를 옆으로 끌면 페이지를 옮기고, 갤러리를 끌면 점도 함께 돈다.
- * 위·아래 줄은 같은 묶음(폴더) 안의 다른 세션이다 — 누르거나 ↑↓ 로 옮겨 가면 줄들이
- * 미끄러져 지금 세션이 다시 가운데 줄에 선다.
+ * 위·아래 줄은 네비게이터 순서의 이웃 세션이다 — 그룹 끝에서는 이웃 그룹의 세션이 이어지고,
+ * 그 줄에는 그룹 이름이 붙는다. 누르거나 ↑↓ 로 옮겨 가면 줄들이 미끄러져 지금 세션이 다시
+ * 가운데 줄에 선다.
  */
 export function AtlasRail({
   title,
@@ -59,7 +66,7 @@ export function AtlasRail({
   points,
   selectedPointId,
   onSelectPoint,
-  group,
+  rows: railRows,
   currentSessionId,
   onSelectSession,
   positionRef,
@@ -81,9 +88,11 @@ export function AtlasRail({
     };
   }, [total, positionRef, currentSessionId]);
 
-  const rows = group?.sessions ?? [];
-  const currentRow = Math.max(0, rows.findIndex((session) => session.id === currentSessionId));
+  const rows = railRows ?? [];
+  const currentRow = Math.max(0, rows.findIndex((row) => row.session.id === currentSessionId));
   const stacked = rows.length > 0;
+  const currentGroup = rows[currentRow]?.group;
+  const groupSize = rows.filter((row) => row.group === currentGroup).length;
 
   const currentTrack = (
     <div
@@ -133,7 +142,7 @@ export function AtlasRail({
     <div className="atlas-rail" style={{ '--rail-hue': hue } as React.CSSProperties}>
       {stacked && (
         <div className="atlas-rail__group">
-          {group?.name} · 세션 {rows.length}개
+          {currentGroup} · 세션 {groupSize}개
         </div>
       )}
       <div className="atlas-rail__window">
@@ -142,9 +151,11 @@ export function AtlasRail({
           style={{ transform: `translateY(${(1 - (stacked ? currentRow : 0)) * ROW_H}px)` }}
         >
           {stacked ? (
-            rows.map((session, index) => {
+            rows.map(({ session, group }, index) => {
               const distance = Math.abs(index - currentRow);
               const current = index === currentRow;
+              // 다른 그룹의 줄이면 그룹 이름을 붙여 경계를 알린다.
+              const otherGroup = group !== currentGroup;
               return (
                 <div
                   key={session.id}
@@ -162,7 +173,10 @@ export function AtlasRail({
                         },
                       })}
                 >
-                  <span className="atlas-rail__title" title={session.title}>{session.title}</span>
+                  <span className="atlas-rail__title" title={`${group} · ${session.title}`}>
+                    {otherGroup && <span className="atlas-rail__row-group">{group}</span>}
+                    {session.title}
+                  </span>
                   {current ? (
                     currentTrack
                   ) : (

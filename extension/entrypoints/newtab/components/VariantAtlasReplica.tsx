@@ -241,31 +241,27 @@ export function VariantAtlasReplica() {
   );
 
   /**
-   * 지금 보고 있는 세션이 속한 묶음 — 그 세션의 폴더, 폴더가 없으면 정리 안 된 세션들.
-   * 갤러리 위 막대가 이 세션들을 줄로 쌓고, ↑↓ 는 이 안에서만 오간다.
+   * 모든 세션을 네비게이터 순서대로(폴더별, 그다음 정리 안 된 세션) 한 줄로 이은 것.
+   * 갤러리 위 막대가 이 줄을 쌓아 보여 주고, ↑↓ 는 그룹 끝에서 다음·이전 그룹으로 넘어간다.
    */
-  const group = useMemo(() => {
-    if (!activeSession) return null;
-    const folder = activeSession.folderId
-      ? sortedFolders.find((candidate) => candidate.id === activeSession.folderId)
-      : undefined;
-    const members = folder ? folder.sessions : sortedUnfiled;
-    // 필터(공유한 사람)로 지금 세션이 목록에서 빠졌으면 묶음을 그리지 않는다.
-    if (!members.some((session) => session.id === activeSession.id)) return null;
-    return { name: folder?.name ?? '정리 안 된 세션', sessions: members };
-  }, [activeSession, sortedFolders, sortedUnfiled]);
+  const railRows = useMemo(
+    () => [
+      ...sortedFolders.flatMap((folder) => folder.sessions.map((session) => ({ session, group: folder.name }))),
+      ...sortedUnfiled.map((session) => ({ session, group: '정리 안 된 세션' })),
+    ],
+    [sortedFolders, sortedUnfiled],
+  );
+  const onRail = !!activeSession && railRows.some((row) => row.session.id === activeSession.id);
 
-  /** 묶음 안에서 위·아래 세션으로. 폴더 화면이면 그 폴더 안에서 펼친 궤도를 바꾼다. */
-  const stepInGroup = useCallback(
+  /** 위·아래 세션으로 — 그룹 끝이면 이웃 그룹의 첫(또는 마지막) 세션으로 넘어간다. */
+  const stepSession = useCallback(
     (direction: 1 | -1) => {
-      if (!group || !activeSession) return;
-      const index = group.sessions.findIndex((session) => session.id === activeSession.id);
-      const next = group.sessions[index + direction];
-      if (!next) return;
-      if (focusedFolder) patch({ selectedSessionId: next.id, selectedPageId: null });
-      else selectSession(next.id);
+      if (!activeSession) return;
+      const index = railRows.findIndex((row) => row.session.id === activeSession.id);
+      const next = railRows[index + direction];
+      if (next) selectSession(next.session.id);
     },
-    [group, activeSession, focusedFolder, patch, selectSession],
+    [activeSession, railRows, selectSession],
   );
 
   /*
@@ -292,7 +288,7 @@ export function VariantAtlasReplica() {
         event.preventDefault();
         const direction = event.key === 'ArrowDown' ? 1 : -1;
         // 세션을 보고 있으면 그 묶음 안에서만, 폴더 전체를 보고 있으면 네비게이터 순서대로.
-        if (group) stepInGroup(direction);
+        if (onRail) stepSession(direction);
         else stepVertically(direction);
         return;
       }
@@ -304,7 +300,7 @@ export function VariantAtlasReplica() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedPageId, patch, stepVertically, group, stepInGroup]);
+  }, [selectedPageId, patch, stepVertically, onRail, stepSession]);
 
   return (
     <div
@@ -359,11 +355,8 @@ export function VariantAtlasReplica() {
             onSelectTrack={openTrack}
             onClearSelection={() => patch({ selectedPageId: null, selectedSessionId: null })}
             bottomInset={activeSession ? TRAY_INSET : 40}
-            group={group}
-            onSelectSession={(sessionId) => {
-              if (focusedFolder) patch({ selectedSessionId: sessionId, selectedPageId: null });
-              else selectSession(sessionId);
-            }}
+            railRows={onRail ? railRows : null}
+            onSelectSession={selectSession}
           />
         )}
 
