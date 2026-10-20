@@ -23,6 +23,9 @@ MAX_ISSUES = 3
 # 첫 문장에서 못 찾았다고 답한 경우는 값을 단정하지 않으므로 검증하지 않는다.
 _REFUSAL = re.compile(r"찾지 못|확인되지 않|나와 있지 않|적혀 있지 않|기록에 없")
 _FIRST_SENTENCE = re.compile(r"^.*?(?:[.!?](?:\s|$)|\n|$)", re.S)
+# 프롬프트가 계산값을 빼라고 해도 가끔 넣는다. 계산 결과가 우연히 다른 대상의 값과 같으면(지원 기간 차이 12개월 =
+# 지자체 예시 12개월) 혼동으로 잘못 걸린다.
+_COMPUTED_SUBJECT = re.compile(r"차이|합계|합산|총합|평균")
 logger = logging.getLogger(__name__)
 
 VERIFY_SYSTEM_PROMPT = """\
@@ -75,7 +78,7 @@ def mismatched_claims(raw: str) -> list[AskVerificationIssue]:
     result = _Verification.model_validate(extract_json(raw))
     issues: dict[str, AskVerificationIssue] = {}
     for claim in result.claims:
-        if claim.same or not claim.record_subject.strip():
+        if claim.same or not claim.record_subject.strip() or _COMPUTED_SUBJECT.search(claim.answer_subject):
             continue
         # 혼동은 그 값이 기록에 다른 대상의 값으로 실제로 적혀 있을 때다. 인용에 값이 없으면 검증기가 계산값
         # (차이·합계)이나 엉뚱한 원문을 고른 것이라 쓰지 않는다.

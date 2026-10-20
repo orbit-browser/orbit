@@ -21,6 +21,7 @@ def test_mismatched_claims_keeps_only_quoted_different_subjects():
         _claim("10개", quote=""),  # 원문 없는 값은 검증기가 못 찾은 것과 구분되지 않는다
         _claim("70%", record=" "),
         _claim("12개월", quote="지원 기간: 최대 24개월"),  # 계산값(차이)은 인용에 없다
+        _claim("12개월", quote="지역마다 상이(예: 12개월)", answer="두 제도의 지원 기간 차이"),  # 우연히 같은 계산값
     )
 
     issues = verifier.mismatched_claims(raw)
