@@ -1,0 +1,111 @@
+{
+  "status": "측정 진행 중",
+  "updated": null,
+  "source": "benchmarks/exhibition-2026/benchmark_results.csv (경쟁·벤치마크팀, 아직 도착 전)",
+  "metrics": [
+    {
+      "code": "A",
+      "title": "Vector Retrieval Latency",
+      "ko": "벡터 검색 지연",
+      "scope": "질의 임베딩 뒤 Qdrant 코사인 검색과 권한 SQL까지",
+      "values": [
+        {
+          "label": "p50",
+          "value": null,
+          "unit": "ms",
+          "status": "pending"
+        },
+        {
+          "label": "p95",
+          "value": null,
+          "unit": "ms",
+          "status": "pending"
+        }
+      ],
+      "note": null
+    },
+    {
+      "code": "B",
+      "title": "Natural Language Search Latency",
+      "ko": "자연어 검색 전체 시간",
+      "scope": "입력부터 결과 표시까지 · LLM 리랭킹 켬과 끔을 나눠 잰다",
+      "values": [
+        {
+          "label": "리랭킹 끔 p50",
+          "value": null,
+          "unit": "ms",
+          "status": "pending"
+        },
+        {
+          "label": "리랭킹 켬 p50",
+          "value": null,
+          "unit": "ms",
+          "status": "pending"
+        }
+      ],
+      "note": null
+    },
+    {
+      "code": "C",
+      "title": "Retrieval Quality",
+      "ko": "검색 품질",
+      "scope": "정답 세션이 있는 자연어 질문 기준",
+      "values": [
+        {
+          "label": "Recall@5",
+          "value": null,
+          "unit": "%",
+          "status": "pending"
+        },
+        {
+          "label": "Top-1",
+          "value": null,
+          "unit": "%",
+          "status": "pending"
+        },
+        {
+          "label": "MRR",
+          "value": null,
+          "unit": "",
+          "status": "pending",
+          "digits": 2
+        }
+      ],
+      "note": null
+    },
+    {
+      "code": "D",
+      "title": "Long-History Scalability",
+      "ko": "기록이 쌓일 때의 검색",
+      "scope": "세션 수에 따른 지연 · 오래된 기록 검색 성공률",
+      "values": [
+        {
+          "label": "오래된 기록 성공률",
+          "value": null,
+          "unit": "%",
+          "status": "pending"
+        }
+      ],
+      "note": null
+    }
+  ],
+  "scaling": [],
+  "method": [
+    {
+      "label": "데이터셋",
+      "value": null
+    },
+    {
+      "label": "측정 환경",
+      "value": null
+    },
+    {
+      "label": "테스트 조건",
+      "value": null
+    },
+    {
+      "label": "측정 날짜",
+      "value": null
+    }
+  ]
+}

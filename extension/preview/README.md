@@ -38,3 +38,8 @@ Windows 에서는 크롬 경로만 다르다: `"C:\Program Files\Google\Chrome\A
 ## 디자인 방향 시안
 
 `/preview/mockups/` — 같은 합성 데이터로 홈·아틀라스·팀 범위를 조작해 보는 방향 시안 ①기록 보관소 ②탐색 표본 ③관측 장비. 시안의 글꼴은 Google Fonts 에서 불러온다(미리보기 전용. 확장에 들일 때는 로컬 번들로 넣는다).
+
+## 결선 전시 현수막
+
+`/preview/exhibition/` — AI Rookie 결선 부스의 세로 현수막 3장(950 × 2,380mm). 나란히 보기·확대·안전 여백·인쇄용 정적 모드·
+인쇄 파일 내보내기(`node preview/exhibition/export.mjs`). 자세한 것은 `exhibition/README.md`.
