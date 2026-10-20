@@ -36,7 +36,7 @@ def test_decide_auto_only_when_confident():
     assert fc.decide(_match(0.46)) == "suggest"  # 점수 부족
     assert fc.decide(_match(0.50, margin=0.05)) == "suggest"  # 2위 폴더와 가까움
     assert fc.decide(_match(0.50, members=1)) == "suggest"  # 근거 세션 1개
-    assert fc.decide(_match(0.37)) is None
+    assert fc.decide(_match(0.39)) is None
     assert fc.decide(None) is None
 
 

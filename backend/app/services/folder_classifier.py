@@ -21,11 +21,12 @@ from ..db.vector import get_vector, score_sessions
 # (이직 = 공고 + 면접 후기)도 평균 벡터보다 잘 맞춘다.
 TOP_MEMBERS = 2
 # ponytail: real-eval 21세션 leave-one-out + ask-eval 8세션 실측(2026-10-20). 폴더가 있는 세션 0.394~0.580,
-# 폴더 없는 세션 최고 0.27~0.36, 애매한 다른 여행(제주→강릉) 0.447. 데이터가 늘면 재조정.
+# 폴더 없는 세션 최고 0.27~0.36, 애매한 다른 여행(제주→강릉) 0.447. 근거 세션이 하나뿐인 폴더는 최고 점수만 보여
+# 무관한 세션이 0.386까지 올라(김치찌개 → 맛집이 섞인 강릉 여행) 제안 기준은 0.40. 데이터가 늘면 재조정.
 AUTO_MIN_SCORE = 0.47
 AUTO_MIN_MARGIN = 0.12
 AUTO_MIN_MEMBERS = 2
-SUGGEST_MIN_SCORE = 0.38
+SUGGEST_MIN_SCORE = 0.40
 # 근거·제안 대상 상한(최근 활동 순). 한 번에 Qdrant에 보내는 id 수를 묶어 둔다.
 MAX_EVIDENCE_SESSIONS = 500
 MAX_SUGGESTION_SESSIONS = 50

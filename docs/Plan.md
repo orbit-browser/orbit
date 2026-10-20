@@ -1,6 +1,6 @@
 # Atlas 폴더 자동 분류 (확실하면 자동, 애매하면 제안)
 
-**상태:** 진행 중 (2026-10-20)
+**상태:** 구현 완료 (2026-10-20)
 **브랜치:** `feat/folder-auto-classify`
 
 ## 작업 목표
@@ -26,7 +26,7 @@
 - `sessions.folder_assigned_by`(`user`|`auto`|NULL) 컬럼과 멱등 마이그레이션. 배정 API는 `user`, 빼기는 NULL 폴더 + `user`,
   폴더 삭제는 NULL/NULL.
 - `services/folder_classifier.py`: 폴더 점수(사용자가 넣은 세션만 근거, 자동 배정 세션은 근거에서 제외), 판정
-  (자동: 점수 ≥ 0.47·2위와 차이 ≥ 0.12·근거 세션 ≥ 2, 제안: 점수 ≥ 0.38).
+  (자동: 점수 ≥ 0.47·2위와 차이 ≥ 0.12·근거 세션 ≥ 2, 제안: 점수 ≥ 0.40).
 - 배치 끝에 이번 배치에서 만들어지거나 바뀐 미정리·미결정 세션만 자동 배정(`auto_folder_enabled`, 기본 켜짐).
 - `GET /folders/suggestions`, `POST /folders/suggestions/{session_id}/dismiss`, `SessionDetail.folder_assigned_by`,
   설정 `auto_folder_enabled`.
