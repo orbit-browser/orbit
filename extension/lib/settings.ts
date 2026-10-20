@@ -61,14 +61,17 @@ export function updateSettings(partial: Partial<OrbitSettings>): Promise<OrbitSe
 }
 
 /** chrome.storage.onChanged을 래핑 — 다른 컨텍스트(SW ↔ 사이드패널)의 설정 변경을 구독한다. */
-export function subscribeSettings(cb: (settings: OrbitSettings) => void): () => void {
+export function subscribeSettings(
+  cb: (settings: OrbitSettings, previous: OrbitSettings) => void,
+): () => void {
   const listener = (
     changes: Record<string, chrome.storage.StorageChange>,
     areaName: string,
   ) => {
     if (areaName !== 'local' || !(STORAGE_KEY in changes)) return;
     const saved = changes[STORAGE_KEY].newValue as Partial<OrbitSettings> | undefined;
-    cb({ ...DEFAULT_SETTINGS, ...saved });
+    const previous = changes[STORAGE_KEY].oldValue as Partial<OrbitSettings> | undefined;
+    cb({ ...DEFAULT_SETTINGS, ...saved }, { ...DEFAULT_SETTINGS, ...previous });
   };
   chrome.storage.onChanged.addListener(listener);
   return () => chrome.storage.onChanged.removeListener(listener);

@@ -1,9 +1,10 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import { resolveAssistantRoute, resolveOpenTabAction, streamAsk } from '../../../lib/api';
+import { onSessionChange } from '../../../lib/auth';
 import { activateOpenTab, getAllOpenTabs } from '../../../lib/chrome-bridge';
 import { isSensitiveUrl } from '../../../lib/sensitive-domains';
-import { getSettings } from '../../../lib/settings';
+import { getSettings, subscribeSettings } from '../../../lib/settings';
 import {
   findBestOpenTab,
   parseOpenTabNavigationIntent,
@@ -27,8 +28,10 @@ export interface AskTurn {
 interface AskConversationState {
   turns: AskTurn[];
   isStreaming: boolean;
+  workspaceId: string | null;
 }
 
+const EMPTY_TURNS: AskTurn[] = [];
 let turnSequence = 0;
 let activeController: AbortController | null = null;
 let activeTurnId: string | null = null;
@@ -38,7 +41,24 @@ const nextTurnId = () => `ask-${Date.now()}-${turnSequence++}`;
 const useAskConversationStore = create<AskConversationState>(() => ({
   turns: [],
   isStreaming: false,
+  workspaceId: null,
 }));
+
+function resetConversation(workspaceId = useAskConversationStore.getState().workspaceId) {
+  activeController?.abort();
+  activeController = null;
+  activeTurnId = null;
+  useAskConversationStore.setState({ turns: [], isStreaming: false, workspaceId });
+}
+
+// 마운트 여부와 무관하게 다른 화면에서 바꾼 계정·범위도 즉시 반영한다.
+// 저장소 이벤트의 이전 값을 비교하므로 초기 조회와 변경 알림 사이의 경합이 없다.
+onSessionChange((session, previous) => {
+  if (session?.user.id !== previous?.user.id) resetConversation();
+});
+subscribeSettings((settings, previous) => {
+  if (settings.activeWorkspaceId !== previous.activeWorkspaceId) resetConversation();
+});
 
 export function getAskConversationSnapshot(): AskConversationState {
   return useAskConversationStore.getState();
@@ -91,6 +111,7 @@ async function runSemanticOpenTabCommand(
   const excludeSensitive = await getSettings()
     .then((settings) => settings.excludeSensitive)
     .catch(() => true);
+  signal.throwIfAborted();
   const semanticCandidates = excludeSensitive
     ? tabs.filter((tab) => !isSensitiveUrl(tab.url))
     : tabs;
@@ -105,8 +126,10 @@ async function runSemanticOpenTabCommand(
   try {
     resolved = await resolveOpenTabAction(query, semanticCandidates, signal);
   } catch {
+    signal.throwIfAborted();
     return null;
   }
+  signal.throwIfAborted();
   if (resolved.reason === 'non_navigation') return null;
   if (resolved.action !== 'navigate_tab' || !resolved.tabId) {
     const candidateTabs = resolved.candidates
@@ -155,6 +178,7 @@ async function routeAskRequest(
   let tabs: OpenTabItem[] | null = null;
   if (localIntent) {
     tabs = await getAllOpenTabs();
+    signal.throwIfAborted();
     if (tabs.length === 0) {
       return {
         intent: 'search_memory',
@@ -197,13 +221,16 @@ async function routeAskRequest(
   try {
     route = await resolveAssistantRoute(query, sessionId, signal);
   } catch {
+    signal.throwIfAborted();
     return { command: null, intent: sessionId ? 'search_session' : 'search_memory' };
   }
+  signal.throwIfAborted();
   if (route.intent !== 'navigate_tab') {
     return { command: null, intent: route.intent };
   }
 
   tabs = await getAllOpenTabs();
+  signal.throwIfAborted();
   if (tabs.length === 0) {
     return {
       intent: 'search_memory',
@@ -226,24 +253,33 @@ export function useAskConversation({
   /** 주면 그 팀에 공유된 세션만 근거로 답한다. 열린 탭 이동은 범위와 무관하게 내 브라우저에서 한다. */
   workspaceId?: string;
 } = {}) {
-  const turns = useAskConversationStore((state) => state.turns);
-  const isStreaming = useAskConversationStore((state) => state.isStreaming);
+  const scopeId = workspaceId ?? null;
+  const previousScopeId = useRef(scopeId);
+  // 범위 prop이 바뀐 첫 렌더에서도 이전 범위의 답변을 내보내지 않는다.
+  const turns = useAskConversationStore((state) => state.workspaceId === scopeId ? state.turns : EMPTY_TURNS);
+  const isStreaming = useAskConversationStore((state) => state.workspaceId === scopeId && state.isStreaming);
+
+  useEffect(() => {
+    // 재마운트 직후에는 팀 설정을 읽기 전이라 임시로 개인 범위일 수 있다.
+    if (previousScopeId.current !== scopeId && useAskConversationStore.getState().workspaceId !== scopeId) {
+      resetConversation(scopeId);
+    }
+    previousScopeId.current = scopeId;
+  }, [scopeId]);
 
   const cancel = useCallback(() => {
     cancelActiveTurn();
   }, []);
 
   const startNewConversation = useCallback(() => {
-    activeController?.abort();
-    activeController = null;
-    activeTurnId = null;
-    useAskConversationStore.setState({ turns: [], isStreaming: false });
-  }, []);
+    resetConversation(scopeId);
+  }, [scopeId]);
 
   const ask = useCallback(async (rawQuery: string) => {
     const query = rawQuery.trim();
     if (!query) return;
 
+    if (useAskConversationStore.getState().workspaceId !== scopeId) resetConversation(scopeId);
     if (activeController) cancelActiveTurn();
     const id = nextTurnId();
     const controller = new AbortController();
@@ -270,6 +306,7 @@ export function useAskConversation({
     let terminalEvent = false;
     try {
       const routed = await routeAskRequest(query, sessionId, controller.signal);
+      if (controller.signal.aborted) return;
       const command = routed.command;
       if (command !== null) {
         terminalEvent = true;
@@ -292,6 +329,7 @@ export function useAskConversation({
         intent: routed.intent,
         workspaceId,
       }, controller.signal)) {
+        if (controller.signal.aborted) return;
         if (event.type === 'sources') {
           updateTurn(id, (turn) => ({ ...turn, sources: event.sessions }));
         } else if (event.type === 'delta' && event.text) {
@@ -334,7 +372,7 @@ export function useAskConversation({
         useAskConversationStore.setState({ isStreaming: false });
       }
     }
-  }, [rerank, sessionId, workspaceId]);
+  }, [rerank, sessionId, workspaceId, scopeId]);
 
   const selectTabCandidate = useCallback(async (turnId: string, tabId: string) => {
     updateTurn(turnId, (turn) => ({ ...turn, tabCandidateError: null }));

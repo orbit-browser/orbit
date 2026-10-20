@@ -67,13 +67,19 @@ export async function clearSession(): Promise<void> {
 }
 
 /** 로그인 상태 변화 구독 — 다른 컨텍스트(사이드패널↔새 탭)의 로그인/로그아웃을 반영한다. */
-export function onSessionChange(listener: (session: AuthSession | null) => void): () => void {
+export function onSessionChange(
+  listener: (session: AuthSession | null, previous: AuthSession | null) => void,
+): () => void {
   const handler = (
     changes: Record<string, chrome.storage.StorageChange>,
     area: string,
   ) => {
     if (area !== 'local' || !(STORAGE_KEY in changes)) return;
-    listener((changes[STORAGE_KEY].newValue as AuthSession | undefined) ?? null);
+    const change = changes[STORAGE_KEY];
+    listener(
+      (change.newValue as AuthSession | undefined) ?? null,
+      (change.oldValue as AuthSession | undefined) ?? null,
+    );
   };
   chrome.storage.onChanged.addListener(handler);
   return () => chrome.storage.onChanged.removeListener(handler);

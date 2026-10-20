@@ -9,8 +9,8 @@ export function TopNavBar() {
   const askOpen = useUIStore((s) => s.askOpen);
   const closeAsk = useUIStore((s) => s.closeAsk);
   const setView = useUIStore((s) => s.setView);
-  const { turns, startNewConversation } = useAskConversation();
   const { scopeId } = useActiveWorkspace();
+  const { turns, startNewConversation } = useAskConversation({ workspaceId: scopeId ?? undefined });
 
   // Ask 답변 화면이 올라와 있는 동안에는 탭 대신 그 화면의 헤더 역할을 한다.
   if (askOpen) {
