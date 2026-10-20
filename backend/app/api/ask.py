@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.llm import StreamInterruptedError, chat_completion_stream_with_meta
@@ -17,6 +18,7 @@ from ..services.ask_service import (
     AskContext,
     prepare_ask_context,
 )
+from ..services.workspaces import session_scope_clause
 from .deps import current_user_id
 from .search import _search_sessions_by_vector
 from .sessions import _owned_session, _to_detail
@@ -37,27 +39,30 @@ async def _resolve_sources(
     user_id: str,
     shared_ids: list[str] | None = None,
 ) -> list[SessionDetail]:
-    """답변 근거로 쓸 세션을 고른다. **반드시 요청자 소유 세션만** 대상으로 한다.
+    """개인은 소유 세션, 팀은 현재 유효한 공유 세션만 답변 근거로 고른다.
 
-    팀 범위(shared_ids)에서는 그 팀에 공유된 세션만 대상으로 한다.
+    shared_ids 는 벡터 후보를 좁힐 뿐, SQL 권한 판정에는 쓰지 않는다.
     """
     if body.session_id:
         # 소유권 확인을 거친다 — 남의 세션 id 로 그 내용을 요약해 받아갈 수 있으면 안 된다.
-        if shared_ids is None:
+        if body.workspace_id is None:
             session = await _owned_session(db, body.session_id, user_id)
-        elif body.session_id in shared_ids:
-            session = await db.get(SessionModel, body.session_id)
         else:
-            session = None
+            session = await db.scalar(
+                select(SessionModel).where(
+                    SessionModel.id == body.session_id,
+                    session_scope_clause(user_id, body.workspace_id),
+                )
+            )
         if session is None or session.status == "merged":
             raise HTTPException(status_code=404, detail="Session not found")
-        return [_to_detail(session, include_private=shared_ids is None)]
+        return [_to_detail(session, include_private=body.workspace_id is None)]
 
     limit = (
         5 if body.intent == "find_sessions" else 1 if body.intent == "search_session" else 3
     )
     return await _search_sessions_by_vector(
-        body.query, limit, body.rerank, db, user_id, shared_ids
+        body.query, limit, body.rerank, db, user_id, shared_ids, body.workspace_id
     )
 
 
@@ -126,7 +131,7 @@ async def stream_answer(
     shared_ids = await team_shared_ids(db, user_id, body.workspace_id)
     sources = await _resolve_sources(body, db, user_id, shared_ids)
     context = await prepare_ask_context(
-        db, body.query, sources, user_id, body.intent, shared_ids
+        db, body.query, sources, user_id, body.intent, body.workspace_id
     )
     return StreamingResponse(
         _answer_events(request, context),

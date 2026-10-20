@@ -184,7 +184,7 @@ def test_answer_events_for_session_discovery_skips_generation(monkeypatch):
 def test_source_count_follows_retrieval_intent(monkeypatch):
     limits: list[int] = []
 
-    async def fake_search(_query, limit, _rerank, _db, _user_id, _shared_ids=None):
+    async def fake_search(_query, limit, _rerank, _db, _user_id, _shared_ids=None, _workspace_id=None):
         limits.append(limit)
         return []
 
@@ -210,7 +210,7 @@ def test_prepare_context_falls_back_when_event_embedding_fails(monkeypatch):
         ),
     )
 
-    async def fake_load(_db, _session_ids, _user_id, _shared_ids=None):
+    async def fake_load(_db, _session_ids, _user_id, _workspace_id=None):
         return {source.session_id: SimpleNamespace(tabs=[])}, [row]
 
     async def fail_rank(_query, _rows):

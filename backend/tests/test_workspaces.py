@@ -362,21 +362,26 @@ def test_shares_count_only_while_sharer_is_member():
     assert re.search(r"workspace_members_\d+\.user_id = workspace_sessions\.shared_by", _sql(db.executed[2]))
 
 
-def test_scope_clause_switches_between_owner_and_shared_ids():
+def test_scope_clause_switches_between_owner_and_current_team_access():
     personal = _sql(workspace_service.session_scope_clause("u1", None))
-    team = _sql(workspace_service.session_scope_clause("u1", ["s1", "s2"]))
+    team = _sql(workspace_service.session_scope_clause("u1", _WS))
     assert personal == "sessions.user_id = 'u1'"
-    assert team == "sessions.id IN ('s1', 's2')"
+    assert "sessions.id IN (SELECT workspace_sessions.session_id" in team
+    assert f"workspace_sessions.workspace_id = '{_WS}'" in team
+    assert re.search(r"workspace_members_\d+\.user_id = 'u1'", team)
+    assert re.search(r"workspace_members_\d+\.user_id = workspace_sessions\.shared_by", team)
+    assert "sessions.status != 'merged'" in team
 
 
 def test_team_keyword_search_reads_only_events_in_shared_sessions():
     """세션에 묶이지 않은 방문, 공유하지 않은 세션의 방문은 팀 검색에 나오면 안 된다."""
     db = _FakeDB(results=[_Result(rows=[])])
 
-    asyncio.run(search._fetch_keyword_matched_events(db, "q", set(), _MEMBER, ["s1"]))
+    asyncio.run(search._fetch_keyword_matched_events(db, "q", set(), _MEMBER, _WS))
 
     where = _where(db.executed[0])
-    assert "session_events.session_id IN ('s1')" in where
+    assert "sessions.id IN (SELECT workspace_sessions.session_id" in where
+    assert f"workspace_sessions.workspace_id = '{_WS}'" in where
     assert "exploration_events.user_id" not in where
 
 
@@ -386,7 +391,7 @@ def test_team_vector_search_skips_embedding_when_nothing_shared(monkeypatch):
 
     monkeypatch.setattr(search, "embed", fail_embed)
 
-    result = asyncio.run(search._search_sessions_by_vector("q", 5, False, None, _MEMBER, []))
+    result = asyncio.run(search._search_sessions_by_vector("q", 5, False, None, _MEMBER, [], _WS))
 
     assert result == []
 
@@ -421,7 +426,9 @@ def test_team_vector_search_with_empty_ids_does_not_query(monkeypatch):
 
 
 def _ask_body(session_id=None):
-    return SimpleNamespace(session_id=session_id, query="질문", rerank=False, intent="search_memory")
+    return SimpleNamespace(
+        session_id=session_id, query="질문", rerank=False, intent="search_memory", workspace_id=_WS,
+    )
 
 
 def test_team_ask_rejects_session_not_shared_with_team():
@@ -433,20 +440,21 @@ def test_team_ask_rejects_session_not_shared_with_team():
 
 
 def test_team_ask_accepts_shared_session_of_teammate():
-    db = _FakeDB(sessions_by_id={"s1": _session("s1", _OWNER)})
+    db = _FakeDB(scalar=_session("s1", _OWNER))
     (source,) = asyncio.run(ask._resolve_sources(_ask_body("s1"), db, _MEMBER, ["s1"]))
     assert source.session_id == "s1"
 
 
-def test_team_ask_context_loads_by_shared_ids_not_owner():
+def test_team_ask_context_loads_by_current_team_access_not_owner():
     from app.services import ask_service
 
     db = _FakeDB(results=[_Result(items=[])])
 
-    asyncio.run(ask_service._load_context_records(db, ["s1"], _MEMBER, ["s1", "s2"]))
+    asyncio.run(ask_service._load_context_records(db, ["s1"], _MEMBER, _WS))
 
     where = _where(db.executed[0])
-    assert "sessions.id IN ('s1', 's2')" in where
+    assert "sessions.id IN (SELECT workspace_sessions.session_id" in where
+    assert f"workspace_sessions.workspace_id = '{_WS}'" in where
     assert "sessions.user_id" not in where
 
 
@@ -519,7 +527,7 @@ def test_team_search_results_hide_private_fields(monkeypatch):
     monkeypatch.setattr(search, "search_similar", fake_search)
     db = _FakeDB(results=[_Result(items=[_session("s1")])])
 
-    (result,) = asyncio.run(search._search_sessions_by_vector("q", 5, False, db, _MEMBER, ["s1"]))
+    (result,) = asyncio.run(search._search_sessions_by_vector("q", 5, False, db, _MEMBER, ["s1"], _WS))
 
     assert result.folder_id is None
 

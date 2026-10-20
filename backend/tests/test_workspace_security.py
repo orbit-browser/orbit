@@ -256,13 +256,13 @@ def test_team_search_executes_shared_sql_despite_unfiltered_vector_results(api, 
 
 
 def test_keyword_sql_excludes_unshared_and_unassigned_events(db):
-    rows = asyncio.run(search._fetch_keyword_matched_events(db, "record", set(), "bob", ["shared"]))
-    assert [row["event_id"] for row in rows] == ["event-shared"]
+    rows = asyncio.run(search._fetch_keyword_matched_events(db, "record", set(), "bob", "alpha"))
+    assert {row["event_id"] for row in rows} == {"event-shared", "event-bob-shared"}
 
 
-def test_ask_context_sql_rechecks_shared_ids(db):
+def test_ask_context_sql_rechecks_team_scope(db):
     models, rows = asyncio.run(ask_service._load_context_records(
-        db, ["shared", "private", "bob-private", "other-team"], "bob", ["shared"],
+        db, ["shared", "private", "bob-private", "other-team"], "bob", "alpha",
     ))
     assert set(models) == {"shared"}
     assert [event.id for _, event in rows] == ["event-shared"]
@@ -291,6 +291,115 @@ def test_empty_team_search_and_ask_do_not_fall_back_to_personal(api):
     assert response.status_code == 200
     assert '"sessions":[]' in response.text
     assert "excerpt-" not in response.text
+
+
+@pytest.mark.parametrize("endpoint", ["search", "ask"])
+def test_revocation_during_embedding_excludes_departed_sharers_records(api, db, monkeypatch, endpoint):
+    async def revoke_before_retrieval(_query):
+        await workspaces.remove_member("alpha", "bob", db, "alice")
+        return [0.1]
+
+    monkeypatch.setattr(search, "embed", revoke_before_retrieval)
+    if endpoint == "search":
+        response = api("GET", "/search?q=record&scope=memory&workspace_id=alpha", user="alice")
+    else:
+        response = api("POST", "/ask/stream", user="alice", json={
+            "query": "record", "workspace_id": "alpha", "rerank": False,
+        })
+    assert response.status_code == 200
+    assert db.sync.get(WorkspaceMember, ("alpha", "bob")) is None
+    assert "bob-shared" not in response.text
+
+
+@pytest.mark.parametrize("endpoint", ["sessions", "memory", "keyword", "ask", "find_sessions"])
+@pytest.mark.parametrize("revocation", ["viewer", "unshare", "sharer_membership", "merged", "leave"])
+def test_team_scope_rechecks_access_after_embedding(api, db, monkeypatch, endpoint, revocation):
+    async def revoke_before_retrieval(_query):
+        if revocation == "viewer":
+            await workspaces.remove_member("alpha", "bob", db, "alice")
+        elif revocation == "unshare":
+            await workspaces.unshare_session("alpha", "bob-shared", db, "bob")
+        elif revocation == "sharer_membership":
+            # A concurrent share can leave a row behind after the sharer leaves.
+            db.sync.delete(db.sync.get(WorkspaceMember, ("alpha", "bob")))
+            db.sync.commit()
+        elif revocation == "merged":
+            db.sync.get(Session, "bob-shared").status = "merged"
+            db.sync.commit()
+        else:
+            await workspaces.remove_member("alpha", "bob", db, "bob")
+        return [0.1]
+
+    async def no_vector_matches(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(search, "embed", revoke_before_retrieval)
+    if endpoint == "keyword":
+        monkeypatch.setattr(search, "search_similar", no_vector_matches)
+    user = "bob" if revocation == "viewer" else "alice"
+    if endpoint in {"ask", "find_sessions"}:
+        response = api("POST", "/ask/stream", user=user, json={
+            "query": "record", "workspace_id": "alpha", "rerank": False,
+            "intent": "find_sessions" if endpoint == "find_sessions" else "search_memory",
+        })
+    else:
+        scope = "sessions" if endpoint == "sessions" else "memory"
+        response = api("GET", f"/search?q=record&scope={scope}&workspace_id=alpha", user=user)
+    assert response.status_code == 200
+    assert "bob-shared" not in response.text
+    if revocation == "viewer":
+        assert "record-shared" not in response.text
+        assert "summary-shared" not in response.text
+        assert "event-shared" not in response.text
+    else:
+        assert "record-shared" in response.text
+
+
+def test_team_explicit_ask_rechecks_access_after_admission(api, db, monkeypatch):
+    original = ask.team_shared_ids
+
+    async def unshare_after_admission(database, user, workspace):
+        ids = await original(database, user, workspace)
+        await workspaces.unshare_session("alpha", "bob-shared", db, "bob")
+        return ids
+
+    monkeypatch.setattr(ask, "team_shared_ids", unshare_after_admission)
+    response = api("POST", "/ask/stream", user="alice", json={
+        "query": "record", "workspace_id": "alpha", "session_id": "bob-shared",
+    })
+    assert response.status_code == 404
+    assert "bob-shared" not in response.text
+
+
+@pytest.mark.parametrize("intent", ["search_memory", "find_sessions"])
+def test_team_ask_drops_sources_revoked_before_context_load(api, db, monkeypatch, intent):
+    original = ask._resolve_sources
+
+    async def unshare_after_resolution(*args, **kwargs):
+        sources = await original(*args, **kwargs)
+        await workspaces.unshare_session("alpha", "bob-shared", db, "bob")
+        return sources
+
+    monkeypatch.setattr(ask, "_resolve_sources", unshare_after_resolution)
+    response = api("POST", "/ask/stream", user="alice", json={
+        "query": "record", "workspace_id": "alpha", "session_id": "bob-shared", "intent": intent,
+    })
+    assert response.status_code == 200
+    assert '"sessions":[]' in response.text
+    assert "bob-shared" not in response.text
+
+
+def test_team_search_relevance_events_recheck_access_after_reranking(api, db, monkeypatch):
+    async def unshare_during_rerank(_query, candidates):
+        await workspaces.unshare_session("alpha", "bob-shared", db, "bob")
+        return candidates
+
+    monkeypatch.setattr(search, "llm_rerank", unshare_during_rerank)
+    response = api(
+        "GET", "/search?q=record&scope=memory&workspace_id=alpha&rerank=true", user="alice",
+    )
+    assert response.status_code == 200
+    assert {row["event_id"] for row in response.json()["events"]} == {"event-shared"}
 
 
 _TEAM_ACTIONS = [

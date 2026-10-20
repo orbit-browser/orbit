@@ -127,28 +127,28 @@ async def _load_context_records(
     db: AsyncSession,
     session_ids: list[str],
     user_id: str,
-    shared_ids: list[str] | None = None,
+    workspace_id: str | None = None,
 ) -> tuple[dict[str, SessionModel], list[tuple[SessionEvent, ExplorationEvent]]]:
     if not session_ids:
         return {}, []
 
-    # 소유자(팀 범위면 공유 세션) 조건은 이중 방어다 — 호출측이 이미 걸렀더라도 여기서 한 번 더 막는다.
-    session_result = await db.execute(
-        select(SessionModel).where(
+    # 세션과 본문을 한 SQL로 읽어 두 조회 사이의 권한 철회도 오래된 근거로 남지 않게 한다.
+    result = await db.execute(
+        select(SessionModel, SessionEvent, ExplorationEvent)
+        .outerjoin(SessionEvent, SessionEvent.session_id == SessionModel.id)
+        .outerjoin(ExplorationEvent, SessionEvent.event_id == ExplorationEvent.id)
+        .where(
             SessionModel.id.in_(session_ids),
-            session_scope_clause(user_id, shared_ids),
+            session_scope_clause(user_id, workspace_id),
         )
     )
-    session_models = {session.id: session for session in session_result.scalars().all()}
-    if not session_models:
-        return {}, []
-
-    event_result = await db.execute(
-        select(SessionEvent, ExplorationEvent)
-        .join(ExplorationEvent, SessionEvent.event_id == ExplorationEvent.id)
-        .where(SessionEvent.session_id.in_(session_models))
-    )
-    return session_models, list(event_result.all())
+    session_models: dict[str, SessionModel] = {}
+    event_rows: list[tuple[SessionEvent, ExplorationEvent]] = []
+    for session, session_event, event in result.all():
+        session_models[session.id] = session
+        if session_event is not None and event is not None:
+            event_rows.append((session_event, event))
+    return session_models, event_rows
 
 
 def _session_block(
@@ -214,15 +214,16 @@ async def prepare_ask_context(
     sources: list[SessionDetail],
     user_id: str,
     intent: AssistantRetrievalIntent = "search_memory",
-    shared_ids: list[str] | None = None,
+    workspace_id: str | None = None,
 ) -> AskContext:
     source_limit = 5 if intent == "find_sessions" else MAX_SOURCES
     limited_sources = sources[:source_limit]
+    session_ids = [source.session_id for source in limited_sources]
+    session_models, event_rows = await _load_context_records(db, session_ids, user_id, workspace_id)
+    limited_sources = [source for source in limited_sources if source.session_id in session_models]
     if intent == "find_sessions":
         return AskContext(sources=limited_sources, prompt="", intent=intent)
 
-    session_ids = [source.session_id for source in limited_sources]
-    session_models, event_rows = await _load_context_records(db, session_ids, user_id, shared_ids)
     try:
         events_by_session = await rank_context_events(query, event_rows)
     except Exception:

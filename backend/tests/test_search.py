@@ -130,7 +130,7 @@ def test_select_session_relevance_events_caps_overall_at_ten():
 
 def test_fetch_session_relevance_events_returns_empty_without_db_call_when_no_sessions():
     async def scenario():
-        return await search._fetch_session_relevance_events(db=None, session_ids=[])
+        return await search._fetch_session_relevance_events(db=None, session_ids=[], user_id="u1")
 
     assert asyncio.run(scenario()) == []
 
@@ -144,7 +144,7 @@ def test_fetch_session_relevance_events_maps_orm_rows_and_scores():
     )
     db = _FakeDB(_AllResult([(session_event, event, "일본 도쿄 여행 준비")]))
 
-    result = asyncio.run(search._fetch_session_relevance_events(db, ["sess-1"]))
+    result = asyncio.run(search._fetch_session_relevance_events(db, ["sess-1"], "u1"))
 
     assert result == [
         {
@@ -203,7 +203,7 @@ def test_fetch_keyword_matched_events_caps_at_ten():
 def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch):
     visited_at = datetime(2026, 7, 20, 10, 5, tzinfo=timezone.utc)
 
-    async def fake_relevance(_db, session_ids):
+    async def fake_relevance(_db, session_ids, _user_id, _workspace_id=None):
         assert session_ids == ["sess-1"]
         return [
             {
@@ -213,7 +213,7 @@ def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch)
             }
         ]
 
-    async def fake_keyword(_db, _q, exclude_ids, _user_id, _shared_ids=None):
+    async def fake_keyword(_db, _q, exclude_ids, _user_id, _workspace_id=None):
         assert exclude_ids == {"e1"}
         return [
             {
@@ -240,10 +240,10 @@ def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch)
 def test_search_sessions_scope_memory_wraps_sessions_and_events(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None, _workspace_id=None):
         return [session]
 
-    async def fake_memory_events(_db, _q, _sessions, _user_id, _shared_ids=None):
+    async def fake_memory_events(_db, _q, _sessions, _user_id, _workspace_id=None):
         return []
 
     monkeypatch.setattr(search, "_search_sessions_by_vector", fake_by_vector)
@@ -260,10 +260,10 @@ def test_search_sessions_scope_memory_wraps_sessions_and_events(monkeypatch):
 def test_search_sessions_scope_memory_event_query_failure_still_returns_sessions(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None, _workspace_id=None):
         return [session]
 
-    async def failing_memory_events(_db, _q, _sessions):
+    async def failing_memory_events(_db, _q, _sessions, _user_id, _workspace_id=None):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(search, "_search_sessions_by_vector", fake_by_vector)
@@ -280,7 +280,7 @@ def test_search_sessions_scope_memory_event_query_failure_still_returns_sessions
 def test_search_sessions_scope_sessions_default_returns_bare_list(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None, _workspace_id=None):
         return [session]
 
     monkeypatch.setattr(search, "_search_sessions_by_vector", fake_by_vector)

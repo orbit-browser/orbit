@@ -12,6 +12,7 @@ from datetime import timedelta
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.elements import ColumnElement
 
 from ..db.models import Session as SessionModel
 from ..db.models import WorkspaceMember, WorkspaceSession
@@ -88,12 +89,24 @@ async def shared_workspaces(db: AsyncSession, session_ids: list[str]) -> dict[st
     return dict(by_session)
 
 
-def session_scope_clause(user_id: str, shared_ids: list[str] | None):
+def session_scope_clause(user_id: str, workspace_id: str | None) -> ColumnElement[bool]:
     """검색·Ask가 읽을 세션 조건.
 
-    shared_ids 가 있으면 팀 범위(그 팀에 공유된 세션만), 없으면 요청자 소유 세션이다.
-    팀 범위에서도 요청자 자신의 공유 안 된 세션은 섞지 않는다 — 화면이 보여 주는 범위와 같게.
+    팀 권한은 외부 API 대기 중 바뀔 수 있어, 미리 구한 id 대신 같은 SQL 안에서 판정한다.
+    workspace_id 가 없으면 요청자 소유 세션만, 있으면 현재 그 팀에 유효한 공유만 읽는다.
     """
-    if shared_ids is not None:
-        return SessionModel.id.in_(shared_ids)
-    return SessionModel.user_id == user_id
+    if workspace_id is None:
+        return SessionModel.user_id == user_id
+
+    viewer = aliased(WorkspaceMember)
+    sharer = aliased(WorkspaceMember)
+    shared = (
+        select(WorkspaceSession.session_id)
+        .join(
+            viewer,
+            and_(viewer.workspace_id == WorkspaceSession.workspace_id, viewer.user_id == user_id),
+        )
+        .join(sharer, sharer_is_member(sharer))
+        .where(WorkspaceSession.workspace_id == workspace_id)
+    )
+    return and_(SessionModel.id.in_(shared), SessionModel.status != "merged")

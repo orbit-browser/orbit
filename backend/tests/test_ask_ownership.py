@@ -58,6 +58,7 @@ def _session(user_id=_OWNER, status="active"):
 def _body(session_id=None, query="질문", intent="search_memory"):
     return SimpleNamespace(
         session_id=session_id,
+        workspace_id=None,
         query=query,
         rerank=False,
         intent=intent,
@@ -107,7 +108,7 @@ def test_vector_search_receives_requesting_user(monkeypatch):
     """세션을 지목하지 않으면 벡터 검색으로 근거를 찾는데, 그 검색도 소유자 범위여야 한다."""
     captured = {}
 
-    async def fake_search(query, limit, rerank, db, user_id, shared_ids=None):
+    async def fake_search(query, limit, rerank, db, user_id, shared_ids=None, workspace_id=None):
         captured.update(query=query, limit=limit, rerank=rerank, user_id=user_id, shared_ids=shared_ids)
         return []
 
