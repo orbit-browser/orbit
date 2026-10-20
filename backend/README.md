@@ -64,7 +64,9 @@ pip install -e ".[dev]"                # 또는 uv sync
 uvicorn app.main:app --reload
 ```
 
-`GET /health`로 기동 확인. 테스트는 `pytest` (backend 디렉터리에서 실행).
+`GET /health`로 기동 확인. 테스트는 `python -m pytest -p no:asyncio` (backend 디렉터리에서 실행).
+`tests/conftest.py`가 SQLAlchemy의 실제 DB 연결을 차단하며, 서비스가 연결 예외를 잡아도
+시험 종료 시 실패로 처리한다. DB를 쓰는 의존성은 각 시험에서 대역으로 교체해야 한다.
 
 > `summary_status`/`embedding_status` 컬럼이 추가되었습니다. `create_all`은 기존 테이블에
 > 컬럼을 자동으로 추가하지 않으므로, 기존 로컬 DB가 있다면 `docker compose down -v` 후

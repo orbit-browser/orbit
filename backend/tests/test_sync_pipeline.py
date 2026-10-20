@@ -168,7 +168,7 @@ def test_run_batch_returns_immediately_and_holds_lock_until_background_done(monk
 
 
 def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
-    calls: dict = {"set_status": [], "complete": [], "refresh": []}
+    calls: dict = {"set_status": [], "complete": [], "refresh": [], "invalidate": []}
 
     def fake_dedupe(events):
         return events, []
@@ -197,24 +197,29 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
         assert user_id == "u1"  # 배치 주인의 설정을 읽는다
         return False
 
+    async def fake_invalidate_recommendations(user_id: str) -> None:
+        calls["invalidate"].append(user_id)
+
     monkeypatch.setattr(sync_pipeline, "dedupe_events", fake_dedupe)
     monkeypatch.setattr(sync_pipeline, "group_by_time_gap", fake_group_by_time_gap)
     monkeypatch.setattr(sync_pipeline, "_process_group", fake_process_group)
     monkeypatch.setattr(sync_pipeline, "_set_status", fake_set_status)
     monkeypatch.setattr(sync_pipeline, "refresh_session_ai", fake_refresh)
     monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
+    monkeypatch.setattr(sync_pipeline, "invalidate_recommendations", fake_invalidate_recommendations)
     monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
 
     asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}, {"id": "b"}], "u1"))
 
     assert (["a"], "pending") in calls["set_status"]
     assert calls["refresh"] == ["sess-ok"]
+    assert calls["invalidate"] == ["u1"]
     # 감사 필드는 그룹별 모델 카운트 요약(성공 그룹 1개 → "model-x:1")
     assert calls["complete"] == [("batch-1", 2, "model-x:1")]
 
 
 def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
-    calls: dict = {"set_status": []}
+    calls: dict = {"set_status": [], "invalidate": []}
 
     def fake_dedupe(events):
         return events[:1], ["dup-1"]
@@ -229,15 +234,20 @@ def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
         assert user_id == "u1"  # 배치 주인의 설정을 읽는다
         return False
 
+    async def fake_invalidate_recommendations(user_id: str) -> None:
+        calls["invalidate"].append(user_id)
+
     monkeypatch.setattr(sync_pipeline, "dedupe_events", fake_dedupe)
     monkeypatch.setattr(sync_pipeline, "group_by_time_gap", lambda *a, **k: [])
     monkeypatch.setattr(sync_pipeline, "_set_status", fake_set_status)
     monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
+    monkeypatch.setattr(sync_pipeline, "invalidate_recommendations", fake_invalidate_recommendations)
     monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
 
     asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}], "u1"))
 
     assert (["dup-1"], "processed") in calls["set_status"]
+    assert calls["invalidate"] == ["u1"]
 
 
 def test_process_batch_exception_fails_batch(monkeypatch):
