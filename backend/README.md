@@ -126,7 +126,10 @@ Qdrant 검색 장애는 503으로 반환하며 내부 예외 상세는 API 응�
 
 - 의도 분석은 A.X-K2가 정확도 87.6% 대 78.8%, JSON 유효율 100% 대 87.4%로 앞섰다. 1순위의
   rate limit(429)·지연·빈 응답은 `max_retries=0` + 12초 타임아웃으로 즉시 EXAONE에 넘긴다.
-- A.X 게이트웨이는 3 RPS 제한이 있어 모든 LLM 호출을 전역 최소 간격 리미터로 직렬화한다.
+- 모든 LLM 호출은 전역 최소 간격 리미터(`_MIN_CALL_INTERVAL` 0.5초 = 최대 2 RPS)로 직렬화한다.
+  A.X 게이트웨이의 "3 RPS 제한"(A.X-K1 시절 안내값)에 맞춘 값이다. 2026-10-23 실측(`eval/probe_rate_limit.py`)에서는
+  A.X-K2 짧은 요청(max_tokens 8)을 1→2→3→4→6 RPS로 단계마다 10초씩 보냈다. 160회가 모두 성공했고(성공 지연 p50 약 140ms),
+  429와 `x-ratelimit-*` 헤더는 없었다. 긴 요청과 분 단위 한도는 재지 않았다.
 - `K-EXAONE`은 FriendliAI dedicated endpoint(`EXAONE_MODEL` = endpoint ID)로 호출하며,
   hybrid reasoning 모델이라 `chat_template_kwargs.enable_thinking=false`를 항상 보낸다.
   끄지 않으면 출력 토큰을 추론 트레이스가 소진해 content가 비어 온다.

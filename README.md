@@ -75,9 +75,12 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
   (warm p95 2,471ms)를 대체로 둔다. 탭 묶기도 K2 87.3% → KT 82.8% 순이다. Ask 답변은 맹검 심판에서 EXAONE이
   근거 일치 144/144로 K2와 차이가 없고 첫 글자 p95가 480ms 빨라 1순위다. 요약·리랭크는 K2가 앞선다.
   한 공급자가 중단돼도 기능은 유지된다.
-- **호출 제약 대응** — A.X 게이트웨이의 3 RPS 제한 때문에 LLM 호출은 전역 레이트 리미터
-  (`ai/llm.py: _throttle`)로 직렬화한다. 방문 이벤트마다 LLM을 호출하지 않고 동기화
-  시점에 배치로만 분석하는 설계도 같은 제약에서 나왔다.
+- **호출 제약 대응** — LLM 호출은 전역 최소 간격 리미터(`ai/llm.py: _throttle`, 0.5초 = 최대 2 RPS)로
+  직렬화한다. 처음에는 A.X 게이트웨이의 "3 RPS 제한"(A.X-K1 시절 안내값)에 맞춘 것이다. 2026-10-23에
+  A.X-K2를 짧은 요청(max_tokens 8)으로 1→2→3→4→6 RPS, 단계마다 10초씩 보내 재 보니
+  6 RPS까지 160회 모두 성공했다. 429도, 한도 응답 헤더도 없었다(`backend/eval/probe_rate_limit.py`).
+  긴 요청과 분 단위 한도는 재지 않았다. 방문 이벤트마다 LLM을 호출하지 않고 동기화 시점에 배치로만
+  분석하는 설계는 호출량과 비용을 줄이려는 것이다.
 - **EXAONE 서빙 경로** — K-EXAONE을 FriendliAI dedicated endpoint(팀 전용, B200×2)로
   호출한다. FriendliAI serverless가 2026-08-20 K-EXAONE 제공을 끝내 dedicated로 옮겼다.
   `EXAONE_MODEL` 에는 모델명 대신 endpoint ID를 넣는다. K-EXAONE은 hybrid reasoning 모델이라 분류·요약
