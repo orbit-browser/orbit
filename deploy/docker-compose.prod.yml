@@ -1,7 +1,10 @@
 # Orbit 공용 서버 묶음. 사용법과 운영 절차는 docs/deploy.md.
 #   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
-# postgres·qdrant·backend 는 내부 네트워크에만 있고, 밖으로는 caddy 의 80·443만 연다.
-name: ${COMPOSE_PROJECT_NAME:-orbit}
+# 노트북 모드는 같은 파일에 --env-file .env.laptop 을 준다(docs/deploy.md '노트북 모드').
+# postgres·qdrant 는 data 망에만 있고, 밖으로는 caddy 의 80·443만 연다.
+# 기본 프로젝트 이름을 orbit 으로 두지 않는다: 저장소 루트의 개발용 docker-compose.yml 이
+# 폴더 이름(orbit)을 프로젝트 이름으로 써서 볼륨(orbit_pgdata)이 겹친다.
+name: ${COMPOSE_PROJECT_NAME:-orbit-prod}
 
 services:
   postgres:
@@ -18,7 +21,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [internal]
+    networks: [data]
 
   qdrant:
     # 버전은 백엔드 qdrant-client(1.19)와 호환되는 서버로 고정한다.
@@ -28,13 +31,13 @@ services:
       QDRANT__TELEMETRY_DISABLED: "true"
     volumes:
       - qdrantdata:/qdrant/storage
-    networks: [internal]
+    networks: [data]
 
   backend:
     build: ../backend
     image: orbit-backend:${ORBIT_IMAGE_TAG:-latest}
     restart: unless-stopped
-    env_file: .env.production
+    env_file: ${ENV_FILE:-.env.production}
     environment:
       # 접속 주소는 compose 가 정한다. .env.production 의 같은 키보다 우선한다.
       DATABASE_URL: postgresql+asyncpg://orbit:${POSTGRES_PASSWORD}@postgres:5432/orbit
@@ -44,7 +47,12 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
-    networks: [internal]
+    # 앱은 디스크에 쓰지 않는다. /tmp 는 qdrant_snapshot.py load 의 임시 파일용.
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [edge, data]
 
   caddy:
     image: caddy:2.10.2-alpine
@@ -53,19 +61,23 @@ services:
       ORBIT_DOMAIN: ${ORBIT_DOMAIN:?ORBIT_DOMAIN is required}
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
     ports:
-      # 리허설은 HTTP_PORT·HTTPS_PORT 로 다른 포트를 쓴다. 운영은 기본값 80·443.
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
-      - "${HTTPS_PORT:-443}:443/udp"
+      # 운영은 기본값(모든 주소의 80·443). 노트북·리허설은 BIND_ADDR=127.0.0.1 과 다른 포트를 쓴다.
+      - "${BIND_ADDR:-0.0.0.0}:${HTTP_PORT:-80}:80"
+      - "${BIND_ADDR:-0.0.0.0}:${HTTPS_PORT:-443}:443"
+      - "${BIND_ADDR:-0.0.0.0}:${HTTPS_PORT:-443}:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data
       - caddyconfig:/config
     depends_on: [backend]
-    networks: [internal]
+    # caddy 는 backend 만 본다. 뚫려도 API 키 없는 qdrant·postgres 에 바로 닿지 않게 망을 나눈다.
+    networks: [edge]
 
 networks:
-  internal: {}
+  edge: {}
+  # postgres·qdrant 는 밖으로 나갈 일이 없다. backend 는 edge 망으로 AI 공급자에 나간다.
+  data:
+    internal: true
 
 volumes:
   pgdata:

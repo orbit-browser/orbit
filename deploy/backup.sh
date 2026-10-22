@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Postgres 덤프와 Qdrant 스냅샷을 deploy/backups/<시각>/ 에 받고, 최근 KEEP 개만 남긴다.
+# Postgres 덤프와 Qdrant 스냅샷을 $BACKUP_DIR/<시각>/ 에 받고, 최근 KEEP 개만 남긴다.
 # cron 예: 30 3 * * * cd /opt/orbit/deploy && ./backup.sh >> backups/backup.log 2>&1
+# 노트북 모드: ENV_FILE=.env.laptop BACKUP_DIR=~/OrbitLaptopBackups ./backup.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 
 KEEP="${KEEP:-14}"
-DC=(docker compose -f docker-compose.prod.yml --env-file .env.production)
+ENV_FILE="${ENV_FILE:-.env.production}"
+BACKUP_DIR="${BACKUP_DIR:-backups}"
+DC=(docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE")
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-DEST="backups/$STAMP"
+DEST="$BACKUP_DIR/$STAMP"
 SNAPSHOT_PY="$(cat qdrant_snapshot.py)"
 
 umask 077
@@ -25,4 +28,4 @@ for f in "$DEST"/*; do
 done
 echo "backup ok: $DEST ($(du -sh "$DEST" | cut -f1))"
 
-ls -1d backups/2*/ 2>/dev/null | sort -r | tail -n +"$((KEEP + 1))" | while read -r old; do rm -rf "$old"; done
+ls -1d "$BACKUP_DIR"/2*/ 2>/dev/null | sort -r | tail -n +"$((KEEP + 1))" | while read -r old; do rm -rf "$old"; done
