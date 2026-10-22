@@ -823,6 +823,8 @@ export async function* streamAsk(
       yield { type: 'sources', sessions: sessions.map(mapSession) };
     } else if (frame.event === 'delta') {
       yield { type: 'delta', text: typeof data.text === 'string' ? data.text : '' };
+    } else if (frame.event === 'replace') {
+      yield { type: 'replace', text: typeof data.text === 'string' ? data.text : '' };
     } else if (frame.event === 'done') {
       yield { type: 'done', model: typeof data.model === 'string' ? data.model : null };
     } else if (frame.event === 'error') {

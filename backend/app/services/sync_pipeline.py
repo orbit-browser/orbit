@@ -23,7 +23,7 @@ from ..db.vector import delete_point, search_similar_with_scores
 from ..services import intent_analyzer
 from ..services.event_filter import is_system_url
 from ..services.intent_analyzer import Assignment
-from ..services.noise_filter import split_noise
+from ..services.noise_filter import domain_counts, has_topic_evidence, split_noise
 from ..services.grouper import dedupe_events, group_by_time_gap
 from ..services.app_settings import is_auto_merge_enabled
 from ..services.merge_service import auto_merge_duplicates
@@ -339,6 +339,30 @@ def _gate_appends(assignments: list[Assignment], candidates: list[dict]) -> list
     return gated
 
 
+def _guard_discards(
+    assignments: list[Assignment], events: list[dict], counts: dict[str, int]
+) -> list[Assignment]:
+    """LLM discard 가드(순수 함수) — 주제 근거가 있는 이벤트는 폐기하지 않고 create로 돌린다.
+
+    LLM 호출은 늘지 않는다. 근거 없는 나머지 이벤트의 discard는 그대로 둔다.
+    """
+    guarded: list[Assignment] = []
+    for assignment in assignments:
+        if assignment.action != "discard":
+            guarded.append(assignment)
+            continue
+        rescued = [i for i in assignment.event_indices if has_topic_evidence(events[i], counts)]
+        if not rescued:
+            guarded.append(assignment)
+            continue
+        logger.info("LLM discard overridden for %d events with topic evidence", len(rescued))
+        dropped = [i for i in assignment.event_indices if i not in rescued]
+        if dropped:
+            guarded.append(replace(assignment, event_indices=dropped))
+        guarded.append(replace(assignment, event_indices=rescued, action="create", target=None))
+    return guarded
+
+
 async def _process_group(
     group: list[dict], batch_id: str, touched: set[str], user_id: str
 ) -> list[str]:
@@ -356,6 +380,7 @@ async def _process_group(
 
     # 노이즈 사전 필터 — 스침 방문(로그인 화면·습관성 도메인·고립 루트)을 LLM 호출 전에
     # 결정적으로 discard한다(LLM 판정 변동성 회피, DecisionLog 2026-08-05).
+    counts = domain_counts(filtered_group)
     filtered_group, noise_ids = split_noise(filtered_group)
     discarded_ids.extend(noise_ids)
 
@@ -380,6 +405,7 @@ async def _process_group(
         candidates = await _fetch_candidates(centroid, user_id)
         assignments = await intent_analyzer.analyze(cluster_events, candidates)
         assignments = _gate_appends(assignments, candidates)
+        assignments = _guard_discards(assignments, cluster_events, counts)
         pending.append((cluster_events, assignments))
         models_used.extend(a.model for a in assignments if a.model)
 

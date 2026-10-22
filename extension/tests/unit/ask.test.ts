@@ -63,6 +63,38 @@ describe('Ask AI request', () => {
     conversation!.startNewConversation();
   });
 
+  it('스트리밍한 본문을 서버 replace 이벤트로 통째로 바꾼다', async () => {
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({
+        'orbit:auth': {
+          token: 'test-token', expiresAt: '2099-01-01T00:00:00.000Z',
+          user: { id: 'u1', email: 'test@example.com', name: '테스트', picture: null },
+        },
+      })) } },
+      tabs: { query: vi.fn(async () => []), update: vi.fn() },
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/assistant/route')) {
+        return new Response(JSON.stringify({ intent: 'search_memory', confidence: 0.4, margin: 0.1, reason: 'semantic' }));
+      }
+      return new Response([
+        'event: sources\ndata: {"sessions":[]}\n\n',
+        'event: delta\ndata: {"text":"그 페이지는 "}\n\n',
+        'event: delta\ndata: {"text":"기록에 없습니다."}\n\n',
+        'event: replace\ndata: {"text":"답변을 확인하지 못해 관련 방문 기록을 대신 표시했어요."}\n\n',
+        'event: done\ndata: {"model":"m"}\n\n',
+      ].join(''));
+    }));
+    let conversation: ReturnType<typeof useAskConversation> | undefined;
+    function Probe() { conversation = useAskConversation(); return null; }
+    renderToString(createElement(Probe));
+    conversation!.startNewConversation();
+    await conversation!.ask('그래픽카드 렌더링 성능 비교 페이지 어디였지?');
+    expect(getAskConversationSnapshot().turns[0].answer).toBe('답변을 확인하지 못해 관련 방문 기록을 대신 표시했어요.');
+    expect(getAskConversationSnapshot().turns[0].status).toBe('done');
+    conversation!.startNewConversation();
+  });
+
   it('현재 질문만 전송하고 이전 질문·답변 필드를 만들지 않는다', async () => {
     let requestBody = '';
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {

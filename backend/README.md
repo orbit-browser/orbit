@@ -102,7 +102,7 @@ uvicorn app.main:app --reload
 | 환경변수 | 기본값 | 설명 |
 |---|---|---|
 | `SEARCH_SCORE_THRESHOLD` | `0.28` | Qdrant cosine 검색의 최소 유사도. 실제 골든셋에 맞춰 `0.0`~`1.0` 범위에서 조정 |
-| `ASSISTANT_ROUTE_NAVIGATION_FLOOR` | `0.35` | Ask 라우터가 탭 이동을 선택할 최소 점수 |
+| `ASSISTANT_ROUTE_NAVIGATION_FLOOR` | `0.20` | Ask 라우터가 탭 이동을 선택할 최소 점수. 격차(`_MARGIN`)와 함께 라우팅 골든셋으로 고른 값 |
 | `ASSISTANT_ROUTE_NAVIGATION_MARGIN` | `0.05` | 탭 이동과 다음 의도의 최소 점수 격차 |
 | `ASSISTANT_ROUTE_RETRIEVAL_MARGIN` | `0.015` | 이보다 모호한 검색 의도는 전체 기록 검색으로 fallback |
 
@@ -141,8 +141,19 @@ Extension은 `usePendingSessionPoller`로 `summary_status`를 폴링해 반영�
 재시도 버튼을 노출한다. 서버가 재시작되면 `lifespan`에서 미완료(`pending`) 세션과
 임베딩 미완료 세션을 자동으로 재처리한다.
 
-저장 임베딩에는 제목, overview, purpose, highlights가 포함된다. 이 변경 전에 생성된 Qdrant
-포인트는 자동 재색인되지 않으므로 제목 검색 효과는 신규 세션과 요약 재처리 세션부터 적용된다.
+저장 임베딩에는 세션 제목, overview, purpose, highlights와 대표 페이지(`tabs`, 최대 20개)의
+페이지 제목·도메인·URL 경로 토큰이 포함된다(예: `react.dev learn preserving and resetting state`).
+LLM 요약이 여러 주제를 한 문단에 섞어도 페이지 단위 질문이 검색되게 하기 위해서다.
+이 변경 전에 생성된 Qdrant 포인트는 자동 재색인되지 않는다. 기존 세션에 적용하려면 백필을 한 번 돌린다.
+
+```bash
+cd backend
+python -m app.services.embedding_sync              # 요약 완료된 모든 세션 재임베딩
+python -m app.services.embedding_sync --user-id <id>  # 한 사용자만
+```
+
+세션마다 embedding-passage 호출이 1회 발생한다(유료, 순차 실행). `backend/.env`의 DB·Qdrant를 대상으로
+하므로 실행 전에 대상 환경을 확인한다. 실패한 세션은 `embedding_status=failed`로 남고 기동 복구가 다시 시도한다.
 
 ## 알려진 미완성 항목
 

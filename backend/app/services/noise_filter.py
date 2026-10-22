@@ -20,6 +20,7 @@ from .event_filter import _is_ai_chat_host
 _AUTH_DWELL_MAX_MS = 60_000
 _HABITUAL_DWELL_MAX_MS = 60_000
 _ISOLATED_ROOT_DWELL_MAX_MS = 30_000
+_TOPIC_EVIDENCE_DWELL_MS = 10_000
 
 # 규칙 1 — 인증/로그인 화면: 탐색 콘텐츠가 아니므로 세션 문맥에 기여하지 않는다.
 # 세그먼트가 login.do, signin.php처럼 확장자를 달고 오는 경우까지 잡는다.
@@ -140,18 +141,38 @@ def is_noise(event: dict, domain_counts: dict[str, int]) -> bool:
     return False
 
 
-def split_noise(group: list[dict]) -> tuple[list[dict], list[str]]:
-    """그룹을 (LLM에 보낼 이벤트, discard할 이벤트 id)로 나눈다."""
-    domain_counts: dict[str, int] = {}
+def domain_counts(group: list[dict]) -> dict[str, int]:
+    counts: dict[str, int] = {}
     for event in group:
         domain = (event.get("domain") or "").lower()
         if domain:
-            domain_counts[domain] = domain_counts.get(domain, 0) + 1
+            counts[domain] = counts.get(domain, 0) + 1
+    return counts
+
+
+def has_topic_evidence(event: dict, counts: dict[str, int]) -> bool:
+    """같은 도메인 반복 + 본문 + 10초 이상 체류 — 스침 방문이 아니라는 결정적 근거.
+
+    노이즈 필터가 도메인 반복으로 구제한 이벤트를 LLM이 문맥 없이(서브클러스터로 떨어져) 폐기하는 것을
+    막는 데 쓴다(UI 시험 2026-10-22, Blender Open Data 2페이지 폐기).
+    """
+    domain = (event.get("domain") or "").lower()
+    dwell = _dwell_ms(event)
+    return (
+        bool(domain) and counts.get(domain, 0) >= 2
+        and bool((event.get("content_excerpt") or "").strip())
+        and dwell is not None and dwell >= _TOPIC_EVIDENCE_DWELL_MS
+    )
+
+
+def split_noise(group: list[dict]) -> tuple[list[dict], list[str]]:
+    """그룹을 (LLM에 보낼 이벤트, discard할 이벤트 id)로 나눈다."""
+    domain_counts_ = domain_counts(group)
 
     kept: list[dict] = []
     noise_ids: list[str] = []
     for event in group:
-        if is_noise(event, domain_counts):
+        if is_noise(event, domain_counts_):
             noise_ids.append(event["id"])
         else:
             kept.append(event)

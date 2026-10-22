@@ -266,6 +266,8 @@ export interface AskStreamRequest {
 export type AskStreamEvent =
   | { type: 'sources'; sessions: Session[] }
   | { type: 'delta'; text: string }
+  /** 서버가 생성 뒤 검사에서 근거와 모순을 찾았을 때 이미 보낸 본문 전체를 바꾼다. */
+  | { type: 'replace'; text: string }
   | { type: 'done'; model: string | null }
   | {
       type: 'error';

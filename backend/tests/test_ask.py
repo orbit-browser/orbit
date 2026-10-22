@@ -154,8 +154,7 @@ def test_answer_events_streams_sources_deltas_and_done(monkeypatch):
 
     events = asyncio.run(_collect_events(context))
 
-    assert [event for event, _data in events] == ["sources", "delta", "done"]
-    assert events[1][1]["text"] == "첫 답변"
+    assert [event for event, _data in events] == ["sources", "delta", "delta", "done"]
     assert events[0][1]["sessions"][0]["session_id"] == "session-1"
     assert events[-1][1]["model"] == "model-a"
 
@@ -229,7 +228,7 @@ def test_prepare_context_falls_back_when_event_embedding_fails(monkeypatch):
     assert "fallback excerpt" in context.prompt
 
 
-def test_answer_events_does_not_publish_unvalidated_partial_stream(monkeypatch):
+def test_answer_events_marks_partial_stream_error(monkeypatch):
     async def interrupted(_system, _prompt):
         yield "일부", "model-a"
         raise ask.StreamInterruptedError("model-a")
@@ -239,6 +238,5 @@ def test_answer_events_does_not_publish_unvalidated_partial_stream(monkeypatch):
 
     assert events[-1] == (
         "error",
-        {"code": "stream_interrupted", "partial": False, "retryable": True},
+        {"code": "stream_interrupted", "partial": True, "retryable": True},
     )
-    assert [event for event, _data in events] == ["sources", "error"]

@@ -1,5 +1,10 @@
+import argparse
+import asyncio
 import logging
+import re
 from collections import defaultdict
+from collections.abc import Sequence
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 
@@ -13,8 +18,24 @@ from ..schemas.session import SessionSummary
 logger = logging.getLogger(__name__)
 
 
-def build_embedding_text(title: str, summary: SessionSummary) -> str:
-    parts = [title, summary.overview, summary.purpose, *summary.highlights]
+_PATH_TOKEN = re.compile(r"[^\W_]+")
+
+
+def _page_terms(tab: dict) -> str:
+    """페이지 제목 + 도메인 + 경로 토큰. 여러 주제가 섞인 LLM 요약에서도 페이지 단위 질문이 걸리게 한다."""
+    url = tab.get("url") or ""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        parts = urlsplit("")
+    host = (parts.hostname or "").removeprefix("www.")
+    # 긴 숫자 id(CNTS_000000000022574 등)는 의미가 없어 뺀다. 5070 같은 짧은 모델 번호는 남긴다.
+    path = " ".join(t for t in _PATH_TOKEN.findall(parts.path) if not (t.isdigit() and len(t) > 6))
+    return " ".join(part for part in ((tab.get("title") or "").strip(), host, path) if part)
+
+
+def build_embedding_text(title: str, summary: SessionSummary, tabs: Sequence[dict] = ()) -> str:
+    parts = [title, summary.overview, summary.purpose, *summary.highlights, *(_page_terms(t) for t in tabs)]
     return " ".join(part.strip() for part in parts if part.strip())
 
 
@@ -22,12 +43,15 @@ async def embed_and_upsert(session_id: str, title: str, summary: SessionSummary)
     """요약 텍스트를 embedding-passage로 임베딩해 Qdrant에 반영. 요약 성공 여부와 독립적으로 상태를 추적."""
     try:
         async with AsyncSessionLocal() as db:
-            user_id = await db.scalar(
-                select(SessionModel.user_id).where(SessionModel.id == session_id)
-            )
-        if user_id is None:
+            row = (
+                await db.execute(
+                    select(SessionModel.user_id, SessionModel.tabs).where(SessionModel.id == session_id)
+                )
+            ).first()
+        if row is None:
             return  # 그 사이 삭제된 세션 — 고아 포인트를 만들지 않는다
-        embed_text = build_embedding_text(title, summary)
+        user_id, tabs = row
+        embed_text = build_embedding_text(title, summary, tabs or [])
         vector = await embed(embed_text, model=settings.embedding_passage_model)
         await upsert_point(session_id, vector, {
             "session_id": session_id,
@@ -76,3 +100,36 @@ async def backfill_owner_payload() -> None:
         )
     except Exception as exc:
         logger.warning("Qdrant 소유자 payload backfill 실패 (%s) — 다음 기동 때 재시도", exc)
+
+
+async def reembed_sessions(user_id: str | None = None) -> int:
+    """요약이 끝난 세션을 현재 임베딩 텍스트 구성으로 다시 임베딩한다(텍스트 구성을 바꾼 뒤 백필용).
+
+    세션마다 임베딩 호출 1회. 순차 실행해 외부 API 제한을 넘지 않는다. 처리한 세션 수를 반환한다.
+    """
+    async with AsyncSessionLocal() as db:
+        query = select(SessionModel.id, SessionModel.title, SessionModel.summary).where(
+            SessionModel.summary_status == "done"
+        )
+        if user_id:
+            query = query.where(SessionModel.user_id == user_id)
+        rows = (await db.execute(query)).all()
+    done = 0
+    for session_id, title, summary in rows:
+        try:
+            parsed = SessionSummary(**(summary or {}))
+        except ValueError:
+            logger.warning("Re-embedding skipped: invalid summary (session_id=%s)", session_id)
+            continue
+        await embed_and_upsert(session_id, title, parsed)
+        done += 1
+    logger.info("Session re-embedding finished: %d of %d sessions", done, len(rows))
+    return done
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Re-embed summarized sessions into Qdrant.")
+    parser.add_argument("--user-id", help="only this user's sessions")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO)
+    print(f"re-embedded {asyncio.run(reembed_sessions(args.user_id))} sessions")

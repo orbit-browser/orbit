@@ -104,11 +104,14 @@ async def _answer_events(
                 return
             model = provider_model
             parts.append(text)
-        # 토큰 단위로 먼저 표시하면 뒤늦게 발견한 근거 모순을 되돌릴 수 없다.
-        # 소스는 즉시 표시하고 답변만 완성 후 검증한다. 추가 LLM 호출은 하지 않는다.
-        answer = grounded_answer("".join(parts), context.sources)
-        emitted = True
-        yield encode_sse("delta", {"text": answer})
+            emitted = True
+            yield encode_sse("delta", {"text": text})
+        # 체감 속도를 위해 본문은 바로 흘려 보낸다. 끝난 뒤 근거와 모순이면(드문 경우)
+        # 이미 보낸 본문을 replace로 통째로 바꾼다. 추가 LLM 호출은 하지 않는다.
+        answer = "".join(parts)
+        checked = grounded_answer(answer, context.sources)
+        if checked != answer:
+            yield encode_sse("replace", {"text": checked})
         yield encode_sse("done", {"model": model})
     except asyncio.CancelledError:
         logger.info("Ask stream cancelled")

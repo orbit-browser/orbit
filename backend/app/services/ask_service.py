@@ -256,19 +256,33 @@ ASK_SYSTEM_PROMPT = """\
 Markdown 표는 사용하지 마세요."""
 
 
+# 방문 자체를 부정하는 문장만 잡는다. "세부 수치는 확인되지 않았다", "비교표 기록은 없지만 …"
+# 같은 한계 표현은 프롬프트가 시키는 말투라 통과시킨다. 영어는 단어 경계로 another·Notion 오탐을 막는다.
 _RECORD_DENIAL = re.compile(
-    r"(?:기록|페이지|세션)(?:이|가|은|는|을|를|에|에서)?\s*(?:전혀\s*|아직\s*)?"
-    r"(?:없|찾지\s*못|찾을\s*수\s*없|남아\s*있지\s*않|존재하지\s*않|확인되지\s*않)"
-    r"|(?:no|could\s*not\s*find|cannot\s*find)[^.!?\n]{0,60}(?:records?|pages?|sessions?|history)",
+    r"(?:기록|페이지|세션)(?:이|가|은|는|을|를|에|에서|에는)?\s*(?:전혀\s*|아직\s*)?"
+    r"(?:없(?!지만|으나|어도|더라도)|찾지\s*못|찾을\s*수\s*없|남아\s*있지\s*않|존재하지\s*않)"
+    r"|\b(?:no|could\s*not\s*find|cannot\s*find|couldn't\s*find)\b[^.!?\n]{0,60}"
+    r"\b(?:records?|pages?|sessions?|history)\b",
     re.IGNORECASE,
 )
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
+_CITATION = re.compile(r"\[\d+\]")
+
+
+def _denies_records(text: str) -> bool:
+    # 근거 번호를 단 문장은 기록을 인용하는 문장이라 부정으로 보지 않는다.
+    return any(
+        _RECORD_DENIAL.search(sentence) and not _CITATION.search(sentence)
+        for sentence in _SENTENCE_BREAK.split(text)
+    )
 
 
 def grounded_answer(text: str, sources: list[SessionDetail]) -> str:
     """이미 표시한 방문 근거와 모순되는 답을 사용자에게 내보내지 않는다."""
-    if text.strip() and not _RECORD_DENIAL.search(text):
+    if text.strip() and not _denies_records(text):
         return text
-    logger.warning("Ask answer rejected: %s", "record denial with sources" if text.strip() else "empty answer")
+    # 대체 횟수를 따로 세기 위한 고정 문구다. 답변 본문은 로그에 남기지 않는다.
+    logger.warning("Ask answer replaced: reason=%s", "record_denial" if text.strip() else "empty_answer")
     lines = ["답변을 확인하지 못해 관련 방문 기록을 대신 표시했어요. 세부 내용은 아래 페이지에서 확인해 주세요."]
     for index, source in enumerate(sources, start=1):
         lines.append(f"- {source.title} [{index}]")

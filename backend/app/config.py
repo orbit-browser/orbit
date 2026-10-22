@@ -52,12 +52,14 @@ class Settings(BaseSettings):
     # 자연어 열린 탭 이동. 세션 검색과 문서 길이/분포가 달라 별도 실제 골든셋으로 조정한다.
     tab_action_intent_score_floor: float = Field(default=0.14, ge=-1.0, le=1.0)
     tab_action_intent_margin: float = Field(default=0.02, ge=0.0, le=2.0)
-    tab_action_match_score_floor: float = Field(default=0.20, ge=-1.0, le=1.0)
+    tab_action_match_score_floor: float = Field(default=0.35, ge=-1.0, le=1.0)
     tab_action_match_margin: float = Field(default=0.06, ge=0.0, le=2.0)
 
     # Ask 통합 의도 라우터. 자동 실행인 탭 이동은 별도 floor/margin을 모두 통과해야 한다.
     # 검색 의도가 모호하면 retrieval_margin 아래에서 search_memory로 안전하게 fallback한다.
-    assistant_route_navigation_floor: float = Field(default=0.35, ge=-1.0, le=1.0)
+    # 0.20/0.05는 라우팅 골든셋 + UI 시험 8문항으로 고른 값이다(탭 이동 8/8, 오이동 0).
+    # 간접 표현 탭 이동은 점수 0.25~0.42·격차 0.08 이상, 오이동 후보는 격차 0.033 이하라 격차가 주 구분선이다.
+    assistant_route_navigation_floor: float = Field(default=0.20, ge=-1.0, le=1.0)
     assistant_route_navigation_margin: float = Field(default=0.05, ge=0.0, le=2.0)
     assistant_route_retrieval_margin: float = Field(default=0.015, ge=0.0, le=2.0)
 

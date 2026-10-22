@@ -321,6 +321,8 @@ export function useAskConversation({
           updateTurn(id, (turn) => ({ ...turn, sources: event.sessions }));
         } else if (event.type === 'delta' && event.text) {
           updateTurn(id, (turn) => ({ ...turn, answer: turn.answer + event.text }));
+        } else if (event.type === 'replace' && event.text) {
+          updateTurn(id, (turn) => ({ ...turn, answer: event.text }));
         } else if (event.type === 'done') {
           terminalEvent = true;
           updateTurn(id, (turn) => ({ ...turn, status: 'done', model: event.model }));

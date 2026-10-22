@@ -19,16 +19,20 @@ class _SessionCtx:
 
 
 class _FakeDB:
-    def __init__(self, owner=None, rows=None):
+    def __init__(self, owner=None, rows=None, tabs=None):
         self.owner = owner
         self.rows = rows or []
+        self.tabs = tabs or []
         self.session = SimpleNamespace(embedding_status="pending")
 
     async def scalar(self, _stmt):
         return self.owner
 
     async def execute(self, _stmt):
-        return SimpleNamespace(all=lambda: self.rows)
+        return SimpleNamespace(
+            all=lambda: self.rows,
+            first=lambda: (self.owner, self.tabs) if self.owner else None,
+        )
 
     async def get(self, _model, _pk):
         return self.session if self.owner else None
@@ -60,6 +64,35 @@ def test_embed_and_upsert_stores_owner_in_payload(monkeypatch):
     assert upserts[0][0] == "s1"
     assert upserts[0][1]["user_id"] == "u1"
     assert db.session.embedding_status == "done"
+
+
+def test_embedding_text_includes_page_titles_and_url_paths(monkeypatch):
+    # UI trial: the React session summary mixed six topics and missed the reset/sharing questions.
+    db = _FakeDB(owner="u1", tabs=[
+        {"title": "Preserving and Resetting State – React",
+         "url": "https://react.dev/learn/preserving-and-resetting-state"},
+        {"title": "Jeju", "url": "https://www.visitjeju.net/en/detail/view?contentsid=CNTS_000000000022574"},
+    ])
+    texts: list[str] = []
+
+    async def fake_embed(text, model):
+        texts.append(text)
+        return [0.1]
+
+    async def fake_upsert(*_args):
+        pass
+
+    monkeypatch.setattr(embedding_sync, "AsyncSessionLocal", lambda: _SessionCtx(db))
+    monkeypatch.setattr(embedding_sync, "embed", fake_embed)
+    monkeypatch.setattr(embedding_sync, "upsert_point", fake_upsert)
+
+    asyncio.run(embedding_sync.embed_and_upsert("s1", "React 상태 관리 심화 학습", _summary()))
+
+    assert texts == [
+        "React 상태 관리 심화 학습 개요 목적 "
+        "Preserving and Resetting State – React react.dev learn preserving and resetting state "
+        "Jeju visitjeju.net en detail view"
+    ]
 
 
 def test_embed_and_upsert_skips_deleted_session(monkeypatch):
@@ -118,3 +151,18 @@ def test_backfill_failure_does_not_block_startup(monkeypatch):
     monkeypatch.setattr(embedding_sync, "point_ids_missing_owner", failing_missing)
 
     asyncio.run(embedding_sync.backfill_owner_payload())  # 예외를 올리지 않는다
+
+
+def test_reembed_sessions_reuses_embed_and_upsert(monkeypatch):
+    full = {"overview": "개요", "purpose": "목적", "highlights": []}
+    db = _FakeDB(rows=[("s1", "제목1", full), ("broken", "제목2", None), ("s2", "제목3", full)])
+    calls: list = []
+
+    async def fake_embed_and_upsert(session_id, title, summary):
+        calls.append((session_id, title, summary.overview))
+
+    monkeypatch.setattr(embedding_sync, "AsyncSessionLocal", lambda: _SessionCtx(db))
+    monkeypatch.setattr(embedding_sync, "embed_and_upsert", fake_embed_and_upsert)
+
+    assert asyncio.run(embedding_sync.reembed_sessions()) == 2
+    assert calls == [("s1", "제목1", "개요"), ("s2", "제목3", "개요")]

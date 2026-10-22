@@ -7,19 +7,22 @@
 import logging
 import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from ..ai.json_utils import extract_json
 from ..ai.llm import chat_completion_intent
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v5"
+# v6: 이벤트 줄에 URL 경로를 더했다(제목이 같은 페이지를 구분).
+PROMPT_VERSION = "v6"
 
 _VALID_ACTIONS = {"append", "create", "hold", "discard"}
 _CANDIDATE_LABEL_RE = re.compile(r"^S(\d+)$")
 
 _MAX_TITLE_CHARS = 50
 _MAX_OVERVIEW_CHARS = 80
+_MAX_PATH_CHARS = 60
 
 _SYSTEM_PROMPT = """\
 당신은 사용자의 브라우저 방문 이벤트를 분석해 탐색 세션으로 묶는 AI입니다.
@@ -120,6 +123,13 @@ def _format_event_line(index: int, event: dict) -> str:
     time_str = visited_at.strftime("%H:%M") if visited_at else ""
 
     line = f"[{index}] {title} | {domain} | 체류 {duration_min}분 | {time_str}"
+    # 같은 사이트의 페이지는 제목이 같은 경우가 많다(예: "Blender - Open Data"). 경로로 구분한다.
+    try:
+        path = urlsplit(event.get("url") or "").path
+    except ValueError:
+        path = ""
+    if path.strip("/"):
+        line += f" | 경로: {path[:_MAX_PATH_CHARS]}"
     search_query = event.get("search_query")
     if search_query:
         line += f" | 검색어: {search_query}"

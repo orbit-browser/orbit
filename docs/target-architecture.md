@@ -23,8 +23,11 @@ POST /sync (또는 주기 루프 / 개수 임계) → sync_pipeline.run_batch:
     (split은 한 그룹이 여러 assignment로 갈리는 것으로 자연 지원, merge는 후순위 — 스키마만 예약)
   → append 게이트: 후보의 유한한 유사도 점수 ≥ append_score_floor 및 최근 활동 조건 확인.
     최근 목록에만 있는 후보(score 없음), 유효하지 않은 점수, 사라진 후보는 create로 분리.
+  → discard 가드: 같은 도메인 2회 이상·본문 있음·체류 10초 이상인 이벤트를 LLM이 discard하면 create로 분리.
+    (의도 분석 이벤트 줄에는 제목·도메인·체류와 함께 URL 경로가 들어가 제목이 같은 페이지를 구분한다.)
   → session_updater: 세션 생성/갱신 + session_events + tabs JSONB 대표 페이지 top-20 동기화(하위 호환)
   → 변경된 세션: generate_summary(재사용) → session_versions 기록 → _embed_and_upsert(재사용)
+    (임베딩 텍스트: 세션 제목 + 요약 + 대표 페이지의 제목·도메인·URL 경로 토큰)
 ```
 
 이 파이프라인은 `Event Stream(수집) → Session Builder(그룹화+의도분석+세션갱신) → Memory Store(exploration_events/sessions/session_events/session_versions) → Embedding(기존 재사용) → Timeline/Search/Analytics(조회 계층)` 6단계로 구성된다. Timeline·Search·Analytics는 Memory Store를 읽기만 하는 조회 계층이며, 쓰기는 Session Builder(배치)와 인제스트(이벤트 최초 저장) 두 지점으로 한정된다.
