@@ -26,6 +26,25 @@ const SENSITIVE_PATH_PATTERNS: RegExp[] = [
   /\/(mypage|myaccount|account)\/(password|security|payment)/i,
 ];
 
+// 판정용 정규화 — 서버 event_filter._decoded와 같다. 이중 인코딩(%256C)까지 풀고
+// 전각 문자(ｌ, ＠)를 반각으로 접는다. 깨진 인코딩은 그 부분만 남긴다(Python unquote와 같음).
+function decodedForCheck(text: string): string {
+  for (let i = 0; i < 5; i += 1) {
+    const decoded = text
+      .replace(/(%[0-9a-f]{2})+/gi, (run) => {
+        try {
+          return decodeURIComponent(run);
+        } catch {
+          return run;
+        }
+      })
+      .normalize('NFKC');
+    if (decoded === text) break;
+    text = decoded;
+  }
+  return text;
+}
+
 export function isSensitiveUrl(rawUrl: string): boolean {
   let url: URL;
   try {
@@ -34,9 +53,11 @@ export function isSensitiveUrl(rawUrl: string): boolean {
     return false;
   }
 
-  const host = url.hostname;
+  // 끝 점 호스트(hometax.go.kr.)와 인코딩한 경로(/%6Cogin/)도 같은 페이지다.
+  const host = decodedForCheck(url.hostname).replace(/\.+$/, '');
+  const path = decodedForCheck(url.pathname);
   if (SENSITIVE_DOMAIN_PATTERNS.some((re) => re.test(host))) return true;
-  if (SENSITIVE_PATH_PATTERNS.some((re) => re.test(url.pathname))) return true;
+  if (SENSITIVE_PATH_PATTERNS.some((re) => re.test(path))) return true;
 
   return false;
 }
