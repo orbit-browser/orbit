@@ -79,7 +79,6 @@ function InviteCodePanel({ workspace }: { workspace: Workspace }) {
 function TeamPanel({ workspace }: { workspace: Workspace }) {
   const { session } = useAuth();
   const myId = session?.user.id ?? null;
-  const { scopeId, select } = useActiveWorkspace();
   const members = useWorkspaceMembers(workspace.id);
   const { rename, remove, removeMember } = useWorkspaceMutations();
   const showToast = useUIStore((s) => s.showToast);
@@ -87,11 +86,6 @@ function TeamPanel({ workspace }: { workspace: Workspace }) {
   // 내보내면 서버가 현재 초대 코드를 무효로 한다 — 화면에 남은 옛 코드도 함께 지운다.
   const [inviteKey, setInviteKey] = useState(0);
   const isOwner = workspace.role === 'owner';
-
-  /** 지금 보고 있던 팀이 사라지면 개인으로 돌아간다 — 그대로 두면 빈 화면이 남는다. */
-  function leaveScope() {
-    if (scopeId === workspace.id) select(null);
-  }
 
   function commitRename() {
     const next = draftName?.trim();
@@ -115,10 +109,8 @@ function TeamPanel({ workspace }: { workspace: Workspace }) {
       return;
     }
     remove.mutate(workspace.id, {
-      onSuccess: () => {
-        leaveScope();
-        showToast('팀을 지웠어요');
-      },
+      // 지금 범위를 개인으로 돌리는 일은 공용 훅이 한다 — 이 화면은 결과 전에 사라질 수 있다.
+      onSuccess: () => showToast('팀을 지웠어요'),
       onError: () => showToast('팀을 지우지 못했어요'),
     });
   }
@@ -134,7 +126,6 @@ function TeamPanel({ workspace }: { workspace: Workspace }) {
       {
         onSuccess: () => {
           if (self) {
-            leaveScope();
             showToast('팀에서 나왔어요');
             return;
           }

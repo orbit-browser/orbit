@@ -123,6 +123,8 @@ interface AtlasCanvasProps {
   onClearSelection: () => void;
   bottomInset: number;
   emptyMessage?: string;
+  /** 빈 캔버스 아래 둘 다음 행동(세션이 하나도 없을 때) */
+  emptyActions?: React.ReactNode;
   /** 지금 세션의 그룹 — 막대가 이 그룹의 세션만 쌓는다. 이웃 그룹 이름은 그룹 이동 단추에 쓴다. */
   railGroup?: RailGroup | null;
   /** 모든 세션의 네비게이터 순서 — 세션이 바뀔 때 갤러리가 위·아래 어느 쪽으로 미끄러질지 정한다. */
@@ -142,6 +144,7 @@ export function AtlasCanvas({
   onClearSelection,
   bottomInset,
   emptyMessage,
+  emptyActions,
   railGroup,
   sessionOrder,
   onSelectSession,
@@ -912,6 +915,7 @@ export function AtlasCanvas({
         <div className="atlas-stage__empty">
           <i className="ph ph-planet" />
           <p>{emptyMessage ?? '왼쪽 네비게이터에서 세션을 선택하세요'}</p>
+          {emptyActions}
         </div>
       )}
 

@@ -2393,24 +2393,9 @@ body.atlas-resizing .atlas-nav__resizer::after {
   outline: none;
 }
 
-/* "새 창으로 모두 열기" 는 마우스를 올렸을 때만 드러난다 */
-.atlas-detail__action--alt {
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  margin-top: 0;
-  border-width: 0;
-  opacity: 0;
-  overflow: hidden;
-  transition: max-height 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease,
-    padding 0.24s, margin-top 0.24s;
-}
-
-.atlas-detail__actions--open:hover .atlas-detail__action--alt,
-.atlas-detail__action--alt:focus-visible {
-  max-height: 48px;
-  opacity: 1;
-  border-width: 1px;
+/* 세션 복원 — 홈의 restore-group 을 그대로 쓰고 자리만 잡는다 */
+.atlas-detail__restore {
+  margin-top: 14px;
 }
 
 .atlas-detail__action-error {

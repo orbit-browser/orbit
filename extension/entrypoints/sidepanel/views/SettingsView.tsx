@@ -345,7 +345,7 @@ export function SettingsView() {
 
           <SettingRow
             label="민감 도메인 제외"
-            description="은행·로그인 등 민감 페이지는 수집에서 제외"
+            description="은행·로그인 등 민감 페이지는 본문 없이 방문만 기록"
             checked={excludeSensitive}
             onChange={(v) => {
               setExcludeSensitive(v);

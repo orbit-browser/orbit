@@ -6,6 +6,7 @@ import { OrbitHero } from './components/sections/OrbitHero';
 import { RecentExploration } from './components/sections/RecentExploration';
 import type { ExplorationEntry } from './components/sections/RecentExploration';
 import { ContinueExploring } from './components/sections/ContinueExploring';
+import { EmptyStateActions } from './components/sections/EmptyStateActions';
 import { useAtlasData } from './hooks/useAtlasData';
 import { useRecommendations } from './hooks/useRecommendations';
 import { navigateToAtlas } from './lib/navigation';
@@ -20,12 +21,13 @@ export default function App() {
   const [composerMode, setComposerMode] = useState<'search' | 'ai'>('search');
   const [restoreError, setRestoreError] = useState<string | null>(null);
   // 프로필 메뉴에서 고른 워크스페이스(내 Orbit / 팀 Orbit)를 홈도 따라간다.
-  const { scopeId } = useActiveWorkspace();
+  const { scopeId, active: activeTeam } = useActiveWorkspace();
   const atlasQuery = useAtlasData(scopeId);
   const sessions = atlasQuery.data?.sessions ?? [];
   const folders = atlasQuery.data?.folders ?? [];
   const unfiled = atlasQuery.data?.unfiled ?? [];
   const recommendationQuery = useRecommendations();
+  // 홈 Ask 도 지금 보고 있는 범위를 근거로 답한다(사이드패널과 같다). 범위가 바뀌면 훅이 대화를 비운다.
   const {
     turns,
     ask,
@@ -33,7 +35,7 @@ export default function App() {
     startNewConversation,
     isStreaming,
     selectTabCandidate,
-  } = useAskConversation();
+  } = useAskConversation({ workspaceId: scopeId ?? undefined });
 
   const { nav, patch } = useSharedNavState();
   const toggleNav = () => patch({ open: !getNavState().open });
@@ -136,13 +138,23 @@ export default function App() {
         ) : atlasQuery.isError ? (
           <div className="home-data-state home-data-state--error" role="alert">
             <span>백엔드에서 탐색 기록을 불러오지 못했어요.</span>
-            <button type="button" onClick={() => void atlasQuery.refetch()}>다시 시도</button>
+            <div className="data-state__actions">
+              <button
+                type="button"
+                className="data-state__primary"
+                disabled={atlasQuery.isFetching}
+                onClick={() => void atlasQuery.refetch()}
+              >
+                {atlasQuery.isFetching ? '다시 불러오는 중…' : '다시 시도'}
+              </button>
+            </div>
           </div>
         ) : entries.length === 0 ? (
           <div className="home-data-state">
             {scopeId
-              ? '이 팀에 공유된 세션이 아직 없어요. 사이드패널에서 내 세션을 팀에 공유해 보세요.'
-              : '아직 저장된 탐색 세션이 없습니다. 사이드패널에서 탭을 저장하거나 동기화해 보세요.'}
+              ? '이 팀에 공유된 세션이 아직 없어요. 내 세션을 팀에 공유하거나 팀원을 초대해 보세요.'
+              : '아직 저장된 탐색 세션이 없습니다. 사이드패널에서 수집을 켜거나 탭을 저장해 보세요.'}
+            <EmptyStateActions team={activeTeam} />
           </div>
         ) : (
           <main className="main-content">

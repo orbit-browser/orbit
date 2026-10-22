@@ -15,6 +15,7 @@ import {
 } from './atlas/data';
 import { useAtlasData } from '../hooks/useAtlasData';
 import { useActiveWorkspace } from '../../../lib/useWorkspaces';
+import { EmptyStateActions } from './sections/EmptyStateActions';
 import { readAtlasTarget } from '../lib/navigation';
 import { getNavState, useSharedNavState } from '../lib/nav-state';
 
@@ -23,7 +24,7 @@ const TRAY_INSET = 250;
 
 export function VariantAtlasReplica() {
   // 팀을 보고 있으면 그 팀에 공유된 세션을 읽기 전용으로 그린다(폴더 없음).
-  const { scopeId } = useActiveWorkspace();
+  const { scopeId, active: activeTeam } = useActiveWorkspace();
   const readOnly = !!scopeId;
   const atlasQuery = useAtlasData(scopeId);
   const sessions = useMemo(() => atlasQuery.data?.sessions ?? [], [atlasQuery.data]);
@@ -367,8 +368,19 @@ export function VariantAtlasReplica() {
           <div className="atlas-data-state" role="status">탐색 기록을 불러오는 중...</div>
         ) : atlasQuery.isError ? (
           <div className="atlas-data-state" role="alert">
-            <span>백엔드에서 탐색 기록을 불러오지 못했어요.</span>
-            <button type="button" onClick={() => void atlasQuery.refetch()}>다시 시도</button>
+            <div className="atlas-data-state__body">
+              <span>백엔드에서 탐색 기록을 불러오지 못했어요.</span>
+              <div className="data-state__actions">
+                <button
+                  type="button"
+                  className="data-state__primary"
+                  disabled={atlasQuery.isFetching}
+                  onClick={() => void atlasQuery.refetch()}
+                >
+                  {atlasQuery.isFetching ? '다시 불러오는 중…' : '다시 시도'}
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           <AtlasCanvas
@@ -380,10 +392,13 @@ export function VariantAtlasReplica() {
             onClearSelection={() => patch({ selectedPageId: null, selectedSessionId: null })}
             bottomInset={activeSession ? TRAY_INSET : 40}
             emptyMessage={
-              readOnly && sessions.length === 0
-                ? '이 워크스페이스에 공유된 세션이 아직 없어요. 사이드패널에서 세션을 공유하거나, 워크스페이스 설정에서 팀원을 초대해 보세요.'
+              sessions.length === 0
+                ? readOnly
+                  ? '이 워크스페이스에 공유된 세션이 아직 없어요. 내 세션을 공유하거나 팀원을 초대해 보세요.'
+                  : '아직 저장된 탐색 세션이 없어요. 사이드패널에서 수집을 켜거나 탭을 저장해 보세요.'
                 : undefined
             }
+            emptyActions={sessions.length === 0 ? <EmptyStateActions team={activeTeam} /> : undefined}
             railGroup={
               currentGroup
                 ? {
@@ -420,6 +435,7 @@ export function VariantAtlasReplica() {
         onSelectPage={(pageId) => patch({ selectedPageId: pageId })}
         onSelectSession={openTrack}
         readOnly={readOnly}
+        empty={atlasQuery.isSuccess && sessions.length === 0}
       />
     </div>
   );

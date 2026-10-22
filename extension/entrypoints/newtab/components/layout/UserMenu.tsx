@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, LogIn, LogOut, MoreHorizontal, Plus, Settings } from 'lucide-react';
+import { Check, ChevronDown, LogIn, LogOut, MoreHorizontal, Pencil, Plus, Settings, UserPlus } from 'lucide-react';
 import { useAuth } from '../../../../lib/useAuth';
 import { hueForSession } from '../../../../lib/session-hue';
 import { useActiveWorkspace } from '../../../../lib/useWorkspaces';
 import { useWorkspaceMutations } from '../../../sidepanel/hooks/useWorkspaces';
+import { useLingering } from '../../hooks/useLingering';
 import { useOrbitSettings } from '../../hooks/useOrbitSettings';
+import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from '../../lib/navigation';
 import { SettingsPanel } from './SettingsPanel';
 import { personalName } from './SettingsPages';
 import type { SettingsPageId } from './settings-nav';
@@ -41,8 +43,8 @@ interface Space {
 export function UserMenu() {
   const [open, setOpen] = useState(false);
   const [settingsFor, setSettingsFor] = useState<{ page: SettingsPageId; workspaceId?: string | null } | null>(null);
-  /** 오른쪽 클릭 메뉴 — 어느 워크스페이스의, 패널 안 어느 자리에 */
-  const [context, setContext] = useState<{ space: Space; x: number; y: number } | null>(null);
+  /** 오른쪽 클릭 메뉴 — 어느 워크스페이스의, 패널 안 어느 높이에 */
+  const [context, setContext] = useState<{ space: Space; y: number } | null>(null);
   /** 이름을 고치는 중인 워크스페이스(null = 내 Orbit). undefined 면 고치는 중이 아니다. */
   const [renaming, setRenaming] = useState<string | null | undefined>(undefined);
   /** 목록 아래 입력 칸 — 새로 만들기 또는 초대 코드로 참여 */
@@ -54,6 +56,8 @@ export function UserMenu() {
   const mutations = useWorkspaceMutations();
   const wrapRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const panel = useLingering(open ? true : null);
+  const contextMenu = useLingering(context);
 
   const me = session ? initials(session.user.name, session.user.email) : '?';
   const avatar = session?.user.picture ? (
@@ -112,11 +116,17 @@ export function UserMenu() {
     };
   });
 
-  const openContext = (space: Space, clientX: number, clientY: number) => {
+  /** 누른 줄 높이에 맞춰 패널 바깥 왼쪽에 띄운다 — 패널 안에 띄우면 아래 메뉴 항목을 가린다. */
+  useEffect(() => {
+    const onOpenSettings = (event: Event) => setSettingsFor((event as CustomEvent<OpenSettingsDetail>).detail);
+    window.addEventListener(OPEN_SETTINGS_EVENT, onOpenSettings);
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, onOpenSettings);
+  }, []);
+
+  const openContext = (space: Space, row: Element) => {
     const rect = panelRef.current?.getBoundingClientRect();
     if (!rect) return;
-    // 패널 오른쪽 끝을 넘지 않게 — 메뉴 폭(176px)만큼 안쪽에 붙인다.
-    setContext({ space, x: Math.min(clientX - rect.left, rect.width - 184), y: clientY - rect.top });
+    setContext({ space, y: row.getBoundingClientRect().top - rect.top - 4 });
   };
 
   const saveName = (space: Space, raw: string) => {
@@ -164,11 +174,12 @@ export function UserMenu() {
         <ChevronDown size={14} className="user-menu__caret" />
       </button>
 
-      {open && (
+      {panel.shown && (
         <div
           className="user-menu__panel"
           role="menu"
           ref={panelRef}
+          data-state={panel.closing ? 'closed' : 'open'}
           onPointerDown={(event) => {
             // 패널 안 다른 곳을 누르면 오른쪽 클릭 메뉴만 닫는다.
             if (context && !(event.target as HTMLElement).closest('.user-menu__context')) setContext(null);
@@ -216,7 +227,7 @@ export function UserMenu() {
                     }}
                     onContextMenu={(event) => {
                       event.preventDefault();
-                      openContext(space, event.clientX, event.clientY);
+                      openContext(space, event.currentTarget);
                     }}
                   >
                     {icon(space)}
@@ -227,10 +238,9 @@ export function UserMenu() {
                     type="button"
                     className="user-menu__more"
                     aria-label={`${space.name} 메뉴`}
-                    onClick={(event) => {
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      openContext(space, rect.left, rect.bottom);
-                    }}
+                    aria-haspopup="menu"
+                    aria-expanded={context?.space.id === space.id}
+                    onClick={(event) => openContext(space, event.currentTarget.parentElement ?? event.currentTarget)}
                   >
                     <MoreHorizontal size={14} />
                   </button>
@@ -304,33 +314,40 @@ export function UserMenu() {
             </button>
           </div>
 
-          {context && (
-            <div className="user-menu__context" role="menu" style={{ left: context.x, top: context.y }}>
-              {context.space.canManage && (
+          {contextMenu.shown && (
+            <div
+              className="user-menu__context"
+              role="menu"
+              style={{ top: contextMenu.shown.y }}
+              data-state={contextMenu.closing ? 'closed' : 'open'}
+            >
+              {contextMenu.shown.space.canManage && (
                 <button
                   type="button"
                   className="user-menu__item"
                   role="menuitem"
                   onClick={() => {
-                    setRenaming(context.space.id);
+                    setRenaming(contextMenu.shown?.space.id ?? null);
                     setContext(null);
                   }}
                 >
-                  이름 변경
+                  <Pencil size={15} />
+                  <span>이름 변경</span>
                 </button>
               )}
-              {context.space.id !== null && context.space.canManage && (
+              {contextMenu.shown.space.id !== null && contextMenu.shown.space.canManage && (
                 <button
                   type="button"
                   className="user-menu__item"
                   role="menuitem"
                   onClick={() => {
-                    const workspaceId = context.space.id;
+                    const workspaceId = contextMenu.shown?.space.id;
                     close();
                     setSettingsFor({ page: 'workspace', workspaceId });
                   }}
                 >
-                  초대하기
+                  <UserPlus size={15} />
+                  <span>초대하기</span>
                 </button>
               )}
               <button
@@ -338,12 +355,13 @@ export function UserMenu() {
                 className="user-menu__item"
                 role="menuitem"
                 onClick={() => {
-                  const workspaceId = context.space.id;
+                  const workspaceId = contextMenu.shown?.space.id ?? null;
                   close();
                   setSettingsFor({ page: 'workspace', workspaceId });
                 }}
               >
-                워크스페이스 설정
+                <Settings size={15} />
+                <span>워크스페이스 설정</span>
               </button>
             </div>
           )}
