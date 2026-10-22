@@ -16,6 +16,7 @@ import {
   type CollectStopReason,
 } from './api';
 import { getSession, type AuthSession } from './auth';
+import { hasCollectionConsent } from './settings';
 import { getDeviceId } from './device-id';
 import { clearTeamLabels } from './events/queue';
 import { isTeamBlockedUrl } from './sensitive-domains';
@@ -105,6 +106,16 @@ export interface TeamLabel {
 async function readMap<T>(area: chrome.storage.StorageArea, key: string): Promise<Record<string, T>> {
   const stored = await area.get(key);
   return (stored[key] as Record<string, T> | undefined) ?? {};
+}
+
+/**
+ * 서버 창을 여닫는 요청(시작·재시도·브라우저 시작 정리)을 컨텍스트(SW·새 탭·사이드패널) 사이에서 줄 세운다.
+ * 낡은 끄기 재시도나 시작 정리가 방금 연 새 창을 닫지 않게 하려는 것이다(보안 검토 S1).
+ */
+const SERVER_LOCK = 'orbit-team-collect-server';
+function withServerLock<T>(task: () => Promise<T>): Promise<T> {
+  if (typeof navigator === 'undefined' || !navigator.locks) return task();
+  return navigator.locks.request(SERVER_LOCK, task) as Promise<T>;
 }
 
 // 같은 컨텍스트 안의 read-modify-write 를 줄 세운다(시작과 끄기가 겹쳐 서로 덮어쓰지 않게).
@@ -208,10 +219,22 @@ export async function startTeamCollect(
   const session = await getSession();
   if (!session) throw new Error('team collect needs a signed-in account');
   const accountId = session.user.id;
+  // 팀 수집은 개인 수집 위에 "어디로 보낼지"만 더한다(설계 §1.1). 동의가 없으면 이벤트가 생기지 않아 배지가 거짓이 된다.
+  if (!(await hasCollectionConsent(accountId))) throw new CollectConsentRequiredError();
   const deviceId = await getDeviceId();
-  const requestedAt = Date.now();
-  const result = await startCollect(workspace.id, deviceId, durationMinutes, TEAM_COLLECT_CONSENT_VERSION);
-  const receivedAt = Date.now();
+  const { result, requestedAt, receivedAt } = await withServerLock(async () => {
+    // 서버 시작이 이 기기의 열린 창을 어차피 모두 닫는다. 대기 중인 이 기기 끄기 재시도가 남아 있으면
+    // 나중에 새 창을 닫으므로(S1) 먼저 걷어 내고, 시작이 실패하면 되돌려 놓는다.
+    const stale = await takeStopRetries(accountId, deviceId);
+    const sentAt = Date.now();
+    try {
+      const started = await startCollect(workspace.id, deviceId, durationMinutes, TEAM_COLLECT_CONSENT_VERSION);
+      return { result: started, requestedAt: sentAt, receivedAt: Date.now() };
+    } catch (err) {
+      for (const item of stale) await queueRetry(item);
+      throw err;
+    }
+  });
   // 요청 왕복의 가운데를 서버 시각과 맞춘다.
   const clockOffsetMs = new Date(result.serverNow).getTime() - Math.round((requestedAt + receivedAt) / 2);
   const active: ActiveCollect = {
@@ -235,6 +258,14 @@ export async function startTeamCollect(
     console.error('[Orbit] team collect exclusions fetch failed', err);
   }
   return active;
+}
+
+/** 개인 수집 동의(현재 버전)가 없어 팀 수집을 시작할 수 없다. 화면은 동의로 안내한다. */
+export class CollectConsentRequiredError extends Error {
+  constructor() {
+    super('personal collection consent is required before team collect');
+    this.name = 'CollectConsentRequiredError';
+  }
 }
 
 /** 일시 정지 뒤 다시 시작 — 남은 시간 안에서 고를 수 있는 가장 긴 길이(최소 30분)로 새 창을 연다. */
@@ -430,24 +461,29 @@ export async function handleBrowserStartup(): Promise<void> {
   await chrome.storage.session.remove(TEAM_COLLECT_KEY);
   const session = await getSession();
   if (!session) return;
-  let workspaces: Workspace[];
-  try {
-    workspaces = await fetchWorkspaces();
-  } catch (err) {
-    console.error('[Orbit] team collect startup check failed', err);
-    return;
-  }
-  const deviceId = await getDeviceId();
-  for (const workspace of workspaces) {
-    if (!workspace.myCollect) continue;
-    await sendOrQueue({
-      kind: 'stop',
-      accountId: session.user.id,
-      workspaceId: workspace.id,
-      deviceId,
-      reason: 'browser_restart',
-    });
-  }
+  // 시작과 같은 잠금 안에서 본다 — 그 사이 사용자가 연 새 창(로컬 창이 생김)은 닫지 않는다(S1).
+  await withServerLock(async () => {
+    let workspaces: Workspace[];
+    try {
+      workspaces = await fetchWorkspaces();
+    } catch (err) {
+      console.error('[Orbit] team collect startup check failed', err);
+      return;
+    }
+    const deviceId = await getDeviceId();
+    const local = await getActiveCollect(session.user.id);
+    for (const workspace of workspaces) {
+      if (!workspace.myCollect) continue;
+      if (local?.windowId === workspace.myCollect.windowId) continue;
+      await sendOrQueue({
+        kind: 'stop',
+        accountId: session.user.id,
+        workspaceId: workspace.id,
+        deviceId,
+        reason: 'browser_restart',
+      });
+    }
+  });
 }
 
 /** 계정 전환·로그아웃. 이전 계정의 로컬 창을 먼저 지우고, 이전 계정 토큰으로 서버 창을 끝낸다(§6.5). */
@@ -459,7 +495,7 @@ export async function handleAccountSwitch(previous: AuthSession | null): Promise
 
 // ── 재시도 ─────────────────────────────────────────────────────────
 
-async function sendRetryItem(item: RetryItem, token?: string): Promise<void> {
+async function sendRetryItem(item: RetryItem, token: string): Promise<void> {
   if (item.kind === 'stop') await stopCollect(item.workspaceId, item.deviceId, item.reason, token);
   else await withdrawWindow(item.workspaceId, item.windowId, token);
 }
@@ -469,14 +505,35 @@ function isPermanent(err: unknown): boolean {
   return err instanceof ApiError && (err.status === 404 || err.status === 403);
 }
 
+/**
+ * 그 항목 계정의 토큰으로만 보낸다(S2). 토큰을 주지 않았으면 지금 세션이 그 계정일 때만 그 토큰을 쓴다.
+ * 쓸 토큰이 없으면(만료된 계정 전환·로그아웃) 보내지 않고 큐에 둔다 — 남의 토큰으로 보내면 그 사람의 창을 닫는다.
+ */
 async function sendOrQueue(item: RetryItem, token?: string): Promise<void> {
+  const session = token ? null : await getSession();
+  const usable = token ?? (session?.user.id === item.accountId ? session.token : undefined);
+  if (!usable) {
+    await queueRetry(item);
+    return;
+  }
   try {
-    await sendRetryItem(item, token);
+    await sendRetryItem(item, usable);
   } catch (err) {
     if (isPermanent(err)) return;
     console.error('[Orbit] team collect request failed, will retry', err);
     await queueRetry(item);
   }
+}
+
+/** 이 계정·기기의 대기 중인 끄기 항목을 꺼낸다(목록에서 지운다). */
+async function takeStopRetries(accountId: string, deviceId: string): Promise<RetryItem[]> {
+  return serialized(async () => {
+    const items = ((await chrome.storage.local.get(RETRY_KEY))[RETRY_KEY] as RetryItem[] | undefined) ?? [];
+    const isStale = (item: RetryItem) =>
+      item.kind === 'stop' && item.accountId === accountId && item.deviceId === deviceId;
+    await chrome.storage.local.set({ [RETRY_KEY]: items.filter((item) => !isStale(item)) });
+    return items.filter(isStale);
+  });
 }
 
 function sameItem(a: RetryItem, b: RetryItem): boolean {
@@ -504,6 +561,10 @@ async function queueRetry(item: RetryItem): Promise<void> {
  * 로그인할 때). 서버는 창을 만료 시각에 스스로 끝내므로, 끝내 못 보내도 팀 판정은 열리지 않는다.
  */
 export async function retryTeamCollectRequests(): Promise<void> {
+  await withServerLock(retryLocked);
+}
+
+async function retryLocked(): Promise<void> {
   const session = await getSession();
   if (!session) return;
   const stored = await chrome.storage.local.get(RETRY_KEY);
@@ -513,7 +574,7 @@ export async function retryTeamCollectRequests(): Promise<void> {
   for (const item of items) {
     if (item.accountId !== session.user.id) continue;
     try {
-      await sendRetryItem(item);
+      await sendRetryItem(item, session.token);
       done.push(item);
     } catch (err) {
       if (isPermanent(err)) done.push(item);

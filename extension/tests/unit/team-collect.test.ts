@@ -8,6 +8,7 @@ import { CONSENT_VERSION } from '../../lib/settings';
 import { requestDrain } from '../../lib/sync/engine';
 import { isTeamBlockedUrl } from '../../lib/sensitive-domains';
 import {
+  CollectConsentRequiredError,
   endTeamCollect,
   getActiveCollect,
   getCollectUi,
@@ -591,5 +592,88 @@ describe('동기화 — 서버 응답 window_closed', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(sentEvents).toHaveLength(1);
     expect(await getActiveCollect(USER)).not.toBeNull();
+  });
+});
+
+describe('보안 검토 후속 (S1~S3)', () => {
+  const retryItems = async () =>
+    ((await chrome.storage.local.get('orbit:teamCollectRetry'))['orbit:teamCollectRetry'] as { kind: string }[] | undefined) ?? [];
+
+  it('S1 오프라인 끄기 → 연결 → 같은 팀 다시 시작: 낡은 끄기 재시도가 새 창을 닫지 않는다', async () => {
+    await signIn();
+    await seedActive();
+    failDelete = true;
+    await endTeamCollect(USER, 'stop');
+    expect(await retryItems()).toHaveLength(1);
+    failDelete = false;
+    const started = await startTeamCollect(TEAM, 120);
+    expect(await retryItems()).toEqual([]);
+    const deletesBefore = calls.filter((c) => c.method === 'DELETE').length;
+    await retryTeamCollectRequests();
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(deletesBefore);
+    expect((await getActiveCollect(USER))?.windowId).toBe(started.windowId);
+  });
+
+  it('S1 시작이 실패하면 걷어 낸 끄기 항목을 되돌려 놓는다', async () => {
+    await signIn();
+    await seedActive();
+    failDelete = true;
+    await endTeamCollect(USER, 'stop');
+    failStart = true;
+    await expect(startTeamCollect(TEAM, 120)).rejects.toThrow();
+    expect(await retryItems()).toHaveLength(1);
+  });
+
+  it('S1 브라우저 시작 정리는 그 사이 이 기기에서 연 창을 닫지 않는다', async () => {
+    await signIn();
+    workspacesBody = [{
+      workspace_id: 'ws-1', name: '리서치', hue: '#3aa09a', role: 'member', member_count: 2,
+      created_at: '2026-10-01T00:00:00Z', collect_allowed: true,
+      my_collect: { window_id: 'cw-fresh', workspace_id: 'ws-1', device_id: 'd', started_at: 'x', expires_at: 'y' },
+    }];
+    // 정리가 목록을 받기 전에 사용자가 새 창을 열었다(로컬 창이 있다).
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/workspaces') await seedActive({ windowId: 'cw-fresh' });
+      return realFetch(input, init);
+    });
+    await handleBrowserStartup();
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+  });
+
+  it('S2 토큰이 만료된 계정 전환: 새 계정 토큰으로 보내지 않고 큐에 둔다, 그 계정이 돌아오면 그 토큰으로 보낸다', async () => {
+    await signIn('user-c', 'token-c');
+    await seedActive({}, USER);
+    await handleAccountSwitch({
+      token: 'token-b-expired',
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      user: { id: USER, email: 'b@example.com', name: 'b', picture: null },
+    });
+    expect(await getActiveCollect(USER)).toBeNull();
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+    expect(await retryItems()).toHaveLength(1);
+    await retryTeamCollectRequests();
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+    await signIn(USER, 'token-b-new');
+    await retryTeamCollectRequests();
+    const del = calls.filter((c) => c.method === 'DELETE');
+    expect(del).toHaveLength(1);
+    expect(del[0].auth).toBe('Bearer token-b-new');
+    expect(await retryItems()).toEqual([]);
+  });
+
+  it('S2 로그아웃 상태의 끄기도 보내지 않고 큐에 둔다', async () => {
+    await seedActive();
+    await endTeamCollect(USER, 'stop');
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+    expect(await retryItems()).toHaveLength(1);
+  });
+
+  it('S3 개인 수집 동의(현재 버전)가 없으면 시작하지 않는다', async () => {
+    await signIn();
+    await chrome.storage.local.set({ 'orbit:collectionConsent': { [USER]: 1 } });
+    await expect(startTeamCollect(TEAM, 120)).rejects.toBeInstanceOf(CollectConsentRequiredError);
+    expect(calls.some((c) => c.method === 'POST' && c.path.endsWith('/collect'))).toBe(false);
+    expect(await getActiveCollect(USER)).toBeNull();
   });
 });

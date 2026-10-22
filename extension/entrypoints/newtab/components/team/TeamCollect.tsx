@@ -10,6 +10,7 @@ import {
 } from '../../../../lib/api';
 import {
   clearPaused,
+  CollectConsentRequiredError,
   COLLECT_DURATIONS,
   DEFAULT_COLLECT_DURATION,
   dismissReview,
@@ -28,7 +29,14 @@ import {
 import type { Session, Workspace } from '../../../../lib/types';
 import { reviewableSessions, startCta, useCollectStatus, useOnline, useTeamCollect } from '../../../../lib/useTeamCollect';
 import { useActiveWorkspace, WORKSPACES_QUERY_KEY } from '../../../../lib/useWorkspaces';
-import { updateSettings } from '../../../../lib/settings';
+import {
+  AI_DISCLOSURE,
+  getCollectionConsent,
+  hasCurrentConsent,
+  needsReconsent,
+  RECONSENT_NOTICE,
+  updateSettings,
+} from '../../../../lib/settings';
 import { openSettings } from '../../lib/navigation';
 
 const DURATION_LABEL: Record<CollectDuration, string> = {
@@ -56,6 +64,8 @@ export function TeamCollectPanel({ team }: { team: Workspace }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [allowing, setAllowing] = useState(false);
   const [allowError, setAllowError] = useState<string | null>(null);
+  // 개인 수집 동의(현재 문구)가 없으면 팀 수집보다 동의를 먼저 받는다(설계 §1.1, 보안 검토 S3).
+  const [consentGate, setConsentGate] = useState<'none' | 'checking' | 'needed' | 'reconsent'>('none');
   const refresh = useRefreshCollect();
 
   if (!accountId) return null;
@@ -65,6 +75,24 @@ export function TeamCollectPanel({ team }: { team: Workspace }) {
 
   const cta = startCta(team, phase, teamId);
   if (cta === 'none') return null;
+
+  const openStart = async () => {
+    setConsentGate('checking');
+    const consent = await getCollectionConsent();
+    if (hasCurrentConsent(consent, accountId)) {
+      setConsentGate('none');
+      setSheetOpen(true);
+    } else {
+      setConsentGate(needsReconsent(consent, accountId) ? 'reconsent' : 'needed');
+    }
+  };
+
+  const agreeAndContinue = async () => {
+    // 개인 수집 스위치를 켜면 이 계정의 현재 버전 동의로 기록된다(lib/settings.ts updateSettings).
+    await updateSettings({ collectionEnabled: true });
+    setConsentGate('none');
+    setSheetOpen(true);
+  };
 
   const allow = async () => {
     setAllowing(true);
@@ -86,7 +114,7 @@ export function TeamCollectPanel({ team }: { team: Workspace }) {
         {cta === 'start' && (
           <>
             <strong>이 기기에서 여는 페이지를 팀 기록으로 모아요</strong>
-            <span>정한 시간 동안만 켜지고, 은행·로그인·메일·메신저·검색 결과는 팀으로 가지 않아요.</span>
+            <span>정한 시간 동안만 켜져요. 은행·결제 등 일부 민감 사이트, 로그인 주소로 보이는 페이지, 웹메일·메신저·검색 결과는 팀으로 보내지 않아요.</span>
           </>
         )}
         {cta === 'allow' && (
@@ -101,17 +129,32 @@ export function TeamCollectPanel({ team }: { team: Workspace }) {
             <span>그 전까지는 내 세션을 팀에 공유해 함께 볼 수 있어요.</span>
           </>
         )}
+        {(consentGate === 'needed' || consentGate === 'reconsent') && (
+          <span className="team-collect-cta__consent" role="status">
+            <strong>{consentGate === 'reconsent' ? RECONSENT_NOTICE : '팀 수집은 탐색 기록 수집을 켠 계정만 쓸 수 있어요'}</strong>
+            {AI_DISCLOSURE}
+          </span>
+        )}
         {allowError && (
           <span className="team-collect-cta__error" role="alert">
             {allowError}
           </span>
         )}
       </div>
-      {cta === 'start' && (
-        <button type="button" className="team-collect-button team-collect-button--primary" onClick={() => setSheetOpen(true)}>
+      {cta === 'start' && (consentGate === 'needed' || consentGate === 'reconsent') ? (
+        <button type="button" className="team-collect-button team-collect-button--primary" onClick={() => void agreeAndContinue()}>
+          동의하고 계속
+        </button>
+      ) : cta === 'start' ? (
+        <button
+          type="button"
+          className="team-collect-button team-collect-button--primary"
+          disabled={consentGate === 'checking'}
+          onClick={() => void openStart()}
+        >
           <Radio size={14} aria-hidden="true" /> 팀 수집 시작
         </button>
-      )}
+      ) : null}
       {cta === 'allow' && (
         <button
           type="button"
@@ -180,7 +223,9 @@ export function TeamCollectConsentSheet({
       onClose();
     } catch (err) {
       setError(
-        err instanceof ApiError && err.status === 409
+        err instanceof CollectConsentRequiredError
+          ? '탐색 기록 수집 동의가 필요해요. 시트를 닫고 동의한 뒤 다시 시작해 주세요.'
+          : err instanceof ApiError && err.status === 409
           ? '시작하지 못했어요. owner가 허용을 껐거나 다른 시작 요청이 겹쳤어요. 다시 시도해 주세요.'
           : '시작하지 못했어요. 연결을 확인하고 다시 시도해 주세요.',
       );

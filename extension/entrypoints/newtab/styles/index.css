@@ -3461,3 +3461,18 @@ body {
 .team-collect-exclude-form input[aria-invalid='true'] {
   border-color: var(--danger);
 }
+
+.team-collect-cta__text .team-collect-cta__consent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--accent-soft-flat);
+  color: var(--text-muted);
+}
+.team-collect-cta__consent strong {
+  color: var(--text-main);
+  font-size: 12.5px;
+}
