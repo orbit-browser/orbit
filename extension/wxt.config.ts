@@ -50,6 +50,8 @@ export default defineConfig({
     description: '탐색의 흐름을 기억하고, 원하는 순간에 복원하는 AI Browser Agent',
     // dev·build·팀원 머신에서 확장 ID 를 동일하게 유지한다(위 EXTENSION_KEY 주석 참고).
     key: EXTENSION_KEY,
+    // 시크릿 창에서는 아예 돌지 않는다. 사용자가 "시크릿 모드에서 허용"을 켤 수도 없다(수집기에도 이중 방어).
+    incognito: 'not_allowed',
     // 새 탭 홈이 쓰는 권한:
     //   search   — 검색창이 사용자가 크롬에 설정한 기본 검색엔진을 그대로 쓴다.
     //   topSites — 바로가기의 초기 목록(자주 방문한 사이트). 사용자가 편집하면 더 읽지 않는다.

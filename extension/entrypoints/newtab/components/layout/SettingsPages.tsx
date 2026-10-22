@@ -747,7 +747,7 @@ function PrivacyPage({ settings, onNavigate }: PageProps) {
       <div className="settings-callout">
         <p>
           Orbit은 사용자의 브라우저 데이터를 다룹니다. 탐색 기록 수집은 기본적으로 꺼져 있고,
-          켠 뒤에도 민감한 페이지는 본문 없이 방문(제목·주소)만 남습니다. 수집한 내용은 사용자의 계정에만 연결되고,
+          켠 뒤에도 민감한 페이지는 본문 없이 방문(제목·주소)만 남고, 시크릿 창은 기록하지 않습니다. 수집한 내용은 사용자의 계정에만 연결되고,
           수집 동의도 계정마다 따로 받습니다. {AI_DISCLOSURE_FORMAL}
         </p>
       </div>

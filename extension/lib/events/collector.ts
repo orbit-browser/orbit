@@ -151,6 +151,8 @@ async function handleCommitted(
 
   const tabId = details.tabId;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
+  // manifest 의 incognito: 'not_allowed' 와 이중 방어. 사용자가 시크릿 허용을 켜도 방문·리다이렉트를 남기지 않는다.
+  if (tab?.incognito) return;
   const windowId = tab?.windowId ?? chrome.windows.WINDOW_ID_NONE;
 
   const states = await getTabStates();
@@ -223,7 +225,7 @@ async function requestSpaContent(tabId: number, eventId: string): Promise<void> 
   if (!settings.contentCapture) return;
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tab?.url) return;
+  if (!tab?.url || tab.incognito) return;
   if (settings.excludeSensitive && isSensitiveUrl(tab.url)) return;
 
   let content: PageContent | null = null;
@@ -251,6 +253,7 @@ async function commitSpaNavigation(tabId: number, url: string): Promise<void> {
   if (prevState?.lastUrl === url) return; // 같은 URL 중복 제거
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (tab?.incognito) return;
   const windowId = tab?.windowId ?? chrome.windows.WINDOW_ID_NONE;
 
   if (prevState?.openEventId) {
@@ -324,8 +327,9 @@ async function handleHistoryStateUpdated(
 async function handleTabUpdated(
   tabId: number,
   changeInfo: chrome.tabs.OnUpdatedInfo,
+  tab: chrome.tabs.Tab,
 ): Promise<void> {
-  if (changeInfo.title === undefined) return;
+  if (changeInfo.title === undefined || tab.incognito) return;
 
   const settings = await getSettings();
   if (!settings.collectionEnabled) return;
@@ -440,6 +444,7 @@ export async function handlePageContentReady(
   if (!settings.contentCapture) return;
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (tab?.incognito) return;
   if (tab?.url && settings.excludeSensitive && isSensitiveUrl(tab.url)) return;
 
   const states = await getTabStates();
@@ -500,8 +505,8 @@ export function initCollector(): void {
     );
   });
 
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    enqueueMutation('onUpdated(title)', () => handleTabUpdated(tabId, changeInfo));
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    enqueueMutation('onUpdated(title)', () => handleTabUpdated(tabId, changeInfo, tab));
   });
 
   chrome.tabs.onActivated.addListener((activeInfo) => {
