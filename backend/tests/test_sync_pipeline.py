@@ -890,3 +890,13 @@ def test_subject_split_audit_counts_attempts_and_failures(monkeypatch):
     models = asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
 
     assert sorted(models) == ["A.X-K2"] * 3 + ["keep@A.X-K2", "split_fail"]
+
+
+def test_summarize_models_keeps_fallback_models_ahead_of_subject_split_labels():
+    summary = sync_pipeline._summarize_models(
+        {"split@A.X-K2": 9, "keep@A.X-K2": 7, "split_fail": 5, "A.X-K2": 12, "kt/midm-pro-fp8-kaic": 1,
+         "exaone/depmkuykpfon9lg": 1}
+    )
+    assert summary.startswith("A.X-K2:12,")
+    assert "kt:1" in summary and "exaone:1" in summary
+    assert len(summary) <= 50

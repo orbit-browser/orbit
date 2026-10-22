@@ -537,7 +537,12 @@ def _summarize_models(counts: dict[str, int]) -> str | None:
         # 폴백 라벨은 "공급자/모델" 형식이다(llm._exaone_model_label, _kt_model_label).
         return model.split("/", 1)[0]
 
-    parts = [f"{_short(m)}:{n}" for m, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+    # 50자에서 잘려도 모델(폴백 kt·exaone 포함)이 남도록 대상 나누기 라벨(split@·keep@·split_fail)은 뒤에 둔다.
+    def _order(kv: tuple[str, int]) -> tuple[bool, int]:
+        model, count = kv
+        return model.startswith(("split", "keep@")), -count
+
+    parts = [f"{_short(m)}:{n}" for m, n in sorted(counts.items(), key=_order)]
     return ",".join(parts)[:50]
 
 
