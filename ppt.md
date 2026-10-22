@@ -131,19 +131,19 @@ Orbit이 만들어내는 세션 예시:
 
 6. LLM 의도 분석
    - 클러스터별로 append / create / hold / discard 중 하나를 판단한다.
-   - LG K-EXAONE(primary) → SKT A.X-K1(fallback).
+   - SKT A.X-K2(primary) → LG K-EXAONE(fallback).
 
 7. 세션 생성/갱신
    - 판단 결과를 세션에 반영하고 이벤트-세션 매핑과 버전을 기록한다.
 
 8. LLM 요약
-   - 변경된 세션만 다시 요약한다. SKT A.X-K1(primary) → LG K-EXAONE(fallback).
+   - 변경된 세션만 다시 요약한다. SKT A.X-K2(primary) → LG K-EXAONE(fallback).
 
 9. passage 임베딩 · Qdrant 검색
    - 세션 요약을 Upstage `embedding-passage`로 색인하고, 검색은 `embedding-query`로 한다(비대칭 임베딩). Qdrant에서 코사인 유사도 기반 벡터 검색.
 
 10. 선택적 리랭킹
-    - 검색 상위 후보를 쿼리 관련성 순으로 재정렬한다(옵션). SKT A.X-K1(primary) → LG K-EXAONE(fallback).
+    - 검색 상위 후보를 쿼리 관련성 순으로 재정렬한다(옵션). SKT A.X-K2(primary) → LG K-EXAONE(fallback).
 
 핵심 전략:
 
@@ -199,21 +199,22 @@ Orbit이 만들어내는 세션 예시:
 문서 스펙만으로 정한 예선 시점 판단은 실측에서 두 군데가 뒤집혔다.
 
 - **EXAONE을 "보통"에서 의도 분석 primary로 올렸다.** 튜닝한 프롬프트에서 A.X-K1과 품질이 대등했고, 노이즈 이벤트를 discard하는 판단은 EXAONE이 더 나았다. 대신 요약·리랭킹은 A.X-K1이 우세해 단계별로 primary를 갈랐다.
+- **A.X-K2가 나온 뒤 역할별로 다시 쟀다(2026-10-22).** 공개 페이지로 만든 평가셋에서 의도 분석은 A.X-K2가 정확도 87.6% 대 78.8%, JSON 유효율 100% 대 87.4%로 앞섰고, 요약·리랭킹·Ask에서는 EXAONE이 비열등을 보이지 못했다. 그래서 모든 LLM 단계의 primary를 A.X-K2로, fallback을 K-EXAONE으로 모았다.
 - **Solar Pro 3는 LLM 경로에서 빼고 Upstage는 임베딩 전용으로 두었다.** LLM 2종을 A.X-K1과 EXAONE으로 확정하면서 두 모델을 서로의 폴백으로 묶는 편이 공급자 장애에 더 강했다.
 
 | 파이프라인 단계 | Primary | Fallback |
 |---|---|---|
-| 세션 의도 분석 | LG K-EXAONE | SKT A.X-K1 |
-| 탭 클러스터링(스냅샷) | LG K-EXAONE | SKT A.X-K1 |
-| 세션 요약·제목 생성 | SKT A.X-K1 | LG K-EXAONE |
-| Ask AI 답변 스트리밍 | SKT A.X-K1 | LG K-EXAONE |
-| 검색·추천 리랭킹 | SKT A.X-K1 | LG K-EXAONE |
+| 세션 의도 분석 | SKT A.X-K2 | LG K-EXAONE |
+| 탭 클러스터링(스냅샷) | SKT A.X-K2 | LG K-EXAONE |
+| 세션 요약·제목 생성 | SKT A.X-K2 | LG K-EXAONE |
+| Ask AI 답변 스트리밍 | SKT A.X-K2 | LG K-EXAONE |
+| 검색·추천 리랭킹 | SKT A.X-K2 | LG K-EXAONE |
 | 저장 임베딩 | Upstage `embedding-passage` | — |
 | 검색 임베딩 | Upstage `embedding-query` | — |
 
 운영상 확인한 제약 두 가지:
 
-- A.X-K1은 3 RPS 제한이 있어 배치 파이프라인의 LLM 호출을 전역 리미터로 직렬화한다.
+- A.X 게이트웨이는 A.X-K1 기준 3 RPS 제한이 있어 배치 파이프라인의 LLM 호출을 전역 리미터로 직렬화한다(A.X-K2 한도는 확인 중).
 - K-EXAONE은 FriendliAI serverless로 호출한다. dedicated 엔드포인트는 웜 상태에서도 호출당 약 60초라 대화형 UX에 맞지 않았다. 또 hybrid reasoning 모델이라 분류·요약에서는 추론 트레이스를 꺼야 한다. 켜두면 출력 토큰을 트레이스가 소진해 본문이 비어 온다.
 
 ---

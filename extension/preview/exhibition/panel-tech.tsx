@@ -7,7 +7,7 @@ import { BannerFrame } from './frame';
 import { METRICS, displayMeasure, isMeasured, type Metric } from './metrics';
 import { PROVEN } from './trial-highlights';
 
-/** 지금 설정의 모델(2026-10-20). 코드 기본값은 A.X-K1 이고 운영 설정이 A.X-K2 다 — 바뀌면 여기만 고친다. */
+/** 지금 설정의 모델(2026-10-22). 모든 LLM 단계가 A.X-K2 우선, K-EXAONE 대체다(코드 기본값도 A.X-K2) — 바뀌면 여기만 고친다. */
 const MODELS = {
   // 모델 이름은 줄에서 갈라지지 않게(줄바꿈 없는 공백)
   ax: 'SKT\u00a0A.X-K2',
@@ -47,7 +47,7 @@ const PIPELINE = [
     where: 'LLM · PostgreSQL · Qdrant',
     // backend/app/services/intent_analyzer · session_updater · embedding_sync
     items: [
-      ['의도 판단', `후보 세션에 append · create · hold · discard (${MODELS.exaone})`],
+      ['의도 판단', `후보 세션에 append · create · hold · discard (${MODELS.ax})`],
       ['요약', `제목 · 요약 · 다음 할 일 (${MODELS.ax})`],
       ['색인', '요약을 4,096차원 벡터로 Qdrant에'],
     ],
@@ -116,7 +116,7 @@ export function TechBanner() {
             </span>
             <span>
               <b>KOREAN AI</b>
-              {keepDots(`${MODELS.ax} ↔ ${MODELS.exaone} 상호 폴백 · ${MODELS.embedding}`)}
+              {keepDots(`${MODELS.ax} → ${MODELS.exaone} 폴백 · ${MODELS.embedding}`)}
             </span>
           </div>
         </section>
