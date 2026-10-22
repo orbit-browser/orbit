@@ -446,6 +446,18 @@ def test_leave_or_kick_revokes_share_and_keeps_personal_record(api, db, actor):
     assert api("GET", "/sessions/bob-shared", user="bob").status_code == 200
 
 
+@pytest.mark.parametrize("actor", ["alice", "bob"])
+def test_left_or_kicked_member_loses_team_reads_immediately(api, actor):
+    # The new-tab workspace menu reads these right after leave/kick; none may answer as a member.
+    assert api("DELETE", "/workspaces/alpha/members/bob", user=actor).status_code == 204
+    assert all(workspace["workspace_id"] != "alpha" for workspace in api("GET", "/workspaces").json())
+    for method, path, body in _TEAM_ACTIONS:
+        payload = {key: value.replace("{team}", "alpha") if isinstance(value, str) else value
+                   for key, value in body.items()} if body else None
+        response = api(method, path.format(team="alpha"), json=payload)
+        assert response.status_code == 404, (method, path, response.text)
+
+
 def test_share_admitted_before_leave_but_committed_after_is_invisible(api, db, monkeypatch):
     original_member_check = workspaces._member_or_404
 

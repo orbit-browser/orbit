@@ -12,13 +12,16 @@ import { navigateToAtlas } from './lib/navigation';
 import { getNavState, useSharedNavState } from './lib/nav-state';
 import { restoreSession, type RestoreTarget } from './lib/restore';
 import { useAskConversation } from '../shared/hooks/useAskConversation';
+import { useActiveWorkspace } from '../../lib/useWorkspaces';
 import type { Session } from '../../lib/types';
 
 export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [composerMode, setComposerMode] = useState<'search' | 'ai'>('search');
   const [restoreError, setRestoreError] = useState<string | null>(null);
-  const atlasQuery = useAtlasData();
+  // 프로필 메뉴에서 고른 워크스페이스(내 Orbit / 팀 Orbit)를 홈도 따라간다.
+  const { scopeId } = useActiveWorkspace();
+  const atlasQuery = useAtlasData(scopeId);
   const sessions = atlasQuery.data?.sessions ?? [];
   const folders = atlasQuery.data?.folders ?? [];
   const unfiled = atlasQuery.data?.unfiled ?? [];
@@ -137,7 +140,9 @@ export default function App() {
           </div>
         ) : entries.length === 0 ? (
           <div className="home-data-state">
-            아직 저장된 탐색 세션이 없습니다. 사이드패널에서 탭을 저장하거나 동기화해 보세요.
+            {scopeId
+              ? '이 팀에 공유된 세션이 아직 없어요. 사이드패널에서 내 세션을 팀에 공유해 보세요.'
+              : '아직 저장된 탐색 세션이 없습니다. 사이드패널에서 탭을 저장하거나 동기화해 보세요.'}
           </div>
         ) : (
           <main className="main-content">
