@@ -270,9 +270,20 @@ _RECORD_DENIAL = re.compile(
 )
 _SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 _CITATION = re.compile(r"\[\d+\]")
+# 근거가 질문에 답하지 못할 때의 올바른 거절은 "그 정보는 기록에 없다", "확인할 수 없다"처럼
+# 찾는 내용이 없다고 말한다(모델 평가 v1 R9 답 불가 26건 중 24건). UI 시험 gpu_benchmark의
+# 모순 답은 페이지·방문만 부정하고 이런 말이 없다. 방문 자체를 부정하면서 이 말도 쓰는 답은
+# 글만으로 둘을 가를 수 없어 거절 쪽으로 둔다.
+_CONTENT_LIMITATION = re.compile(
+    r"(?:정보|내용|설명|언급)(?:은|는|이|가|도|을|를)?[^.!?\n]{0,30}?"
+    r"(?:없|(?:포함|언급|기재)(?:되어|돼)?\s*있지\s*않|(?:언급|확인|제공|제시)되지\s*않|나와\s*있지\s*않)"
+    r"|확인할\s*수\s*없"
+)
 
 
 def _denies_records(text: str) -> bool:
+    if _CONTENT_LIMITATION.search(text):
+        return False
     # 근거 번호를 단 문장은 기록을 인용하는 문장이라 부정으로 보지 않는다.
     return any(
         _RECORD_DENIAL.search(sentence) and not _CITATION.search(sentence)
