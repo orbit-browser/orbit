@@ -5,6 +5,7 @@
 import { getSession, onSessionChange } from '../auth';
 import {
   getCollectionConsent,
+  hasCurrentConsent,
   getSettings,
   subscribeSettings,
   updateSettings,
@@ -75,7 +76,7 @@ function watchPendingThreshold(): void {
 export async function applyAccountConsent(migrationOwner?: string): Promise<void> {
   const consent = await getCollectionConsent(migrationOwner);
   const session = await getSession();
-  const enabled = session ? consent[session.user.id] === true : false;
+  const enabled = session ? hasCurrentConsent(consent, session.user.id) : false;
   if ((await getSettings()).collectionEnabled !== enabled) {
     await updateSettings({ collectionEnabled: enabled });
   }

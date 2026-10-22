@@ -51,16 +51,31 @@ const CONSENT_KEY = 'orbit:collectionConsent';
  * 수집 동의 화면과 설정에 함께 쓰는 외부 AI 전송 범위 안내. 실제로 보내는 것보다 적게 읽히면 안 된다.
  * 근거(backend): 제목·검색어·본문 발췌는 요약·세션화·임베딩·Ask로 간다. 주소는 `ai_safe_url/path`가
  * 쿼리와 비밀 같은 조각을 지운 형태다. 민감 URL은 받을 때 본문을 지우고 주소는 도메인만 남지만 제목은 간다.
- * 제공자는 config.py 기준(임베딩 Upstage, LLM A.X-K2·대체 EXAONE). 바뀌면 이 문구도 바꾼다.
+ * 제공자는 config.py·llm.py 기준(임베딩 Upstage, LLM A.X-K2·K-EXAONE·폴백 KT 믿:음). 바뀌면 이 문구와
+ * `CONSENT_VERSION`을 함께 바꾼다.
  */
 export const AI_DISCLOSURE =
-  '세션 정리와 검색을 위해 페이지 제목·주소·검색어·본문 일부가 AI 서비스(Upstage·SKT A.X·LG EXAONE)로 전송돼요. 민감한 사이트는 제목과 도메인만 보내요.';
+  '세션 정리와 검색을 위해 페이지 제목·주소·검색어·본문 일부가 AI 서비스(Upstage·SKT A.X·LG EXAONE·KT 믿:음)로 전송돼요. 민감한 사이트는 제목과 도메인만 보내요.';
 /** 같은 뜻, "~합니다" 말투의 새 탭 설정 화면용. */
 export const AI_DISCLOSURE_FORMAL =
-  '세션 정리와 검색을 위해 페이지 제목·주소·검색어·본문 일부가 AI 서비스(Upstage·SKT A.X·LG EXAONE)로 전송됩니다. 민감한 사이트는 제목과 도메인만 보냅니다.';
+  '세션 정리와 검색을 위해 페이지 제목·주소·검색어·본문 일부가 AI 서비스(Upstage·SKT A.X·LG EXAONE·KT 믿:음)로 전송됩니다. 민감한 사이트는 제목과 도메인만 보냅니다.';
 
-/** 계정 id → 수집 동의. 동의한 사람과 수집되는 사람이 같아야 하므로 브라우저가 아니라 계정에 묶는다. */
-export type CollectionConsent = Record<string, boolean>;
+/**
+ * 지금 동의 문구의 버전. 외부 AI 제공자가 늘면 올려서 모든 계정에 다시 동의를 받는다.
+ * 1(값 `true`): 2026-10-22 문구(Upstage·A.X·EXAONE). 2: 2026-10-23 KT 믿:음 추가.
+ */
+export const CONSENT_VERSION = 2;
+
+/**
+ * 계정 id → 그 계정이 동의한 문구 버전(끈 상태는 false). 동의한 사람과 수집되는 사람이 같아야 하므로
+ * 브라우저가 아니라 계정에 묶는다. 옛 값 `true`는 버전 1 동의다.
+ */
+export type CollectionConsent = Record<string, number | boolean>;
+
+/** 이 계정이 지금 문구에 동의했는지. 옛 문구 동의는 동의로 보지 않는다. */
+export function hasCurrentConsent(consent: CollectionConsent, accountId: string): boolean {
+  return consent[accountId] === CONSENT_VERSION;
+}
 
 /**
  * 계정별 수집 동의를 읽는다. 키가 아직 없으면(이 업데이트 직후 한 번) 브라우저 단위였던 기존
@@ -79,7 +94,7 @@ export async function getCollectionConsent(owner?: string): Promise<CollectionCo
 }
 
 export async function hasCollectionConsent(accountId: string): Promise<boolean> {
-  return (await getCollectionConsent())[accountId] === true;
+  return hasCurrentConsent(await getCollectionConsent(), accountId);
 }
 /** 이관 대상 — 기존 zustand persist(localStorage)가 쓰던 키. */
 const LEGACY_LOCALSTORAGE_KEY = 'orbit-settings';
@@ -104,7 +119,10 @@ export function updateSettings(partial: Partial<OrbitSettings>): Promise<OrbitSe
       const accountId = (await getSession())?.user.id;
       if (accountId) {
         const consent = await getCollectionConsent(accountId);
-        writes[CONSENT_KEY] = { ...consent, [accountId]: partial.collectionEnabled };
+        writes[CONSENT_KEY] = {
+          ...consent,
+          [accountId]: partial.collectionEnabled ? CONSENT_VERSION : false,
+        };
       }
     }
     await chrome.storage.local.set(writes);

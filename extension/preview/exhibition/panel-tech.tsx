@@ -7,11 +7,15 @@ import { BannerFrame } from './frame';
 import { METRICS, displayMeasure, isMeasured, type Metric } from './metrics';
 import { PROVEN } from './trial-highlights';
 
-/** 지금 설정의 모델(2026-10-22). 모든 LLM 단계가 A.X-K2 우선, K-EXAONE 대체다(코드 기본값도 A.X-K2) — 바뀌면 여기만 고친다. */
+/**
+ * 지금 설정의 모델(DecisionLog 2026-10-23). 의도·탭 묶기는 A.X-K2 → KT 믿:음, 요약·리랭크는 A.X-K2 → K-EXAONE,
+ * Ask 답변은 K-EXAONE → A.X-K2다(backend/app/ai/llm.py) — 바뀌면 여기만 고친다.
+ */
 const MODELS = {
   // 모델 이름은 줄에서 갈라지지 않게(줄바꿈 없는 공백)
   ax: 'SKT\u00a0A.X-K2',
   exaone: 'LG\u00a0K-EXAONE',
+  kt: 'KT\u00a0믿:음',
   embedding: 'Upstage\u00a0Embedding',
 };
 
@@ -60,7 +64,7 @@ const PIPELINE = [
     items: [
       ['의미 검색', '질문 벡터로 Qdrant 코사인 검색(임계 0.28) · 선택적 리랭킹'],
       ['권한 확인', '개인·팀 범위를 읽는 SQL 안에서 다시 판정'],
-      ['답과 복원', 'Ask 근거 답변(스트리밍) · 탭으로 세션 복원'],
+      ['답과 복원', `Ask 근거 답변(스트리밍, ${MODELS.exaone}) · 탭으로 세션 복원`],
     ],
   },
 ];
@@ -116,7 +120,7 @@ export function TechBanner() {
             </span>
             <span>
               <b>KOREAN AI</b>
-              {keepDots(`${MODELS.ax} → ${MODELS.exaone} 폴백 · ${MODELS.embedding}`)}
+              {keepDots(`${MODELS.ax} · ${MODELS.exaone} · ${MODELS.kt} 폴백 · ${MODELS.embedding}`)}
             </span>
           </div>
         </section>

@@ -4,7 +4,7 @@
 
 > **2026년도 인공지능 루키(AI Rookie) 대회 · 국내 AI 트랙 출품작**
 > 세션 의도 분석 · 요약 · 답변 · 검색까지 AI 파이프라인 전 구간을 SKT A.X-K2,
-> LG K-EXAONE, Upstage 임베딩으로 구성했습니다. 어느 단계에 어떤 모델이 쓰이는지는
+> LG K-EXAONE, KT 믿:음, Upstage 임베딩으로 구성했습니다. 어느 단계에 어떤 모델이 쓰이는지는
 > [국내 AI 모델 활용](#국내-ai-모델-활용), 브라우저 데이터를 어디까지 수집하고
 > 무엇을 외부로 보내지 않는지는 [데이터 처리와 프라이버시](#데이터-처리와-프라이버시)에
 > 정리했습니다.
@@ -56,23 +56,25 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
 
 ## 국내 AI 모델 활용
 
-대회 연계기업 5곳(KT, LG AI연구원, NC AI, SKT, 업스테이지) 가운데 **SKT · LG AI연구원 ·
-업스테이지** 3곳의 모델을 사용합니다. 파이프라인의 LLM·임베딩 호출은 전부 국내 모델이며,
+대회 연계기업 5곳(KT, LG AI연구원, NC AI, SKT, 업스테이지) 가운데 **SKT · LG AI연구원 · KT ·
+업스테이지** 4곳의 모델을 사용합니다. 파이프라인의 LLM·임베딩 호출은 전부 국내 모델이며,
 외산 LLM을 호출하는 코드 경로는 없습니다.
 
 | 파이프라인 단계 | Primary | Fallback | 구현 |
 |---|---|---|---|
-| 세션 의도 분석(append/create/hold/discard) | SKT A.X-K2 | LG K-EXAONE | `ai/llm.py: chat_completion_intent` |
-| 탭 클러스터링(스냅샷 저장) | SKT A.X-K2 | LG K-EXAONE | `ai/llm.py: chat_completion_light` |
+| 세션 의도 분석(append/create/hold/discard) | SKT A.X-K2 | KT 믿:음 | `ai/llm.py: chat_completion_intent` |
+| 탭 클러스터링(스냅샷 저장) | SKT A.X-K2 | KT 믿:음 | `ai/llm.py: chat_completion_light` |
 | 세션 요약·제목 생성 | SKT A.X-K2 | LG K-EXAONE | `ai/llm.py: chat_completion` |
-| Ask AI 답변 스트리밍 | SKT A.X-K2 | LG K-EXAONE | `ai/llm.py: chat_completion_stream_with_meta` |
+| Ask AI 답변 스트리밍 | LG K-EXAONE | SKT A.X-K2 | `ai/llm.py: chat_completion_stream_with_meta` |
 | 검색·추천 리랭킹 | SKT A.X-K2 | LG K-EXAONE | `ai/reranker.py`, `services/recommender/llm_rerank.py` |
 | 저장 임베딩 | Upstage `embedding-passage` | — | `services/embedding_sync.py` |
 | 검색·의도 라우팅 임베딩 | Upstage `embedding-query` | — | `services/ask_service.py`, `services/assistant_router.py` |
 
-- **폴백** — 모든 LLM 단계의 1순위는 A.X-K2, 대체는 K-EXAONE이다. 역할별 평가(model-eval-v1)에서
-  의도 분석은 A.X-K2가 정확도 +8.8%p·JSON 유효율 100%(EXAONE 87.4%)로 앞섰고, 요약·리랭킹·Ask는
-  EXAONE이 비열등을 보이지 못했다(근거: `docs/DecisionLog.md` 2026-10-22). 한 공급자가 중단돼도 기능은 유지된다.
+- **폴백** — 역할별 평가(model-eval-v1, GitHub main 통합본 재측정)로 정했다(근거: `docs/DecisionLog.md` 2026-10-23).
+  의도 분석은 K2 87.6%·KT 88.3%·EXAONE 71.8%(JSON 유효율 100%·100%·79.3%)라 K2를 1순위, 응답이 느린 KT
+  (warm p95 2,471ms)를 대체로 둔다. 탭 묶기도 K2 87.3% → KT 82.8% 순이다. Ask 답변은 맹검 심판에서 EXAONE이
+  근거 일치 144/144로 K2와 차이가 없고 첫 글자 p95가 480ms 빨라 1순위다. 요약·리랭크는 K2가 앞선다.
+  한 공급자가 중단돼도 기능은 유지된다.
 - **호출 제약 대응** — A.X 게이트웨이의 3 RPS 제한 때문에 LLM 호출은 전역 레이트 리미터
   (`ai/llm.py: _throttle`)로 직렬화한다. 방문 이벤트마다 LLM을 호출하지 않고 동기화
   시점에 배치로만 분석하는 설계도 같은 제약에서 나왔다.
@@ -80,9 +82,12 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
   호출한다. FriendliAI serverless가 2026-08-20 K-EXAONE 제공을 끝내 dedicated로 옮겼다.
   `EXAONE_MODEL` 에는 모델명 대신 endpoint ID를 넣는다. K-EXAONE은 hybrid reasoning 모델이라 분류·요약
   용도에서는 `enable_thinking=False`로 추론 트레이스를 끈다(끄지 않으면 `max_tokens`를
-  트레이스에 소모하고 본문이 비어 온다 — 2026-08-05 실측).
+  트레이스에 소모하고 본문이 비어 온다 — 2026-08-05 실측). Ask 스트림도 같은 설정으로 부른다.
+- **KT 서빙 경로** — KT 믿:음(`KT_MODEL_NAME` 기본 `midm-pro-fp8-kaic`)을 `KT_BASE_URL`(기본
+  `https://midm.kt.com/v1`)로 호출한다. 추론 필드가 없어 `extra_body`를 넣지 않는다. 호출마다 숨은 입력
+  토큰이 약 590개 붙으므로 비용 추정에 넣는다.
 - **`openai` 패키지에 대한 주의** — 백엔드는 `openai` Python SDK를 쓰지만 OpenAI 호환
-  클라이언트로만 사용하며, `base_url`은 각각 SKT A.X 게이트웨이 · FriendliAI · Upstage를 가리킨다.
+  클라이언트로만 사용하며, `base_url`은 각각 SKT A.X 게이트웨이 · FriendliAI · KT · Upstage를 가리킨다.
 
 ## 데이터 처리와 프라이버시
 
@@ -198,13 +203,16 @@ pnpm dev        # WXT dev 서버 → Chrome 에 확장 자동 로드
 ### 백엔드 환경변수
 
 `backend/.env.example` 을 `backend/.env` 로 복사해 채웁니다.
-AI 키 3종은 모두 필요합니다.
+AI 키 4종은 모두 필요합니다.
 
 ```bash
-AXK1_API_KEY=<SKT A.X 키>          # 모든 LLM 단계 primary(AXK1_MODEL 기본 A.X-K2)
-FRIENDLI_API_KEY=<FriendliAI 키>   # LG K-EXAONE — 모든 LLM 단계 fallback
+AXK1_API_KEY=<SKT A.X 키>          # Ask 답변을 뺀 LLM 단계 primary, Ask fallback(AXK1_MODEL 기본 A.X-K2)
+FRIENDLI_API_KEY=<FriendliAI 키>   # LG K-EXAONE — Ask 답변 primary, 요약·리랭크 fallback
+KT_API_KEY=<KT 키>                 # KT 믿:음 — 의도 분석·탭 묶기 fallback
 UPSTAGE_API_KEY=<Upstage 키>       # 임베딩(저장·검색)
 ```
+
+KT 모델명은 `KT_MODEL_NAME`, 주소는 `KT_BASE_URL`로 바꿉니다. 예전 `KT_MODEL` 변수는 읽지 않습니다.
 
 EXAONE은 FriendliAI dedicated endpoint로 호출하므로 `EXAONE_MODEL` 에 endpoint ID가 들어갑니다.
 기본값은 팀 endpoint이고, 다른 Friendli 팀의 키로는 403이 납니다. 그때는
@@ -219,12 +227,14 @@ EXAONE은 FriendliAI dedicated endpoint로 호출하므로 `EXAONE_MODEL` 에 en
 - `UPSTAGE_API_KEY` 없음 → 임베딩에는 폴백 공급자가 없어 요청이 그대로 실패한다. 검색과
   Ask AI 뿐 아니라 배치 세션화(서브클러스터링·세션 후보 탐색)까지 멈추므로 Auto Session이
   동작하지 않는다.
-- `FRIENDLI_API_KEY` 없음 → EXAONE 클라이언트 생성 단계에서 예외가 나므로 모든 단계의
-  폴백이 사라진다. 기능은 도는 것처럼 보이지만 **국내 AI 2종 병행 구성이 실제로는
-  1종으로 축소된 상태**이므로 시연 전에 반드시 확인한다.
-- `AXK1_API_KEY` 없음 → A.X 클라이언트를 만들 수 없다. 의도 분석과 탭 묶기는 EXAONE으로 넘어가
-  계속 동작한다. 나머지는 대체가 없다. 세션 요약은 실패(`summary_status=failed`)하고, Ask 답변은
-  `generation_failed` 오류를 낸다. 검색 리랭킹은 원래 순서를, 추천 리랭킹은 규칙 기반 순서를 쓴다.
+- `FRIENDLI_API_KEY` 없음 → EXAONE 클라이언트 생성 단계에서 예외가 난다. Ask 답변은 매번 A.X-K2로
+  넘어가 첫 글자가 늦어지고, 요약·리랭크의 폴백이 사라진다. 기능은 도는 것처럼 보이므로 시연 전에
+  반드시 확인한다.
+- `KT_API_KEY` 없음 → 의도 분석·탭 묶기의 폴백이 사라진다. A.X가 실패하면 의도 분석은 그룹을
+  보류(hold)하고, 탭 묶기는 한 그룹으로 저장한다.
+- `AXK1_API_KEY` 없음 → A.X 클라이언트를 만들 수 없다. 의도 분석과 탭 묶기는 KT로 넘어가
+  계속 동작하고, Ask 답변은 EXAONE이 1순위라 영향이 없다. 나머지는 대체가 없다. 세션 요약은
+  실패(`summary_status=failed`)하고, 검색 리랭킹은 원래 순서를, 추천 리랭킹은 규칙 기반 순서를 쓴다.
 - 예전 `.env.example`을 복사해 `AXK1_MODEL=A.X-K1`이 남아 있다면 `A.X-K2`로 바꾼다. 지금 키로 A.X-K1을
   부르면 403이 오고, 의도 분석이 매번 그룹 전체를 보류(hold)한다.
 
@@ -293,4 +303,4 @@ openai SDK 가 클라이언트 생성 단계에서 `Missing credentials` 예외�
 | Extension 로컬 큐 | IndexedDB + `idb` |
 | Backend | FastAPI, SQLAlchemy (async) + PostgreSQL, Pydantic v2 |
 | 벡터 검색 | Qdrant |
-| AI | SKT A.X-K2(모든 LLM 단계 primary), LG K-EXAONE(FriendliAI dedicated endpoint — fallback), Upstage embedding-query(검색)/embedding-passage(저장). 단계별 배정은 [국내 AI 모델 활용](#국내-ai-모델-활용) 참고 |
+| AI | SKT A.X-K2(Ask 답변을 뺀 LLM 단계 primary), LG K-EXAONE(FriendliAI dedicated endpoint — Ask primary, 요약·리랭크 fallback), KT 믿:음(의도 분석·탭 묶기 fallback), Upstage embedding-query(검색)/embedding-passage(저장). 단계별 배정은 [국내 AI 모델 활용](#국내-ai-모델-활용) 참고 |

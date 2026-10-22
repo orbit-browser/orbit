@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
 import { initCollector } from '../../lib/events/collector';
 import { listByStatus, setPendingChangeListener } from '../../lib/events/queue';
-import { getSettings, updateSettings } from '../../lib/settings';
+import { AI_DISCLOSURE, AI_DISCLOSURE_FORMAL, CONSENT_VERSION, getSettings, updateSettings } from '../../lib/settings';
 import { initTriggers } from '../../lib/sync/triggers';
 import { clearEvents } from '../helpers';
 
@@ -84,7 +84,7 @@ describe('계정별 수집 동의', () => {
 
   it('스위치가 아직 이전 계정 값이어도 동의하지 않은 계정의 방문은 기록하지 않는다', async () => {
     await chrome.storage.local.set({
-      'orbit:collectionConsent': { [B]: true },
+      'orbit:collectionConsent': { [B]: CONSENT_VERSION },
       'orbit:settings': { collectionEnabled: true },
     });
     await signInAs(C);
@@ -115,23 +115,58 @@ describe('계정별 수집 동의', () => {
     expect((await allEvents())[0].accountId).toBe(B);
   });
 
-  it('업데이트 전에 수집을 켜 둔 사용자는 지금 계정의 동의로 옮겨져 다시 묻지 않는다', async () => {
+  it('계정별 동의 전에 수집을 켜 둔 사용자는 지금 계정으로 옮기되, 지금 문구로 다시 묻는다', async () => {
+    // 옛 동의는 KT가 빠진 문구에 받은 것이다(DecisionLog 2026-10-23).
     await chrome.storage.local.set({ 'orbit:settings': { collectionEnabled: true } });
     await signInAs(B);
     startServiceWorker();
 
-    await vi.waitFor(async () => {
-      const stored = await chrome.storage.local.get('orbit:collectionConsent');
-      expect(stored['orbit:collectionConsent']).toEqual({ [B]: true });
+    // 옮긴 옛 동의(true)는 지금 버전이 아니라 스위치가 꺼지고, 꺼진 값이 B의 동의로 남는다.
+    await vi.waitFor(async () => expect((await getSettings()).collectionEnabled).toBe(false));
+    const stored = await chrome.storage.local.get('orbit:collectionConsent');
+    expect(stored['orbit:collectionConsent']).toEqual({ [B]: false });
+  });
+});
+
+describe('동의 문구 버전', () => {
+  it('외부 AI 안내에 KT 믿:음을 밝힌다', () => {
+    // 'SKT'에도 'KT'가 들어 있어 모델 이름까지 본다.
+    expect(AI_DISCLOSURE).toContain('KT 믿:음');
+    expect(AI_DISCLOSURE_FORMAL).toContain('KT 믿:음');
+  });
+
+  it('공급자가 늘기 전 문구에 동의한 계정은 다시 동의하기 전까지 수집하지 않는다', async () => {
+    await chrome.storage.local.set({
+      'orbit:collectionConsent': { [B]: true },
+      'orbit:settings': { collectionEnabled: true },
     });
-    expect((await getSettings()).collectionEnabled).toBe(true);
+    await signInAs(B);
+    startServiceWorker();
+
+    await vi.waitFor(async () => expect((await getSettings()).collectionEnabled).toBe(false));
+    await visit('https://b-before-reconsent.example/');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await allEvents()).toHaveLength(0);
+  });
+
+  it('다시 동의하면 지금 문구 버전으로 저장하고 수집을 이어 간다', async () => {
+    await chrome.storage.local.set({ 'orbit:collectionConsent': { [B]: true } });
+    await signInAs(B);
+    startServiceWorker();
+
+    await updateSettings({ collectionEnabled: true });
+    const stored = await chrome.storage.local.get('orbit:collectionConsent');
+    expect(stored['orbit:collectionConsent']).toEqual({ [B]: CONSENT_VERSION });
+
+    await visit('https://b-after-reconsent.example/');
+    await vi.waitFor(async () => expect(await allEvents()).toHaveLength(1));
   });
 });
 
 describe('계정 교체 순간의 탭 상태', () => {
   it('정리보다 먼저 온 새 계정의 방문은 이전 계정의 탭 상태를 referrer로 잇지 않는다', async () => {
     await chrome.storage.local.set({
-      'orbit:collectionConsent': { [C]: true },
+      'orbit:collectionConsent': { [C]: CONSENT_VERSION },
       'orbit:settings': { collectionEnabled: true },
     });
     await signInAs(C);
