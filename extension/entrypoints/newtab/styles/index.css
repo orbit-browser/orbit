@@ -2825,28 +2825,28 @@ body {
 }
 
 /* ═══════════════ 누를 수 있는 것의 공통 반응 (대표 화면 규칙 2026-10-22) ═══════════════
- * 포커스 — 컴포넌트가 따로 그린 표시가 없으면 이 링을 쓴다. :where 로 특이도를 0으로 둬서
- * 각 컴포넌트의 포커스 규칙이 언제나 이긴다.
+ * 포커스 — 컴포넌트가 따로 그린 표시가 없으면 이 링을 쓴다. 상태 의사 클래스까지 :where 안에 넣어
+ * 특이도를 0으로 둬야 각 컴포넌트의 포커스 규칙(outline: none 등)이 언제나 이긴다.
  * 누름 — `scale` 속성을 쓴다. `transform` 을 덮어쓰지 않고 합쳐지므로 translate 로 자리를 잡은
  * 버튼(… 버튼 등)도 제자리에서 눌린다.
  */
-:where(button, a[href], [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], [role='option'], summary, select, input, textarea):focus-visible {
+:where(:is(button, a[href], [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], [role='option'], summary, select, input, textarea):focus-visible) {
   outline: 2px solid var(--accent-orange-muted);
   outline-offset: 2px;
 }
 
-:where(button, [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], a[href]):not(:disabled):active {
+:where(:is(button, [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], a[href]):not(:disabled):active) {
   scale: 0.97;
 }
 
 /* 카드처럼 큰 면은 덜 눌려야 흔들려 보이지 않는다 */
-:where(.timeline-item, .atlas-gallery__card):active {
+:where(.timeline-item:active, .atlas-gallery__card:active) {
   scale: 0.99;
 }
 
 @media (prefers-reduced-motion: reduce) {
   /* 움직임 대신 밝기로 눌림을 남긴다 */
-  :where(button, [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], a[href]):not(:disabled):active {
+  :where(:is(button, [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], a[href]):not(:disabled):active) {
     scale: none;
     filter: brightness(0.94);
   }
