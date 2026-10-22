@@ -1,7 +1,7 @@
 # Orbit Backend
 
 FastAPI 기반 이벤트 인제스트 + 세션 API + AI 파이프라인. Extension이 보낸 방문 이벤트를
-받아 배치로 세션화하고, 국내 LLM(SKT A.X-K2 ↔ LG K-EXAONE 상호 폴백)으로 의도 분석과
+받아 배치로 세션화하고, 국내 LLM(SKT A.X-K2 우선, LG K-EXAONE 폴백)으로 의도 분석과
 요약을 수행하며, Upstage embedding-passage/embedding-query + Qdrant로 자연어 검색을
 제공합니다. "지금 열린 탭 저장" 스냅샷 경로도 그대로 유지합니다.
 
@@ -38,7 +38,7 @@ backend/
    │  ├─ recommender/        # 추천 세션 스코어링 + LLM 리랭킹
    │  └─ google_auth.py, auth_tokens.py, users.py, app_settings.py
    ├─ ai/
-   │  ├─ llm.py           # A.X / K-EXAONE 클라이언트 + 단계별 상호 폴백, 전역 레이트 리미터
+   │  ├─ llm.py           # A.X-K2 / K-EXAONE 클라이언트 + A.X 우선 폴백, 전역 레이트 리미터
    │  ├─ embedding.py     # embedding-query/embedding-passage 클라이언트 (4096차원, 비대칭 임베딩)
    │  ├─ clusterer.py     # 스냅샷 경로에서 탭을 주제별로 그루핑
    │  ├─ reranker.py      # 검색 결과를 쿼리 관련성 순으로 재정렬
@@ -111,22 +111,21 @@ Qdrant 검색 장애는 503으로 반환하며 내부 예외 상세는 API 응�
 
 ## AI 모델 구성
 
-두 LLM은 서로의 폴백이다. 단계별로 실측 우세한 쪽을 primary로 두되 반대쪽을 fallback으로
-걸어, 한 공급자가 중단돼도 기능이 멈추지 않는다(근거: `docs/DecisionLog.md` 2026-08-05).
+모든 LLM 역할의 primary는 A.X-K2, fallback은 K-EXAONE이다. 한 공급자가 중단돼도 기능이
+멈추지 않는다(근거: `docs/DecisionLog.md` 2026-10-22, model-eval-v1).
 
 | 역할 | Primary | Fallback | 구현 |
 |---|---|---|---|
-| 배치 의도 분석 (append/create/hold/discard) | `K-EXAONE` | `A.X-K2` | `llm.chat_completion_intent` |
-| 탭 클러스터링 (스냅샷 경로) | `K-EXAONE` | `A.X-K2` | `llm.chat_completion_light` |
+| 배치 의도 분석 (append/create/hold/discard) | `A.X-K2` | `K-EXAONE` | `llm.chat_completion_intent` |
+| 탭 클러스터링 (스냅샷 경로) | `A.X-K2` | `K-EXAONE` | `llm.chat_completion_light` |
 | 세션 요약 | `A.X-K2` | `K-EXAONE` | `llm.chat_completion(_with_meta)` |
 | 검색·추천 리랭킹 | `A.X-K2` | `K-EXAONE` | `llm.chat_completion` |
 | Ask 답변 스트리밍 | `A.X-K2` | `K-EXAONE` | `llm.chat_completion_stream_with_meta` |
 | 검색 쿼리 임베딩 | `embedding-query` | — | 4096차원, Qdrant cosine 검색 |
 | 저장 문서(요약) 임베딩 | `embedding-passage` | — | 비대칭 임베딩 — 쿼리/문서에 서로 다른 모델 |
 
-- 의도 분석만 EXAONE 우선 방향이 반대인 이유: 공정 재평가에서 품질은 대등했고
-  노이즈 제외는 EXAONE이 우세했다(당시 A.X-K1 기준). rate limit(429)이나 지연은
-  `max_retries=0` + 12초 타임아웃으로 즉시 A.X에 넘겨 흡수한다.
+- 의도 분석은 A.X-K2가 정확도 87.6% 대 78.8%, JSON 유효율 100% 대 87.4%로 앞섰다. 1순위의
+  rate limit(429)·지연·빈 응답은 `max_retries=0` + 12초 타임아웃으로 즉시 EXAONE에 넘긴다.
 - A.X 게이트웨이는 3 RPS 제한이 있어 모든 LLM 호출을 전역 최소 간격 리미터로 직렬화한다.
 - `K-EXAONE`은 FriendliAI dedicated endpoint(`EXAONE_MODEL` = endpoint ID)로 호출하며,
   hybrid reasoning 모델이라 `chat_template_kwargs.enable_thinking=false`를 항상 보낸다.

@@ -47,7 +47,7 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
   범위 선택으로 팀을 고르면 팀에 공유된 세션을 읽기 전용으로 보고, Ask AI도 그 세션만 근거로
   답한다. 개인 기록은 그대로 나만 본다(`docs/api-design-v2.md` §14)
 - **기존 스냅샷 저장/복원 유지** — "지금 열린 탭 저장"(`POST /sessions/cluster`), 세션
-  검색·복원, AI 요약(A.X-K2 ↔ EXAONE 상호 폴백), 임베딩 + Qdrant 벡터 검색, 민감
+  검색·복원, AI 요약(A.X-K2 → EXAONE 폴백), 임베딩 + Qdrant 벡터 검색, 민감
   도메인 자동 제외는 전환 이전과 동일하게 동작
 
 세부 설계와 결정 근거는 [`docs/product-direction-v2.md`](./docs/product-direction-v2.md),
@@ -62,17 +62,17 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
 
 | 파이프라인 단계 | Primary | Fallback | 구현 |
 |---|---|---|---|
-| 세션 의도 분석(append/create/hold/discard) | LG K-EXAONE | SKT A.X-K2 | `ai/llm.py: chat_completion_intent` |
-| 탭 클러스터링(스냅샷 저장) | LG K-EXAONE | SKT A.X-K2 | `ai/llm.py: chat_completion_light` |
+| 세션 의도 분석(append/create/hold/discard) | SKT A.X-K2 | LG K-EXAONE | `ai/llm.py: chat_completion_intent` |
+| 탭 클러스터링(스냅샷 저장) | SKT A.X-K2 | LG K-EXAONE | `ai/llm.py: chat_completion_light` |
 | 세션 요약·제목 생성 | SKT A.X-K2 | LG K-EXAONE | `ai/llm.py: chat_completion` |
 | Ask AI 답변 스트리밍 | SKT A.X-K2 | LG K-EXAONE | `ai/llm.py: chat_completion_stream_with_meta` |
 | 검색·추천 리랭킹 | SKT A.X-K2 | LG K-EXAONE | `ai/reranker.py`, `services/recommender/llm_rerank.py` |
 | 저장 임베딩 | Upstage `embedding-passage` | — | `services/embedding_sync.py` |
 | 검색·의도 라우팅 임베딩 | Upstage `embedding-query` | — | `services/ask_service.py`, `services/assistant_router.py` |
 
-- **상호 폴백** — 두 LLM은 서로의 폴백이다. 폴백 방향이 단계마다 반대인 것은 실측에 따른
-  배정으로, 의도 분석은 EXAONE이 노이즈 제외에서 우세했고 요약·리랭킹은 A.X가 나았다
-  (근거: `docs/DecisionLog.md` 2026-08-05, 당시 A.X-K1 기준 실측). 한 공급자가 중단돼도 기능은 유지된다.
+- **폴백** — 모든 LLM 단계의 1순위는 A.X-K2, 대체는 K-EXAONE이다. 역할별 평가(model-eval-v1)에서
+  의도 분석은 A.X-K2가 정확도 +8.8%p·JSON 유효율 100%(EXAONE 87.4%)로 앞섰고, 요약·리랭킹·Ask는
+  EXAONE이 비열등을 보이지 못했다(근거: `docs/DecisionLog.md` 2026-10-22). 한 공급자가 중단돼도 기능은 유지된다.
 - **호출 제약 대응** — A.X 게이트웨이의 3 RPS 제한 때문에 LLM 호출은 전역 레이트 리미터
   (`ai/llm.py: _throttle`)로 직렬화한다. 방문 이벤트마다 LLM을 호출하지 않고 동기화
   시점에 배치로만 분석하는 설계도 같은 제약에서 나왔다.
@@ -201,8 +201,8 @@ pnpm dev        # WXT dev 서버 → Chrome 에 확장 자동 로드
 AI 키 3종은 모두 필요합니다.
 
 ```bash
-AXK1_API_KEY=<SKT A.X 키>          # 요약·리랭킹·Ask 답변 primary (A.X-K2)
-FRIENDLI_API_KEY=<FriendliAI 키>   # LG K-EXAONE — 의도분석·클러스터링 primary
+AXK1_API_KEY=<SKT A.X 키>          # 모든 LLM 단계 primary(AXK1_MODEL 기본 A.X-K2)
+FRIENDLI_API_KEY=<FriendliAI 키>   # LG K-EXAONE — 모든 LLM 단계 fallback
 UPSTAGE_API_KEY=<Upstage 키>       # 임베딩(저장·검색)
 ```
 
@@ -219,11 +219,10 @@ EXAONE은 FriendliAI dedicated endpoint로 호출하므로 `EXAONE_MODEL` 에 en
 - `UPSTAGE_API_KEY` 없음 → 임베딩에는 폴백 공급자가 없어 요청이 그대로 실패한다. 검색과
   Ask AI 뿐 아니라 배치 세션화(서브클러스터링·세션 후보 탐색)까지 멈추므로 Auto Session이
   동작하지 않는다.
-- `FRIENDLI_API_KEY` 없음 → EXAONE 클라이언트 생성 단계에서 예외가 나므로, EXAONE 이
-  primary 인 의도 분석·클러스터링이 매번 A.X 폴백으로 처리되고, A.X 가 primary 인
-  단계는 폴백이 사라진다. 기능은 도는 것처럼 보이지만 **국내 AI 2종 병행 구성이 실제로는
+- `FRIENDLI_API_KEY` 없음 → EXAONE 클라이언트 생성 단계에서 예외가 나므로 모든 단계의
+  폴백이 사라진다. 기능은 도는 것처럼 보이지만 **국내 AI 2종 병행 구성이 실제로는
   1종으로 축소된 상태**이므로 시연 전에 반드시 확인한다.
-- `AXK1_API_KEY` 없음 → 위와 대칭으로 요약·리랭킹·Ask 답변이 EXAONE 단독으로 처리된다.
+- `AXK1_API_KEY` 없음 → 모든 LLM 단계가 매번 EXAONE 폴백으로 처리된다.
 
 ### 구글 로그인 설정 (필수)
 
@@ -290,4 +289,4 @@ openai SDK 가 클라이언트 생성 단계에서 `Missing credentials` 예외�
 | Extension 로컬 큐 | IndexedDB + `idb` |
 | Backend | FastAPI, SQLAlchemy (async) + PostgreSQL, Pydantic v2 |
 | 벡터 검색 | Qdrant |
-| AI | SKT A.X-K2(요약·리랭킹·Ask 답변 primary), LG K-EXAONE(FriendliAI dedicated endpoint — 의도분석·클러스터링 primary) — 상호 폴백, Upstage embedding-query(검색)/embedding-passage(저장). 단계별 배정은 [국내 AI 모델 활용](#국내-ai-모델-활용) 참고 |
+| AI | SKT A.X-K2(모든 LLM 단계 primary), LG K-EXAONE(FriendliAI dedicated endpoint — fallback), Upstage embedding-query(검색)/embedding-passage(저장). 단계별 배정은 [국내 AI 모델 활용](#국내-ai-모델-활용) 참고 |
