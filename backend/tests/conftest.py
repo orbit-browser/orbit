@@ -8,7 +8,7 @@ from app.config import settings
 
 # backend/.env(또는 셸 환경변수)의 실제 키를 시험에서 지운다. 키가 있으면 대역 없는 경로가
 # 실제 공급자에 연결하려다 네트워크 차단에 걸려, 같은 시험이 키 유무에 따라 결과가 갈렸다.
-_EXTERNAL_API_KEYS = ("axk1_api_key", "friendli_api_key", "kt_api_key", "upstage_api_key")
+_EXTERNAL_API_KEYS = ("axk1_api_key", "friendli_api_key", "kt_api_key", "upstage_api_key", "google_client_id")
 
 
 @pytest.fixture(autouse=True)
