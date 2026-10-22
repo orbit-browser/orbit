@@ -136,6 +136,12 @@ function pdfPagesMm(file) {
   return [...text.matchAll(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/g)].map(([, w, h]) => [(Number(w) * 25.4) / 72, (Number(h) * 25.4) / 72]);
 }
 
+/** PDF에 묻힌 글꼴 이름(부분 집합 접두어 'ABCDEF+' 제외). Chrome은 글꼴 사전을 압축하지 않는다. */
+const pdfFonts = (file) => [...new Set([...readFileSync(file, 'latin1').matchAll(/\/FontName\s*\/(?:[A-Z]{6}\+)?([^\s/<>[\]()]+)/g)].map(([, font]) => font))];
+// 현수막 글꼴과 아이콘 글꼴. Google Fonts를 못 받으면 시스템 글꼴(.SFNS, AppleSDGothicNeo, Menlo 등)로 그려져
+// 글줄이 달라지고 맨 위에 경고 띠가 찍힌다 — 그래도 쪽 크기 검사는 통과하므로 글꼴 이름으로 막는다.
+const BANNER_FONTS = /^(Inter|NotoSansKR|JetBrainsMono|Phosphor)/;
+
 /** 쪽 크기가 장 크기와 1mm 안에서 맞는지 — 이름 있는 쪽(@page narrow)이 빠지면 455 장이 950 으로 나온다. */
 function checkPdf(file, panels) {
   const pages = pdfPagesMm(file);
@@ -195,6 +201,12 @@ if (wantPdf) {
     const wrong = checkPdf(job.file, job.panels);
     if (wrong) {
       fail(`pdf ${job.query}`, wrong);
+      continue;
+    }
+    const fonts = pdfFonts(job.file);
+    const stray = fonts.filter((font) => !BANNER_FONTS.test(font));
+    if (fonts.length === 0 || stray.length) {
+      fail(`pdf ${job.query}`, fonts.length ? `fonts other than the banner fonts (did Google Fonts load?): ${stray.join(', ')}` : 'no embedded fonts found');
       continue;
     }
     const sizes = job.panels.map((panel) => `${panel.width}x${HEIGHT_MM}`).join(' + ');
