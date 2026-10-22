@@ -15,6 +15,11 @@ from app.services.ask_service import AskContext, grounded_answer
 from app.services.intent_analyzer import Assignment
 
 
+async def _no_conflations(_prompt: str, _answer: str) -> list:
+    """Ask 답변 뒤 검증(find_conflations)의 대역. 이 시험은 검증 결과를 보지 않는다."""
+    return []
+
+
 @pytest.mark.parametrize("score", [None, float("nan"), float("inf")])
 def test_append_requires_verified_similarity(score):
     # The trial's old sessions were all recent. Recency alone is not topic evidence.
@@ -207,6 +212,7 @@ def test_grounded_stream_has_no_replace(monkeypatch):
         yield "방문했어요 [1].", "replay"
 
     monkeypatch.setattr(ask, "chat_completion_stream_with_meta", fine)
+    monkeypatch.setattr(ask, "find_conflations", _no_conflations)
     raw = json.loads((Path(__file__).parent / "fixtures/ui_trial_answer.json").read_text())
     context = AskContext([SessionDetail.model_validate(raw["sources"][1])], "prompt")
 

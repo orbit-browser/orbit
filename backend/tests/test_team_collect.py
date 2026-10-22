@@ -41,6 +41,11 @@ OTHER = "other-team"  # mina 가 owner 인 다른 팀
 DEVICE = "device-1"
 
 
+async def _no_conflations(_prompt: str, _answer: str) -> list:
+    """Ask 답변 뒤 검증(find_conflations)의 대역. 이 시험은 검증 결과를 보지 않는다."""
+    return []
+
+
 class DB(MemoryDB):
     async def rollback(self):
         self.sync.rollback()
@@ -153,6 +158,7 @@ def api(db, monkeypatch):
     monkeypatch.setattr(search, "search_similar_with_scores", every_session)
     monkeypatch.setattr(ask_service, "score_passages", score)
     monkeypatch.setattr(ask, "chat_completion_stream_with_meta", answer)
+    monkeypatch.setattr(ask, "find_conflations", _no_conflations)
     monkeypatch.setattr(sessions, "delete_point", nothing)
     monkeypatch.setattr(workspaces, "set_stream_payload", nothing)
     monkeypatch.setattr(team_collect, "set_stream_payload", nothing)

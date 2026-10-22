@@ -29,6 +29,11 @@ from app.services.recommender import service as recommender
 from app.services.recommender.llm_rerank import RecommendationContext
 
 
+async def _no_conflations(_prompt: str, _answer: str) -> list:
+    """Ask 답변 뒤 검증(find_conflations)의 대역. 이 시험은 검증 결과를 보지 않는다."""
+    return []
+
+
 class MemoryDB:
     """Async-shaped adapter; the production statements execute unchanged."""
 
@@ -184,6 +189,7 @@ def api(db, monkeypatch):
     monkeypatch.setattr(search, "search_similar_with_scores", scored_vector_results)
     monkeypatch.setattr(ask_service, "score_passages", score)
     monkeypatch.setattr(ask, "chat_completion_stream_with_meta", answer)
+    monkeypatch.setattr(ask, "find_conflations", _no_conflations)
     monkeypatch.setattr(sessions, "delete_point", no_delete)
 
     def request(method, path, user="bob", **kwargs):

@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy.engine import Engine
 
 from app.config import settings
+from app.services import answer_verifier
 
 # backend/.env(또는 셸 환경변수)의 실제 키를 시험에서 지운다. 키가 있으면 대역 없는 경로가
 # 실제 공급자에 연결하려다 네트워크 차단에 걸려, 같은 시험이 키 유무에 따라 결과가 갈렸다.
@@ -73,3 +74,23 @@ def _forbid_network_connections(monkeypatch: pytest.MonkeyPatch) -> Iterator[Non
 
     # 서비스가 연결 예외를 삼켜도(경고 로그만 남기고 계속) 시험은 실패해야 한다.
     assert not attempts, f"network connection attempted: {attempts}"
+
+
+@pytest.fixture(autouse=True)
+def _forbid_unstubbed_answer_verification(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Ask 답변 뒤 검증(find_conflations)이 대역 없이 LLM에 닿으면 실패시킨다.
+
+    find_conflations는 오류를 삼키고 빈 목록을 돌려주므로, 대역을 빠뜨린 Ask 시험도 키가 없으면 조용히
+    통과하고 키가 있으면 네트워크 차단에 걸렸다. 검증을 시험하는 쪽은 chat_completion_with_meta를 직접 바꾼다.
+    """
+    attempts: list[str] = []
+
+    async def guarded(*_args: object, **_kwargs: object) -> tuple[str, str]:
+        attempts.append("chat_completion_with_meta")
+        raise RuntimeError("Unstubbed answer verification LLM call in unit test")
+
+    monkeypatch.setattr(answer_verifier, "chat_completion_with_meta", guarded)
+
+    yield
+
+    assert not attempts, "find_conflations reached the LLM; stub app.api.ask.find_conflations in this test"
