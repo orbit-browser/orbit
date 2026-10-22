@@ -1,0 +1,25 @@
+{
+	# Let's Encrypt 만료 알림을 받을 주소.
+	email {$ACME_EMAIL}
+}
+
+{$ORBIT_DOMAIN} {
+	encode gzip
+
+	# FastAPI 자동 문서는 공개 서버에서 감춘다(API 목록이 그대로 드러난다).
+	@apidocs path /docs /docs/* /redoc /openapi.json
+	respond @apidocs 404
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+
+	reverse_proxy backend:8000
+
+	log {
+		output stdout
+		format console
+	}
+}

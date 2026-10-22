@@ -124,7 +124,7 @@ FastAPI 백엔드 서비스입니다. "지금 열린 탭을 저장"하는 기존
   넘어가는 경로는 없다. 공유는 원본을 가리키는 라이브 참조라 **공유 뒤 그 세션에 추가되는 페이지도
   팀에 보이며**, 팀원은 제목·요약·페이지 목록을 보고 팀 Ask에서 페이지 본문 발췌가 근거로 쓰인다.
   공유 해제·탈퇴·팀 삭제 즉시 팀에서 사라진다. 자동병합은 공유 중인 세션을 건드리지 않는다.
-  팀 기능은 팀원이 같은 백엔드에 접속해야 하며, 공용 서버 배포는 아직 정하지 않았다.
+  팀 기능은 팀원이 같은 백엔드에 접속해야 한다. 공용 서버 묶음과 운영 절차는 `docs/deploy.md`에 있다(서버 생성은 대표 결정 대기).
 
 ## 아키텍처 개요
 
@@ -160,7 +160,8 @@ orbit/
 │  ├─ app/services  # event_filter, grouper, intent_analyzer, session_updater,
 │  │                # sync_pipeline, summarizer, embedding_sync
 │  └─ eval/         # 세션 분류 평가 하네스 (골든셋 + run_eval.py)
-└─ docker-compose.yml  # postgres + qdrant
+├─ deploy/      # 공용 서버 묶음 — 운영 compose, Caddy(HTTPS), 백업·복구 (docs/deploy.md)
+└─ docker-compose.yml  # 로컬 개발용 postgres + qdrant
 ```
 
 ## 실행
