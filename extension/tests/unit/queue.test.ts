@@ -19,7 +19,7 @@ import {
   setPendingChangeListener,
 } from '../../lib/events/queue';
 import { MAX_CONTENT_EXCERPT_LENGTH } from '../../lib/events/types';
-import { clearEvents, makeInput } from '../helpers';
+import { clearEvents, makeInput, signInTestUser } from '../helpers';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -28,6 +28,8 @@ beforeEach(async () => {
   fakeBrowser.reset();
   setPendingChangeListener(null);
   await clearEvents();
+  // 큐 요약·전송은 로그인한 계정(makeInput 기본 'u1') 것만 다룬다.
+  await signInTestUser();
 });
 
 async function addPendingEvent(overrides: Parameters<typeof makeInput>[0] = {}) {
@@ -120,7 +122,7 @@ describe('claimPending', () => {
     const mid = await addPendingEvent({ visitedAt: new Date(base - 2 * HOUR_MS).toISOString() });
     const recent = await addPendingEvent({ visitedAt: new Date(base - HOUR_MS).toISOString() });
 
-    const claimed = await claimPending(2);
+    const claimed = await claimPending(2, 'u1');
     expect(claimed.map((e) => e.eventId)).toEqual([old.eventId, mid.eventId]);
     expect((await getEvent(old.eventId))!.status).toBe('syncing');
     expect((await getEvent(old.eventId))!.syncingStartedAt).toBeTruthy();
@@ -129,11 +131,11 @@ describe('claimPending', () => {
 
   it('nextAttemptAt이 미래인 이벤트(백오프 대기)는 claim하지 않는다', async () => {
     const waiting = await addPendingEvent();
-    await claimPending(10);
+    await claimPending(10, 'u1');
     await releaseToPending([waiting.eventId], { backoff: true });
 
     const ready = await addPendingEvent();
-    const claimed = await claimPending(10);
+    const claimed = await claimPending(10, 'u1');
     expect(claimed.map((e) => e.eventId)).toEqual([ready.eventId]);
   });
 });
@@ -141,7 +143,7 @@ describe('claimPending', () => {
 describe('markSynced / releaseToPending', () => {
   it('markSynced는 synced 전환 + syncedAt 기록 + syncingStartedAt 해제', async () => {
     const event = await addPendingEvent();
-    await claimPending(1);
+    await claimPending(1, 'u1');
     await markSynced([event.eventId]);
     const stored = await getEvent(event.eventId);
     expect(stored!.status).toBe('synced');
@@ -151,7 +153,7 @@ describe('markSynced / releaseToPending', () => {
 
   it('backoff:true는 failureCount 증가 + 2^n분 뒤 nextAttemptAt 설정', async () => {
     const event = await addPendingEvent();
-    await claimPending(1);
+    await claimPending(1, 'u1');
     const [updated] = await releaseToPending([event.eventId], { backoff: true });
     expect(updated.status).toBe('pending');
     expect(updated.failureCount).toBe(1);
@@ -185,7 +187,7 @@ describe('resetStaleSyncing', () => {
   it('임계 시간을 넘긴 syncing 고아만 pending으로 되돌린다', async () => {
     const stale = await addPendingEvent();
     const fresh = await addPendingEvent();
-    await claimPending(10);
+    await claimPending(10, 'u1');
 
     // stale 쪽의 syncingStartedAt을 6분 전으로 조작
     const { getDB, EVENTS_STORE } = await import('../../lib/events/db');
@@ -205,7 +207,7 @@ describe('prune', () => {
   it('48시간 지난 synced만 삭제한다', async () => {
     const oldSynced = await addPendingEvent();
     const newSynced = await addPendingEvent();
-    await claimPending(10);
+    await claimPending(10, 'u1');
     await markSynced([oldSynced.eventId, newSynced.eventId]);
 
     const { getDB, EVENTS_STORE } = await import('../../lib/events/db');
@@ -227,7 +229,7 @@ describe('evictIfOver', () => {
     const syncedEvent = await addPendingEvent({
       visitedAt: new Date(base - 5 * HOUR_MS).toISOString(),
     });
-    await claimPending(1);
+    await claimPending(1, 'u1');
     await markSynced([syncedEvent.eventId]);
 
     const oldest = await addPendingEvent({ visitedAt: new Date(base - 4 * HOUR_MS).toISOString() });

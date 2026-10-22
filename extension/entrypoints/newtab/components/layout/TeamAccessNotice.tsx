@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { onTeamAccessLost } from '../../../../lib/useWorkspaces';
+import { onTeamAccessLost, teamLabel } from '../../../../lib/useWorkspaces';
 
 const AUTO_HIDE_MS = 8000;
 
@@ -19,7 +19,7 @@ export function TeamAccessNotice() {
   return (
     <div className="team-access-notice" role="status">
       <span>
-        <strong>{teamName}</strong> 팀에 더 이상 접근할 수 없어요. 내 Orbit으로 돌아왔어요.
+        <strong>{teamLabel(teamName)}</strong>에 더 이상 접근할 수 없어요. 내 Orbit으로 돌아왔어요.
       </span>
       <button type="button" onClick={() => setTeamName(null)}>
         확인

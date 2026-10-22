@@ -46,6 +46,7 @@ open → pending → syncing → synced
 - `synced`: 서버가 2xx로 accepted 처리한 이벤트. 48시간 후 prune(로컬 큐에서 삭제) 대상.
 - 사용자는 동기화 전(`open`/`pending`) 이벤트를 Timeline에서 개별 삭제할 수 있다.
 - 큐 상한 5,000개 — 초과 시 `synced`부터 정리하고, 그래도 부족하면 최고령 `pending`을 퇴출하며 `droppedCount`를 UI에 노출한다(무음 데이터 유실 금지).
+- **계정 귀속(DB v2)**: 이벤트마다 방문 당시 로그인 계정 `accountId`(로컬 전용, wire 제외)를 단다. 로그아웃 상태에서는 수집하지 않는다. Timeline·동기화 요약은 현재 계정 것만 읽고(`by-account-status`·`by-account-visitedAt` 색인), drain은 현재 계정 이벤트만 그 계정 토큰(고른 순간에 고정)으로 보낸다. 로그아웃·계정 교체 때는 이전 계정의 열린 방문을 마감하고 탭 상태를 비운 뒤, 남은 이벤트를 이전 계정 토큰으로 한 번 보낸다. 못 보낸 것은 그 계정 것으로 남아 그 계정이 다시 로그인할 때 보낸다. v1 큐(계정 없음)는 업그레이드 때 비운다.
 
 ### 2.2 서버 이벤트 상태 (`exploration_events.sync_status`)
 

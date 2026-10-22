@@ -28,6 +28,11 @@ export interface ExplorationEvent {
   contentExcerpt: string | null;
   /** ISO 8601 — 로컬 큐에 처음 적재된 시각 */
   createdAt: string;
+  /**
+   * 방문 당시 로그인한 계정 id(로컬 전용, wire 제외). 같은 브라우저에서 계정을 바꿔도
+   * 이 계정의 화면에만 보이고 이 계정의 토큰으로만 전송된다.
+   */
+  accountId: string;
 
   // ── 로컬 전용 상태 — toWire()에서 제외 ──────────────────────────
   status: EventStatus;

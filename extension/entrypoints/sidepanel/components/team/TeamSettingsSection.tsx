@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { ChevronRight, Copy } from 'lucide-react';
 import type { InviteCode, Workspace } from '../../../../lib/types';
 import { useAuth } from '../../../../lib/useAuth';
-import { useActiveWorkspace, useWorkspaces } from '../../../../lib/useWorkspaces';
+import { teamLabel, useActiveWorkspace, useWorkspaces } from '../../../../lib/useWorkspaces';
 import { useWorkspaceMembers, useWorkspaceMutations } from '../../hooks/useWorkspaces';
 import { useUIStore } from '../../store/ui';
 import { MemberAvatar } from './MemberAvatar';
@@ -103,7 +103,7 @@ function TeamPanel({ workspace }: { workspace: Workspace }) {
   function deleteTeam() {
     if (
       !window.confirm(
-        `"${workspace.name}" 팀을 지울까요?\n공유됐던 세션은 각자의 개인 기록에 그대로 남아요.`,
+        `"${teamLabel(workspace.name)}"을 지울까요?\n공유됐던 세션은 각자의 개인 기록에 그대로 남아요.`,
       )
     ) {
       return;
@@ -118,7 +118,7 @@ function TeamPanel({ workspace }: { workspace: Workspace }) {
   function removeUser(userId: string, label: string) {
     const self = userId === myId;
     const message = self
-      ? `"${workspace.name}" 팀에서 나갈까요?\n내가 공유한 세션은 팀에서 빠지고 내 개인 기록에는 남아요.`
+      ? `"${teamLabel(workspace.name)}"에서 나갈까요?\n내가 공유한 세션은 팀에서 빠지고 내 개인 기록에는 남아요.`
       : `${label} 님을 팀에서 내보낼까요?\n그 사람이 공유한 세션도 팀에서 빠지고, 지금 초대 코드는 더 이상 쓸 수 없어요.`;
     if (!window.confirm(message)) return;
     removeMember.mutate(
@@ -251,7 +251,7 @@ export function TeamSettingsSection() {
       onSuccess: (workspace) => {
         setNewName('');
         setOpenId(workspace.id);
-        showToast(`${workspace.name} 팀을 만들었어요`);
+        showToast(`${teamLabel(workspace.name)}을 만들었어요`);
       },
       onError: () => showToast('팀을 만들지 못했어요'),
     });
@@ -265,7 +265,7 @@ export function TeamSettingsSection() {
       onSuccess: (workspace) => {
         setCode('');
         select(workspace.id);
-        showToast(`${workspace.name} 팀에 참여했어요`);
+        showToast(`${teamLabel(workspace.name)}에 참여했어요`);
       },
       onError: () => showToast('초대 코드가 맞지 않거나 만료됐어요'),
     });

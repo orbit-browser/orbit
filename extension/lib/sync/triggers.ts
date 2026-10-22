@@ -2,10 +2,18 @@
 // SW 시작 시 stale-syncing 리셋 + prune + evict도 이 모듈이 담당한다.
 // 계약 근거: docs/target-architecture.md §4, docs/implementation-roadmap.md M2-10
 
+import { onSessionChange } from '../auth';
 import { getSettings, subscribeSettings, type OrbitSettings } from '../settings';
 import { finalizeOrphanOpenEvents } from '../events/collector';
-import { evictIfOver, getSyncStatus, prune, resetStaleSyncing, setPendingChangeListener } from '../events/queue';
-import { requestDrain, RETRY_ALARM_NAME } from './engine';
+import {
+  evictIfOver,
+  getSyncStatus,
+  prune,
+  resetStaleSyncing,
+  setPendingChangeListener,
+  updateSyncStatus,
+} from '../events/queue';
+import { drainPreviousAccount, requestDrain, RETRY_ALARM_NAME } from './engine';
 
 const SYNC_ALARM_NAME = 'orbit-sync';
 /** 유휴 상태가 idleSyncMin(분) 동안 지속되면 실제로 drain('idle')을 실행하는 1회성 알람. */
@@ -48,6 +56,23 @@ function watchPendingThreshold(): void {
         if (pendingCount >= settings.countThreshold) requestDrain('threshold');
       })
       .catch((err) => console.error('[Orbit] 개수 트리거 확인 실패', err));
+  });
+}
+
+/**
+ * 로그아웃·계정 교체 때 이전 계정의 남은 이벤트는 그 계정 토큰으로만 보낸다(못 보내면 그 계정
+ * 것으로 남아 다음 로그인 때 보낸다). 동기화 요약은 새 계정 기준으로 다시 센다.
+ */
+function watchAccountChange(): void {
+  onSessionChange((session, previous) => {
+    if (session?.user.id === previous?.user.id) return;
+    updateSyncStatus({ lastSyncAt: null, lastError: null }).catch((err) =>
+      console.error('[Orbit] 계정 전환 뒤 동기화 상태 갱신 실패', err),
+    );
+    // 만료로 지워진 세션은 토큰이 이미 거절되므로 보내 보지 않는다.
+    if (previous && new Date(previous.expiresAt).getTime() > Date.now()) {
+      drainPreviousAccount(previous);
+    }
   });
 }
 
@@ -102,6 +127,7 @@ export function initTriggers(): void {
   registerAlarmHandlers();
   watchIdleForDrain();
   watchPendingThreshold();
+  watchAccountChange();
 
   getSettings()
     .then((settings) => syncAlarmForSettings(settings))

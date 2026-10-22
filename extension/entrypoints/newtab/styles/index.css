@@ -2863,13 +2863,14 @@ body {
 
 .team-access-notice {
   position: fixed;
+  /* 아래 가운데는 '이어서 탐색하기' 카드의 버튼을 가린다. 머리줄은 양 끝(사이드바·계정)만 차 있다. */
   left: 50%;
-  bottom: 28px;
+  top: 14px;
   z-index: 200;
   display: flex;
   align-items: center;
   gap: 14px;
-  max-width: min(560px, calc(100% - 32px));
+  max-width: min(560px, calc(100% - 160px));
   padding: 12px 12px 12px 18px;
   border: 1px solid var(--border-subtle);
   border-radius: 14px;
@@ -2900,7 +2901,7 @@ body {
 }
 
 @keyframes team-notice-in {
-  from { opacity: 0; transform: translateY(16px); }
+  from { opacity: 0; transform: translateY(-12px); }
   to   { opacity: 1; transform: none; }
 }
 
