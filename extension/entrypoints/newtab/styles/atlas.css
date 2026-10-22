@@ -981,6 +981,16 @@ body.atlas-resizing {
   color: var(--text-tertiary);
 }
 
+/* 입력에 링을 따로 그리면 펼친 pill 테두리 안에 링이 하나 더 생긴다(.nav-drawer :focus-visible 보다 뒤라 이긴다).
+ * 포커스는 pill 테두리로 보인다. */
+.atlas-nav__search-input:focus-visible {
+  outline: none;
+}
+
+.atlas-nav__search--open:focus-within {
+  border-color: var(--border-accent);
+}
+
 .atlas-nav__search-clear {
   width: 22px;
   height: 22px;
