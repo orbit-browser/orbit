@@ -97,8 +97,9 @@ class Settings(BaseSettings):
     #   <0.30이면 이질 주제가 병합(under-split), >0.32면 단일 주제가 과분할.
     subcluster_threshold: float = Field(default=0.31, ge=0.0, le=1.0)  # 낮을수록 덜 쪼갬
     # 큰 서브클러스터(이벤트 6개 이상)를 알아본 대상별로 다시 나누는 K2 확인 호출(services/subject_splitter).
-    #   형제·다주제 오병합을 줄이지만 큰 묶음마다 LLM 호출이 1번 는다. 판정(S4) 전까지 기본은 끔이다.
-    subject_split_enabled: bool = False
+    #   형제·다주제 오병합을 줄이고(S4: 14→7/16, 쌍 F1 +10.47%p), 큰 묶음마다 A.X 호출이 1번 는다(p95 0.73초).
+    #   S4 판정 합격으로 기본 켬(DecisionLog 2026-10-23). 끄면 대상 나누기 전과 같다.
+    subject_split_enabled: bool = True
     # append_score_floor/max_age_days: 라이브 Qdrant 점수 미측정 상태의 보수적 잠정값 —
     #   실데이터 재세션화로 튜닝 필요(검색 positive-floor 0.289보다 소폭 위).
     append_score_floor: float = Field(default=0.35, ge=0.0, le=1.0)  # 검색 0.28보다 높게

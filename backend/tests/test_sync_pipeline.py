@@ -837,11 +837,15 @@ def test_process_group_analyzes_each_subject_of_a_large_subcluster_separately(mo
     assert applied == [["e0", "e2", "e4"], ["e1", "e3", "e5"]]
 
 
-def test_subject_split_is_off_by_default_and_then_leaves_subclusters_alone(monkeypatch):
-    # 꺼짐(기본)이면 서브클러스터를 그대로 의도 분석에 넘긴다 — 대상 나누기 전 main과 같다.
+def test_subject_split_is_on_by_default():
     from app.config import Settings
 
-    assert Settings.model_fields["subject_split_enabled"].default is False
+    # S4 판정 합격으로 기본 켬(DecisionLog 2026-10-23).
+    assert Settings.model_fields["subject_split_enabled"].default is True
+
+
+def test_subject_split_off_leaves_subclusters_alone(monkeypatch):
+    # 끄면 서브클러스터를 그대로 의도 분석에 넘긴다 — 대상 나누기 전 main과 같다.
     events, applied = _group_fakes(monkeypatch, [[0, 1, 2, 3, 4, 5], [6]])
     events.append({"id": "e6", "url": "https://example.com/6", "title": "t6", "workspace_id": None})
     seen: list[list[str]] = []
