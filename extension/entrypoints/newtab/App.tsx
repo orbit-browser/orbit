@@ -14,6 +14,7 @@ import { getNavState, useSharedNavState } from './lib/nav-state';
 import { restoreSession, type RestoreTarget } from './lib/restore';
 import { useAskConversation } from '../shared/hooks/useAskConversation';
 import { useActiveWorkspace } from '../../lib/useWorkspaces';
+import { TeamCollectPanel } from './components/team/TeamCollect';
 import type { Session } from '../../lib/types';
 
 export default function App() {
@@ -111,6 +112,7 @@ export default function App() {
       <Header navOpen={nav.open} onToggleNav={toggleNav} />
 
       <div className="app-container">
+        {activeTeam && <TeamCollectPanel team={activeTeam} />}
         <OrbitHero
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}

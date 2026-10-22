@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { setCollectAllowed } from '../../../../lib/api';
 import { ChevronRight, Copy } from 'lucide-react';
 import type { InviteCode, Workspace } from '../../../../lib/types';
 import { useAuth } from '../../../../lib/useAuth';
-import { teamLabel, useActiveWorkspace, useWorkspaces } from '../../../../lib/useWorkspaces';
+import { teamLabel, useActiveWorkspace, useWorkspaces, WORKSPACES_QUERY_KEY } from '../../../../lib/useWorkspaces';
 import { useWorkspaceMembers, useWorkspaceMutations } from '../../hooks/useWorkspaces';
 import { useUIStore } from '../../store/ui';
 import { MemberAvatar } from './MemberAvatar';
@@ -72,6 +74,42 @@ function InviteCodePanel({ workspace }: { workspace: Workspace }) {
           {invite ? '다시 만들기' : '초대 코드 만들기'}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** owner 의 팀 수집 허용(설계 §8.1-6). 끄면 그 팀의 열린 수집이 모두 끝난다. */
+function CollectAllowRow({ workspace }: { workspace: Workspace }) {
+  const queryClient = useQueryClient();
+  const showToast = useUIStore((s) => s.showToast);
+  const allow = useMutation({
+    mutationFn: (value: boolean) => setCollectAllowed(workspace.id, value),
+    onSuccess: (team) => {
+      showToast(team.collectAllowed ? '팀 수집을 허용했어요' : '팀 수집을 껐어요. 열린 수집이 모두 끝나요');
+      return queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY });
+    },
+    onError: () => showToast('팀 수집 설정을 바꾸지 못했어요'),
+  });
+  const on = !!workspace.collectAllowed;
+  return (
+    <div className="flex items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-semibold text-orbit-text">팀 수집 허용</p>
+        <p className="text-[10px] leading-snug text-orbit-muted">팀원이 각자 시간을 정해 연 페이지를 팀 기록으로 모아요</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label="팀 수집 허용"
+        disabled={allow.isPending}
+        onClick={() => allow.mutate(!on)}
+        className={`relative h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 disabled:opacity-50 ${on ? 'bg-orbit-primary' : 'bg-orbit-border'}`}
+      >
+        <span
+          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-[left] duration-200 motion-reduce:transition-none ${on ? 'left-[18px]' : 'left-0.5'}`}
+        />
+      </button>
     </div>
   );
 }
@@ -195,6 +233,8 @@ function TeamPanel({ workspace }: { workspace: Workspace }) {
           </ul>
         )}
       </div>
+
+      {isOwner && <CollectAllowRow workspace={workspace} />}
 
       {isOwner && <InviteCodePanel key={inviteKey} workspace={workspace} />}
 

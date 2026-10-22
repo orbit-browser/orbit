@@ -13,7 +13,7 @@ import {
 } from '../events/queue';
 import { toWire } from '../events/types';
 import { getDeviceId } from '../device-id';
-import { handleBatchWindowClosed, reconcileNow } from '../team-collect';
+import { handleBatchWindowClosed } from '../team-collect';
 
 const BATCH_SIZE = 50;
 const DRAIN_LOCK_NAME = 'orbit-drain';
@@ -102,11 +102,6 @@ async function drain(reason: DrainReason, owner?: AuthSession): Promise<void> {
 
   // 이벤트 전송만으로는 세션이 만들어지지 않는다 — 서버 배치 세션화를 명시적으로 트리거한다.
   // manual은 보낼 이벤트가 없어도 호출(서버에 이미 쌓인 pending을 사용자가 지금 분석하길 원한 것).
-  // 보낼 방문이 없어도 서버가 창을 끝냈는지 주기마다 확인한다(`my_collect`). 이전 계정 drain 은 제외.
-  if (reportStatus && (reason === 'periodic' || reason === 'manual')) {
-    await reconcileNow().catch((err) => console.error('[Orbit] team collect reconcile failed', err));
-  }
-
   if (sentAny || reason === 'manual') {
     try {
       await triggerServerSync(SERVER_TRIGGER_BY_REASON[reason], session.token);

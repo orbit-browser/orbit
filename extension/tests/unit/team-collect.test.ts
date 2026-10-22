@@ -324,6 +324,12 @@ describe('서버가 끝낸 창 (S\'5)', () => {
     expect(await reconcileWithWorkspaces(USER, [{ ...listed, myCollect: null }])).toBe(true);
     expect(await getActiveCollect(USER)).toBeNull();
   });
+
+  it('목록을 받는 사이 새로 시작한 창은 낡은 목록으로 끄지 않는다', async () => {
+    await seedActive({ windowId: 'cw-new' });
+    expect(await reconcileWithWorkspaces(USER, [], 'cw-old')).toBe(false);
+    expect(await getActiveCollect(USER)).not.toBeNull();
+  });
 });
 
 describe('브라우저 수명 (S\'4)', () => {

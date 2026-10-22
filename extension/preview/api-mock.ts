@@ -5,7 +5,7 @@
  * 한쪽에서 공유하면 다른 쪽이 다음 요청에서 바로 보게 하려면 저장소를 같이 써야 한다.
  * 권한 규칙은 백엔드의 것을 따른다(비멤버 404, owner 전용 403, owner 탈퇴 409, 팀원에게 폴더 숨김).
  */
-import { createPreviewDb, type PreviewDb, type PreviewSession } from './fixtures';
+import { createPreviewDb, type PreviewDb, type PreviewSession, type PreviewWorkspace } from './fixtures';
 
 export const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? 'http://orbit-preview.invalid';
 const DB_KEY = 'orbit-preview:db';
@@ -111,7 +111,19 @@ function workspaceItem(db: PreviewDb, workspaceId: string) {
     role: memberOf(db, workspaceId)?.role ?? 'member',
     member_count: workspace.members.length,
     created_at: workspace.created_at,
+    collect_allowed: workspace.collect_allowed ?? false,
+    my_collect: openWindows(workspace).find((w) => w.user_id === db.me && w.device_id === deviceFilter) ?? null,
   };
+}
+
+// 팀 수집 대역 — 서버 규칙 중 화면에 보이는 것만 흉내 낸다(창 시간·같은 기기 하나·허용 꺼지면 모두 끝).
+let deviceFilter: string | null = null;
+function openWindows(workspace: PreviewWorkspace) {
+  const now = Date.now();
+  return (workspace.collect_windows ?? []).filter((w) => !w.ended_at && Date.parse(w.expires_at) > now);
+}
+function windowItem(workspaceId: string, w: NonNullable<PreviewWorkspace['collect_windows']>[number]) {
+  return { window_id: w.window_id, workspace_id: workspaceId, device_id: w.device_id, started_at: w.started_at, expires_at: w.expires_at };
 }
 
 function sse(frames: { event: string; data: unknown; delayMs: number }[]): Response {
@@ -160,7 +172,17 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
       claimed_legacy_rows: 0,
     });
   }
-  if (path === '/settings') return json({ auto_merge_enabled: false });
+  if (path === '/settings') {
+    if (method === 'PATCH') {
+      const patch = await readJson(init);
+      if (Array.isArray(patch.team_collect_excluded_domains)) {
+        const db = loadDb();
+        db.team_collect_excluded_domains = patch.team_collect_excluded_domains as string[];
+        saveDb(db);
+      }
+    }
+    return json({ auto_merge_enabled: false, team_collect_excluded_domains: loadDb().team_collect_excluded_domains ?? [] });
+  }
   if (path === '/sync' || (path === '/events' && method === 'POST')) return json({ accepted: 0, duplicates: 0 });
   if (path === '/assistant/route') return json({ intent: 'search_memory', confidence: null, margin: null, reason: 'fallback' });
   if (path === '/tab-actions/resolve') {
@@ -333,6 +355,7 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
 
   if (parts[0] === 'workspaces') {
     if (parts.length === 1 && method === 'GET') {
+      deviceFilter = url.searchParams.get('device_id');
       return json(db.workspaces.filter((w) => memberOf(db, w.workspace_id)).map((w) => workspaceItem(db, w.workspace_id)));
     }
     if (parts.length === 1 && method === 'POST') {
@@ -364,7 +387,11 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
     if (parts.length === 2 && method === 'PATCH') {
       const denied = ownerOnly();
       if (denied) return denied;
-      workspace.name = String(body.name ?? workspace.name).trim().slice(0, 60) || workspace.name;
+      if (typeof body.name === 'string') workspace.name = body.name.trim().slice(0, 60) || workspace.name;
+      if (typeof body.collect_allowed === 'boolean') {
+        workspace.collect_allowed = body.collect_allowed;
+        if (!body.collect_allowed) openWindows(workspace).forEach((w) => { w.ended_at = new Date().toISOString(); });
+      }
       return done(json(workspaceItem(db, workspace.workspace_id)));
     }
     if (parts.length === 2 && method === 'DELETE') {
@@ -424,6 +451,45 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
         shared.push(id);
       });
       return done(json({ workspace_id: workspace.workspace_id, shared, skipped }));
+    }
+    if (parts[2] === 'collect') {
+      const windows = (workspace.collect_windows ??= []);
+      if (parts.length === 3 && method === 'GET') {
+        const open = openWindows(workspace);
+        return json({
+          allowed: workspace.collect_allowed ?? false,
+          my_windows: open.filter((w) => w.user_id === db.me).map((w) => windowItem(workspace.workspace_id, w)),
+          collecting: open.map((w) => ({ user_id: w.user_id, name: db.users.find((u) => u.user_id === w.user_id)?.name ?? null, picture: null, expires_at: w.expires_at })),
+        });
+      }
+      if (parts.length === 3 && method === 'POST') {
+        if (!workspace.collect_allowed) return fail(409, 'Team collect not allowed');
+        const now = new Date();
+        db.workspaces.forEach((w) => openWindows(w).forEach((x) => { if (x.user_id === db.me && x.device_id === body.device_id) x.ended_at = now.toISOString(); }));
+        const minutes = Number(body.duration_minutes ?? 120);
+        const win = { window_id: newId('cw'), user_id: db.me, device_id: String(body.device_id), started_at: now.toISOString(), expires_at: new Date(now.getTime() + minutes * 60_000).toISOString(), ended_at: null };
+        windows.push(win);
+        return done(json({ window: windowItem(workspace.workspace_id, win), server_now: now.toISOString(), ended_workspace_id: null }, 201));
+      }
+      if (parts.length === 3 && method === 'DELETE') {
+        const device = url.searchParams.get('device_id');
+        openWindows(workspace).forEach((w) => { if (w.user_id === db.me && (!device || w.device_id === device)) w.ended_at = new Date().toISOString(); });
+        return done(empty());
+      }
+      if (parts[3] === 'windows' && parts[5] === 'sessions' && method === 'GET') {
+        // 미리보기: 이 팀에 공유된 내 세션을 이번 창의 수집 세션처럼 보여 준다.
+        const mine = liveShares(db, workspace.workspace_id).filter((s) => s.shared_by === db.me).map((s) => s.session_id);
+        return json(db.sessions.filter((s) => mine.includes(s.session_id)).map((s) => toBackendSession(db, s, true)));
+      }
+      if (parts[3] === 'windows' && parts[5] === 'withdraw' && method === 'POST') {
+        windows.forEach((w) => { if (w.window_id === parts[4] && !w.ended_at) w.ended_at = new Date().toISOString(); });
+        return done(json({ withdrawn_events: 3, sessions: [], window_closed: true }));
+      }
+      if (parts[3] === 'sessions' && parts[5] === 'restore' && method === 'POST') {
+        if (url.searchParams.has('fail') || localStorage.getItem('orbit-preview:restore-fails')) return fail(409, 'Cannot restore');
+        if (!workspace.shares.some((s) => s.session_id === parts[4])) workspace.shares.push({ session_id: parts[4], shared_by: db.me, shared_at: new Date().toISOString() });
+        return done(empty());
+      }
     }
     if (parts[2] === 'sessions' && parts[3] && method === 'DELETE') {
       const share = workspace.shares.find((s) => s.session_id === parts[3]);

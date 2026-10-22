@@ -45,7 +45,7 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
 };
 
 const STORAGE_KEY = 'orbit:settings';
-const CONSENT_KEY = 'orbit:collectionConsent';
+export const CONSENT_KEY = 'orbit:collectionConsent';
 
 /**
  * 수집 동의 화면과 설정에 함께 쓰는 외부 AI 전송 범위 안내. 실제로 보내는 것보다 적게 읽히면 안 된다.
@@ -71,6 +71,17 @@ export const CONSENT_VERSION = 2;
  * 브라우저가 아니라 계정에 묶는다. 옛 값 `true`는 버전 1 동의다.
  */
 export type CollectionConsent = Record<string, number | boolean>;
+
+/**
+ * 이 계정이 옛 문구에 동의했다가 문구가 바뀌어 수집이 멈췄는지. 처음 켜는 사람과 달리 "왜 멈췄는지"를
+ * 알려야 한다(2026-10-23 KT 믿:음 추가로 버전 2).
+ */
+export function needsReconsent(consent: CollectionConsent, accountId: string): boolean {
+  const value = consent[accountId];
+  return value === true || (typeof value === 'number' && value > 0 && value < CONSENT_VERSION);
+}
+
+export const RECONSENT_NOTICE = 'AI 서비스 안내가 바뀌어(KT 추가) 다시 동의가 필요해요';
 
 /** 이 계정이 지금 문구에 동의했는지. 옛 문구 동의는 동의로 보지 않는다. */
 export function hasCurrentConsent(consent: CollectionConsent, accountId: string): boolean {

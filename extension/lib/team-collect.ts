@@ -150,6 +150,18 @@ export function remainingMs(active: Pick<ActiveCollect, 'expiresAt' | 'clockOffs
 
 // ── 방문 판정 (설계 §2.1 3~5번) ─────────────────────────────────────
 
+/** 주소·호스트 입력을 서버가 받는 호스트 접미사로 줄인다. 판정할 수 없으면 null. */
+export function normalizeExcludedDomain(input: string): string | null {
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed) return null;
+  try {
+    const host = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`).hostname.replace(/^\.+|\.+$/g, '');
+    return host.includes('.') ? host : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getExcludedDomains(accountId: string): Promise<string[]> {
   return (await readMap<string[]>(chrome.storage.local, EXCLUDED_KEY))[accountId] ?? [];
 }
@@ -358,26 +370,35 @@ export async function handleBatchWindowClosed(
   return true;
 }
 
-/** `GET /workspaces` 의 이 기기 창(`myCollect`)에 지금 로컬 창이 없으면 서버가 끝낸 것이다. */
-export async function reconcileWithWorkspaces(accountId: string, workspaces: Workspace[]): Promise<boolean> {
+/**
+ * `GET /workspaces` 의 이 기기 창(`myCollect`)에 지금 로컬 창이 없으면 서버가 끝낸 것이다.
+ * `checkedWindowId` 는 목록을 받기 전에 본 창이다 — 그 사이 새로 시작한 창을 낡은 목록으로 끄지 않는다.
+ */
+export async function reconcileWithWorkspaces(
+  accountId: string,
+  workspaces: Workspace[],
+  checkedWindowId?: string,
+): Promise<boolean> {
   const active = await getActiveCollect(accountId);
   if (!active) return false;
+  if (checkedWindowId !== undefined && active.windowId !== checkedWindowId) return false;
   if (workspaces.some((w) => w.myCollect?.windowId === active.windowId)) return false;
   await endTeamCollect(accountId, 'server_closed');
   return true;
 }
 
-/** 주기 확인. 목록을 못 받으면 아무것도 바꾸지 않는다(서버가 최종 판정한다). */
+/** 주기 확인(1분 알람). 목록을 못 받으면 아무것도 바꾸지 않는다(서버가 최종 판정한다). */
 export async function reconcileNow(): Promise<void> {
   const session = await getSession();
-  if (!session || !(await getActiveCollect(session.user.id))) return;
+  const before = session ? await getActiveCollect(session.user.id) : null;
+  if (!session || !before) return;
   let workspaces: Workspace[];
   try {
     workspaces = await fetchWorkspaces();
   } catch {
     return;
   }
-  await reconcileWithWorkspaces(session.user.id, workspaces);
+  await reconcileWithWorkspaces(session.user.id, workspaces, before.windowId);
 }
 
 // ── 브라우저 수명 ──────────────────────────────────────────────────
@@ -563,7 +584,12 @@ export function initTeamCollect(): void {
   });
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === TEAM_COLLECT_RETRY_ALARM) retryTeamCollectRequests().catch(log('retry'));
-    if (alarm.name === TEAM_COLLECT_TICK_ALARM) syncTeamCollectBadge().catch(log('badge'));
+    // 1분마다 서버가 창을 끝냈는지(owner 허용 끄기·다른 기기에서 끄기·탈퇴) 확인하고 배지를 맞춘다.
+    if (alarm.name === TEAM_COLLECT_TICK_ALARM) {
+      reconcileNow()
+        .catch(log('reconcile'))
+        .finally(() => void syncTeamCollectBadge().catch(log('badge')));
+    }
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'session' && TEAM_COLLECT_KEY in changes) syncTeamCollectBadge().catch(log('badge'));

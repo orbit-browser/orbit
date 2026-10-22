@@ -52,6 +52,10 @@ export interface PreviewWorkspace {
   members: { user_id: string; role: 'owner' | 'member'; joined_at: string }[];
   shares: { session_id: string; shared_by: string; shared_at: string }[];
   invite: { code: string; expires_at: string } | null;
+  /** 팀 수집 허용(owner). 없으면 꺼짐. */
+  collect_allowed?: boolean;
+  /** 팀 수집 창. 미리보기는 나(me)의 창만 만든다. */
+  collect_windows?: { window_id: string; user_id: string; device_id: string; started_at: string; expires_at: string; ended_at: string | null }[];
 }
 
 export interface PreviewDb {
@@ -60,6 +64,8 @@ export interface PreviewDb {
   sessions: PreviewSession[];
   folders: PreviewFolder[];
   workspaces: PreviewWorkspace[];
+  /** 팀 수집 제외 사이트(계정 단위). */
+  team_collect_excluded_domains?: string[];
 }
 
 const HUES = ['#ef6f47', '#e09528', '#7fa452', '#3aa09a', '#727bcb', '#c06aa2'];
@@ -353,7 +359,7 @@ export function createPreviewDb(): PreviewDb {
       ],
     },
     {
-      workspace_id: 'w-travel', name: '여행 동아리', hue: HUES[3], created_at: iso(250), invite: null,
+      workspace_id: 'w-travel', name: '여행 동아리', hue: HUES[3], created_at: iso(250), invite: null, collect_allowed: true,
       members: [
         { user_id: JIEUN, role: 'owner', joined_at: iso(250) },
         { user_id: ME, role: 'member', joined_at: iso(240) },

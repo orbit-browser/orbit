@@ -103,6 +103,14 @@ body {
   }
 }
 
+/* 팀 수집 띠가 나타날 때(감소 모션이면 motion-safe 로 생략). */
+@keyframes orbit-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
 .animate-bouncy {
   animation: bounceIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { LoginGate } from './components/LoginGate';
 import { OnboardingPrototype } from './components/onboarding/OnboardingPrototype';
 import { TopNavBar } from './components/TopNavBar';
+import { TeamCollectBar } from './components/team/TeamCollectBar';
 import { AskDock } from './components/AskDock';
 import { Toast } from './components/Toast';
 import { isAskDockView, useUIStore } from './store/ui';
@@ -55,6 +56,7 @@ function SignedInPanel() {
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-orbit-bg text-orbit-text">
       <TopNavBar />
+      <TeamCollectBar />
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <CurrentView />
         {showAsk && <AskView />}

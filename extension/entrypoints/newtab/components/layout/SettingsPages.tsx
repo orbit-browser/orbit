@@ -8,6 +8,7 @@ import { useAuth } from '../../../../lib/useAuth';
 import { useActiveWorkspace } from '../../../../lib/useWorkspaces';
 import { useWorkspaceMembers, useWorkspaceMutations } from '../../../sidepanel/hooks/useWorkspaces';
 import type { SettingsPageId } from './settings-nav';
+import { TeamCollectSettings } from '../team/TeamCollectSettings';
 
 /*
  * 설정 페이지의 공용 부품.
@@ -479,6 +480,8 @@ function TeamSettings({ team, onGone }: { team: Workspace; onGone: () => void })
           );
         })}
       </Section>
+
+      <TeamCollectSettings team={team} />
 
       {failed && <p className="settings-error" role="alert">요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.</p>}
 

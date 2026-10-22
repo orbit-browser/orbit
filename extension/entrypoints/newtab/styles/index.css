@@ -2950,3 +2950,514 @@ body {
     animation-name: team-notice-fade;
   }
 }
+
+/* ═══════════════ 팀 수집 모드 (docs/team-collect-mode.md §8) ═══════════════
+ * 색은 기존 토큰과 팀 색(--team-hue, 서버가 준 폴더 팔레트 값)만 쓴다.
+ * 움직임은 상태 변화를 알리는 짧은 전환뿐이고, 감소 모션이면 끄되 색·글자 변화는 남긴다.
+ */
+
+.team-collect-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-canvas);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease, border-color 0.16s ease;
+}
+.team-collect-button:hover:not(:disabled) {
+  border-color: var(--accent-orange-muted);
+  box-shadow: 0 4px 14px var(--shadow-warm);
+}
+.team-collect-button:focus-visible {
+  outline: 2px solid var(--accent-orange);
+  outline-offset: 2px;
+}
+.team-collect-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.team-collect-button--primary {
+  border-color: transparent;
+  background: var(--text-main);
+  color: var(--bg-canvas);
+}
+.team-collect-button--primary:hover:not(:disabled) {
+  opacity: 0.88;
+  border-color: transparent;
+}
+.team-collect-button--danger {
+  color: var(--danger);
+}
+
+.team-collect-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-orange);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.team-collect-link:hover {
+  opacity: 0.8;
+}
+
+.team-collect-icon-button {
+  display: inline-flex;
+  padding: 6px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+.team-collect-icon-button:hover {
+  background: var(--wash-2);
+}
+
+.team-collect-spin {
+  animation: team-collect-spin 0.9s linear infinite;
+}
+@keyframes team-collect-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 첫 화면 주 행동 */
+.team-collect-cta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(760px, calc(100% - 40px));
+  /* 고정 머리줄(62px) 아래에서 시작한다 — 칩·프로필과 겹치지 않게. */
+  margin: 48px auto 18px;
+  padding: 14px 16px 14px 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--glass-78);
+  box-shadow: var(--card-shadow);
+  animation: team-collect-rise 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.team-collect-cta__dot,
+.team-collect-chip__dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--team-hue, var(--accent-orange));
+}
+.team-collect-cta__text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--text-main);
+  font-size: 14px;
+}
+.team-collect-cta__text span {
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.team-collect-cta__text .team-collect-cta__error {
+  color: var(--danger);
+}
+
+/* 동의 시트 */
+.team-collect-sheet__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--overlay-dim);
+  animation: team-collect-fade 0.18s ease;
+}
+.team-collect-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(520px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-canvas);
+  box-shadow: 0 24px 60px var(--overlay-shadow);
+  color: var(--text-main);
+  animation: team-collect-rise 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.team-collect-sheet__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.team-collect-sheet__head h2 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.35;
+}
+.team-collect-sheet__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.team-collect-sheet__body p {
+  margin: 0;
+}
+.team-collect-sheet__body strong {
+  color: var(--text-main);
+}
+.team-collect-sheet__body summary {
+  color: var(--text-main);
+  font-weight: 600;
+  cursor: pointer;
+}
+.team-collect-sheet__switch {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft-flat);
+  font-size: 12.5px;
+}
+.team-collect-sheet__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12.5px;
+}
+.team-collect-sheet__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.team-collect-durations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.team-collect-durations legend {
+  width: 100%;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.team-collect-duration {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.team-collect-duration:hover {
+  border-color: var(--accent-orange-muted);
+}
+.team-collect-duration input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.team-collect-duration:has(input:focus-visible) {
+  outline: 2px solid var(--accent-orange);
+  outline-offset: 2px;
+}
+.team-collect-duration.is-selected {
+  border-color: transparent;
+  background: var(--text-main);
+  color: var(--bg-canvas);
+}
+
+/* 머리 칩과 팝오버 */
+.team-collect-chip {
+  position: relative;
+  margin-left: auto;
+  margin-right: 10px;
+}
+.team-collect-chip__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--glass-78);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transform-origin: right center;
+  animation: team-collect-grow 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.team-collect-chip__button:hover {
+  border-color: var(--accent-orange-muted);
+  box-shadow: 0 4px 14px var(--shadow-warm);
+}
+.team-collect-chip__button:focus-visible {
+  outline: 2px solid var(--accent-orange);
+  outline-offset: 2px;
+}
+.team-collect-chip[data-phase='expiring'] .team-collect-chip__button {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.team-collect-chip[data-phase='paused'] .team-collect-chip__dot,
+.team-collect-chip[data-phase='ended'] .team-collect-chip__dot {
+  background: var(--text-muted);
+}
+.team-collect-chip__offline,
+.team-collect-chip__other {
+  padding-left: 8px;
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.team-collect-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 320px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--bg-canvas);
+  box-shadow: 0 18px 44px var(--overlay-shadow);
+  color: var(--text-main);
+  font-size: 13px;
+  animation: team-collect-fade 0.16s ease;
+}
+.team-collect-popover p {
+  margin: 0;
+}
+.team-collect-popover__title {
+  font-weight: 700;
+}
+.team-collect-popover__warn {
+  color: var(--danger);
+  font-size: 12.5px;
+}
+.team-collect-popover__actions,
+.team-collect-popover__extend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.team-collect-popover__meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.team-collect-popover__devices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12.5px;
+}
+.team-collect-popover__devices button {
+  align-self: flex-start;
+}
+
+/* 끝날 때 돌아보기 */
+.team-collect-review {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(760px, calc(100% - 40px));
+  margin: 48px auto 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--glass-78);
+  box-shadow: var(--card-shadow);
+  color: var(--text-main);
+  animation: team-collect-rise 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.team-collect-review__head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.team-collect-review__head p,
+.team-collect-review__state,
+.team-collect-review__note {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.team-collect-review__state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.team-collect-review__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.team-collect-review__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-height: 80px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-subtle);
+  overflow: hidden;
+  transition: max-height 0.22s ease, opacity 0.22s ease, padding 0.22s ease;
+}
+.team-collect-review__row div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.team-collect-review__row span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-collect-review__row.is-leaving {
+  max-height: 0;
+  padding: 0;
+  opacity: 0;
+}
+.team-collect-review__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.team-collect-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  z-index: 220;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 10px 10px 16px;
+  border-radius: 12px;
+  background: var(--text-main);
+  color: var(--bg-canvas);
+  font-size: 13px;
+  transform: translateX(-50%);
+  animation: team-collect-toast 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.team-collect-toast button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--bg-canvas);
+  color: var(--text-main);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@keyframes team-collect-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes team-collect-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes team-collect-grow {
+  from {
+    opacity: 0;
+    transform: scaleX(0.6);
+  }
+}
+@keyframes team-collect-toast {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-collect-cta,
+  .team-collect-sheet,
+  .team-collect-sheet__backdrop,
+  .team-collect-chip__button,
+  .team-collect-popover,
+  .team-collect-review,
+  .team-collect-toast,
+  .team-collect-spin {
+    animation: none;
+  }
+  .team-collect-review__row {
+    transition: opacity 0.01s;
+  }
+}
+
+.team-collect-locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.team-collect-exclude-form {
+  display: flex;
+  gap: 6px;
+}
+.team-collect-exclude-form input {
+  width: 180px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--bg-canvas);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 0.16s ease;
+}
+.team-collect-exclude-form input:focus-visible {
+  outline: none;
+  border-color: var(--accent-orange);
+}
+.team-collect-exclude-form input[aria-invalid='true'] {
+  border-color: var(--danger);
+}

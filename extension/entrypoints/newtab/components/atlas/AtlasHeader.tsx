@@ -1,4 +1,5 @@
 import { UserMenu } from '../layout/UserMenu';
+import { TeamCollectChip } from '../team/TeamCollect';
 import { SidebarToggle } from '../layout/SidebarToggle';
 
 /**
@@ -15,6 +16,7 @@ export function AtlasHeader({ navOpen, onToggleNav }: AtlasHeaderProps) {
   return (
     <header className="atlas-header">
       <SidebarToggle open={navOpen} onToggle={onToggleNav} />
+      <TeamCollectChip />
       <UserMenu />
     </header>
   );
