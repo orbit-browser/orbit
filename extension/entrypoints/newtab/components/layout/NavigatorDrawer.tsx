@@ -12,6 +12,8 @@ interface NavigatorDrawerProps {
   open: boolean;
   onClose: () => void;
   escapeEnabled?: boolean;
+  /** 팀 범위 — 남의 공유 세션이라 폴더 만들기·드래그·제안을 숨긴다(아틀라스와 같다). */
+  readOnly?: boolean;
 }
 
 export function NavigatorDrawer({
@@ -22,6 +24,7 @@ export function NavigatorDrawer({
   open,
   onClose,
   escapeEnabled = true,
+  readOnly = false,
 }: NavigatorDrawerProps) {
   const { nav, patch, toggleIn, expandIn } = useSharedNavState();
 
@@ -46,6 +49,7 @@ export function NavigatorDrawer({
         folders={folders}
         unfiled={unfiled}
         suggestions={suggestions}
+        readOnly={readOnly}
         query={nav.query}
         onQueryChange={(query) => patch({ query })}
         focusedFolderId={nav.focusedFolderId}

@@ -103,6 +103,7 @@ export default function App() {
         folders={folders}
         unfiled={unfiled}
         suggestions={suggestions}
+        readOnly={!!scopeId}
         open={nav.open}
         onClose={toggleNav}
         escapeEnabled
