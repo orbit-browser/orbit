@@ -46,9 +46,9 @@ def test_independent_subjects_are_split_in_first_event_order(monkeypatch):
     assert len(calls) == 1 and "[5] page 5" in calls[0]
 
 
-@pytest.mark.parametrize("relation", ["facets", None, "unknown"])
+@pytest.mark.parametrize("relation", ["facets", "unsure", None, "<independent 또는 facets 또는 unsure>"])
 def test_facets_or_unstated_relation_keeps_one_subject(monkeypatch, relation):
-    # 한 목적의 세부 항목(origin #22가 막으려던 과분할)은 나누지 않는다.
+    # 한 목적의 세부 항목, 확실하지 않음, 형식 예시를 그대로 베낀 값은 나누지 않는다(보수적).
     _llm(monkeypatch, _answer([[0, 1, 2], [3, 4, 5]], relation))
 
     assert asyncio.run(subject_splitter.split_by_subject(_events(6))) == [[0, 1, 2, 3, 4, 5]]
