@@ -151,7 +151,7 @@ export function TechBanner() {
                 <small>%</small>
               </strong>
               <h3>다시 열면, 그 작업의 페이지만</h3>
-              <p>{keepDots(`열린 ${PROVEN.restorePrecision.orbit.total}개 모두 · Comet은 ${PROVEN.restorePrecision.comet.total}개 중 ${PROVEN.restorePrecision.comet.hit}개(${PROVEN.restorePrecision.comet.percent}%)`)}</p>
+              <p>{keepDots(`목표 9개 중 ${PROVEN.restorePrecision.orbit.total}개를 열었고 열린 페이지는 모두 그 작업 · Comet은 연 ${PROVEN.restorePrecision.comet.total}개 중 ${PROVEN.restorePrecision.comet.hit}개(${PROVEN.restorePrecision.comet.percent}%)`)}</p>
             </article>
             <article className="ex-proven__stat">
               <strong>
@@ -159,12 +159,12 @@ export function TechBanner() {
                 <small>건</small>
               </strong>
               <h3>공유하지 않은 팀 기록의 노출</h3>
-              <p>{keepDots(`계정 둘 실제 서버 시험 · 화면·API ${PROVEN.teamIsolation.paths}가지 경로, 응답 ${PROVEN.teamIsolation.responses}개에서 0건`)}</p>
+              <p>{keepDots(`계정 둘 격리 서버 시험 · 화면·API ${PROVEN.teamIsolation.paths}가지 경로, 응답 ${PROVEN.teamIsolation.responses}개에서 0건`)}</p>
             </article>
           </div>
           <p className="ex-fineprint">
             {keepDots(
-              '직접 시험 · 빈 브라우저에 같은 공개 웹페이지 26개를 방문하고 같은 질문을 한 번씩(Orbit 2026-10-22, Comet 2026-10-20 로그인 상태) · 다시 열기는 찾은 작업의 페이지를 한 번에 열었을 때 그 작업의 페이지 비율(Orbit은 목표 9개 중 4개를 열었고 섞인 페이지 0개, Comet은 작업 1개) · 팀 시험은 2026-10-22 격리 서버에서 계정 둘로 공유·해제·내보내기 · 표본이 작아 전체 정확도를 뜻하지 않음.',
+              '직접 시험 · 빈 브라우저에 같은 공개 웹페이지 26개를 방문하고 같은 질문을 한 번씩(Orbit 2026-10-22 헤드리스 확장, Comet 2026-10-20 로그인한 에이전트·검색 모드) · 다시 열기는 찾은 작업의 페이지를 한 번에 열었을 때 그 작업의 페이지 비율로, Orbit은 세션 혼입 결함을 고친 뒤 같은 시험으로 다시 잰 값(Comet은 작업 1개) · 팀 시험은 2026-10-22 격리 서버에서 계정 둘로 공유·해제·내보내기 · 표본이 작아 전체 정확도를 뜻하지 않음.',
             )}
           </p>
         </section>
