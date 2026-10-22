@@ -679,3 +679,133 @@ def test_fetch_candidates_passes_user_id_to_vector_search(monkeypatch):
 
     asyncio.run(sync_pipeline._fetch_candidates([0.1], "u1"))
     assert seen["user_id"] == "u1"
+
+
+# ── 배치 안 동시 실행(perf/batch-parallel) ─────────────────────────────────
+
+
+class _Concurrency:
+    def __init__(self):
+        self.running = 0
+        self.peak = 0
+
+    async def hold(self, seconds: float = 0.01):
+        self.running += 1
+        self.peak = max(self.peak, self.running)
+        try:
+            await asyncio.sleep(seconds)
+        finally:
+            self.running -= 1
+
+
+def _group_fakes(monkeypatch, clusters, fetch=None):
+    events = [
+        {"id": f"e{i}", "url": f"https://example.com/{i}", "title": f"t{i}", "workspace_id": None}
+        for i in range(sum(len(c) for c in clusters))
+    ]
+    applied: list[list[str]] = []
+
+    async def embed_many(texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    async def default_fetch(_centroid, _user_id, workspace_id=None):
+        return []
+
+    async def apply(_db, cluster_events, _assignments, _batch_id):
+        applied.append([e["id"] for e in cluster_events])
+        return set()
+
+    async def no_status(*_args):
+        return None
+
+    monkeypatch.setattr(sync_pipeline, "split_noise", lambda group: (group, []))
+    monkeypatch.setattr(sync_pipeline, "domain_counts", lambda _group: {})
+    monkeypatch.setattr(sync_pipeline, "embed_many", embed_many)
+    monkeypatch.setattr(sync_pipeline, "subcluster", lambda _emb, _threshold: clusters)
+    monkeypatch.setattr(sync_pipeline, "_fetch_candidates", fetch or default_fetch)
+    monkeypatch.setattr(sync_pipeline, "apply_assignments", apply)
+    monkeypatch.setattr(sync_pipeline, "_set_status", no_status)
+    monkeypatch.setattr(sync_pipeline, "AsyncSessionLocal", lambda: _FakeSessionLocalCtx(object()))
+    return events, applied
+
+
+def test_process_group_analyzes_two_clusters_at_a_time_and_applies_in_cluster_order(monkeypatch):
+    clusters = [[0, 1], [2], [3, 4], [5]]
+    events, applied = _group_fakes(monkeypatch, clusters)
+    gauge = _Concurrency()
+
+    async def analyze(cluster_events, _candidates):
+        # 앞 클러스터가 더 오래 걸려도 반영 순서는 클러스터 순서여야 한다.
+        await gauge.hold(0.04 if cluster_events[0]["id"] == "e0" else 0.01)
+        return [sync_pipeline.Assignment(list(range(len(cluster_events))), "create", title="t", model="A.X-K2")]
+
+    monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+
+    models = asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+
+    assert gauge.peak == 2
+    assert applied == [["e0", "e1"], ["e2"], ["e3", "e4"], ["e5"]]
+    assert models == ["A.X-K2"] * 4
+
+
+def test_process_group_fails_whole_group_after_all_clusters_finish(monkeypatch):
+    finished: list[str] = []
+    clusters = [[0], [1], [2]]
+
+    async def fetch(_centroid, _user_id, workspace_id=None):
+        await asyncio.sleep(0.01)
+        return []
+
+    events, applied = _group_fakes(monkeypatch, clusters, fetch)
+
+    async def analyze(cluster_events, _candidates):
+        if cluster_events[0]["id"] == "e1":
+            raise RuntimeError("candidate lookup failed")
+        await asyncio.sleep(0.01)
+        finished.append(cluster_events[0]["id"])
+        return [sync_pipeline.Assignment([0], "create", title="t")]
+
+    monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+    # 다른 클러스터는 끝까지 돌았지만, 그룹이 실패하므로 아무것도 반영하지 않는다(예전과 같은 의미).
+    assert sorted(finished) == ["e0", "e2"]
+    assert applied == []
+
+
+def test_process_batch_refreshes_two_sessions_at_a_time_and_isolates_failures(monkeypatch):
+    gauge = _Concurrency()
+    refreshed: list[str] = []
+    warnings: list[str] = []
+
+    async def fake_process_group(_group, _batch_id, touched, _user_id):
+        touched.update({"s1", "s2", "s3", "s4"})
+        return []
+
+    async def refresh(session_id):
+        await gauge.hold()
+        if session_id == "s2":
+            raise RuntimeError("summary boom")
+        refreshed.append(session_id)
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    async def disabled(_user_id):
+        return False
+
+    monkeypatch.setattr(sync_pipeline, "dedupe_events", lambda events: (events, []))
+    monkeypatch.setattr(sync_pipeline, "group_by_time_gap", lambda events, **_k: [events])
+    monkeypatch.setattr(sync_pipeline, "_process_group", fake_process_group)
+    monkeypatch.setattr(sync_pipeline, "refresh_session_ai", refresh)
+    monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", disabled)
+    _no_auto_folder(monkeypatch)
+    monkeypatch.setattr(sync_pipeline, "_complete_batch", noop)
+    monkeypatch.setattr(sync_pipeline.logger, "warning", lambda msg, *args: warnings.append(msg % args))
+
+    asyncio.run(sync_pipeline._process_batch("b1", [{"id": "a"}], "u1"))
+
+    assert gauge.peak == 2
+    assert sorted(refreshed) == ["s1", "s3", "s4"]
+    assert any("s2" in w and "summary boom" in w for w in warnings)

@@ -24,7 +24,7 @@ def _setup(monkeypatch, provider) -> list[dict]:
     """
     calls: list[dict] = []
 
-    async def no_throttle():
+    async def no_throttle(*_args):
         return None
 
     async def recording_provider(client, *, model, **kwargs):
