@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AtlasData } from '../../entrypoints/newtab/hooks/useAtlasData';
 import type { SessionNode } from '../../entrypoints/newtab/components/atlas/data';
 
@@ -18,7 +18,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
     }) as typeof actual.useQuery,
   };
 });
-const drawerProps: Record<string, unknown>[] = [];
+const navigatorProps: Record<string, unknown>[] = [];
 let scopeId: string | null = 'team-a';
 
 vi.mock('../../lib/api', async (importOriginal) => ({
@@ -31,9 +31,10 @@ vi.mock('../../lib/useWorkspaces', async (importOriginal) => ({
   useActiveWorkspace: () => ({ workspaces: [], active: null, scopeId, select: () => undefined }),
 }));
 
-vi.mock('../../entrypoints/newtab/components/layout/NavigatorDrawer', () => ({
-  NavigatorDrawer: (props: Record<string, unknown>) => {
-    drawerProps.push(props);
+// 서랍(NavigatorDrawer)은 실제로 그리고 그 안의 AtlasNavigator만 바꿔, 서랍이 readOnly를 넘기는지까지 본다.
+vi.mock('../../entrypoints/newtab/components/atlas/AtlasNavigator', () => ({
+  AtlasNavigator: (props: Record<string, unknown>) => {
+    navigatorProps.push(props);
     return null;
   },
 }));
@@ -49,9 +50,11 @@ const atlas: AtlasData = {
   unfiled: [session('s1')],
 };
 
+afterEach(() => vi.unstubAllGlobals());
+
 beforeEach(() => {
   fetchFolderSuggestions.mockClear();
-  drawerProps.length = 0;
+  navigatorProps.length = 0;
   queryOptions.length = 0;
 });
 
@@ -83,16 +86,45 @@ it('team scope (enabled=false) yields no folder suggestions and requests none', 
   expect(fetchFolderSuggestions).not.toHaveBeenCalled();
 });
 
-it('home drawer is read-only with no suggestions in team scope, editable in personal scope', async () => {
+/** 아틀라스 데이터가 캐시에 있어야 제안 쿼리의 enabled가 범위만으로 갈린다(데이터가 없으면 늘 false). */
+function renderWithAtlas(component: () => unknown) {
+  const client = new QueryClient();
+  client.setQueryData(['newtab', 'atlas-data', scopeId], atlas);
+  renderToString(
+    createElement(QueryClientProvider, { client }, createElement(component as () => null)),
+  );
+}
+
+function suggestionQueryEnabled() {
+  return queryOptions.filter((options) => options.queryKey[1] === 'folder-suggestions').map((o) => o.enabled);
+}
+
+it('home drawer is read-only with suggestions off in team scope, editable in personal scope', async () => {
   const { default: App } = await import('../../entrypoints/newtab/App');
-  const render = () =>
-    renderToString(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(App)));
 
   scopeId = 'team-a';
-  render();
-  expect(drawerProps.at(-1)).toMatchObject({ readOnly: true, suggestions: [] });
+  renderWithAtlas(App);
+  expect(navigatorProps.at(-1)).toMatchObject({ readOnly: true, suggestions: [] });
+  expect(suggestionQueryEnabled().at(-1)).toBe(false);
 
   scopeId = null;
-  render();
-  expect(drawerProps.at(-1)).toMatchObject({ readOnly: false });
+  renderWithAtlas(App);
+  expect(navigatorProps.at(-1)).toMatchObject({ readOnly: false });
+  expect(suggestionQueryEnabled().at(-1)).toBe(true);
+});
+
+it('atlas page is read-only with suggestions off in team scope, editable in personal scope', async () => {
+  const { VariantAtlasReplica } = await import('../../entrypoints/newtab/components/VariantAtlasReplica');
+  // 아틀라스는 첫 렌더에 주소의 해시(#/orbit-atlas?session=...)를 읽는다. node 환경에는 window가 없다.
+  vi.stubGlobal('window', { location: { hash: '' } });
+
+  scopeId = 'team-a';
+  renderWithAtlas(VariantAtlasReplica);
+  expect(navigatorProps.at(-1)).toMatchObject({ readOnly: true });
+  expect(suggestionQueryEnabled().at(-1)).toBe(false);
+
+  scopeId = null;
+  renderWithAtlas(VariantAtlasReplica);
+  expect(navigatorProps.at(-1)).toMatchObject({ readOnly: false });
+  expect(suggestionQueryEnabled().at(-1)).toBe(true);
 });
