@@ -87,7 +87,7 @@ pending → processing → processed | discarded
 - **실패**: 지수 백오프(최대 30분)로 재시도 알람을 예약. 브라우징 자체는 절대 막지 않는다(fail-open) — 수집 실패가 사용자의 정상적인 브라우징을 방해해서는 안 된다는 원칙을 collector 단계부터 동기화 단계까지 일관 적용한다.
 - **배치 동시 실행 방지(서버)**: 모듈 레벨 `asyncio.Lock` + `sync_batches.status='running'` 행을 재시작 안전망으로 사용한다. 서버 재시작 시 복구 로직(`recover_pending_sessions` 확장)이 `running`이던 배치는 `failed`로, `processing`이던 이벤트는 `pending`으로 되돌린다 — 기존 `recover_pending_sessions`(요약/임베딩 복구)와 동일한 "재시작 시 중단된 작업을 안전 상태로 되돌리는" 패턴을 이벤트 파이프라인에도 그대로 적용한 것이다.
 - **멱등성**: 이벤트 `id`는 클라이언트가 생성한 UUID이자 PK이며, 서버는 `on_conflict_do_nothing`으로 삽입한다. 응답의 `accepted`/`duplicates` 카운트로 클라이언트가 로컬 큐를 정리한다 — SW가 응답을 받기 전에 죽어도, 다음 재전송이 같은 UUID로 들어오므로 서버에 중복 레코드가 쌓이지 않는다.
-- **A.X 호출 제한 대응**(설계 당시 A.X-K1 안내값 3 RPS. 2026-10-23 실측: A.X-K2 짧은 요청(max_tokens 8)을 1→6 RPS로 단계마다 10초씩 보내 160회 모두 성공, 429·한도 헤더 없음(`backend/eval/probe_rate_limit.py`). 긴 요청·분 단위 한도는 미측정): 배치 파이프라인의 LLM 호출은 전부 순차 실행하고, `llm.py`에 전역 최소 호출 간격(~500ms) 리미터를 추가해 스냅샷 경로(`POST /sessions/cluster`)와 공유한다. 배치 소요 시간이 2~5분으로 늘어날 수 있으므로 `/sync/status`로 진행 상황(현재 배치/처리량)을 노출한다.
+- **A.X 호출 제한 대응**(설계 당시 A.X-K1 안내값 3 RPS. 2026-10-23 실측: A.X-K2 짧은 요청(max_tokens 8)을 1→6 RPS로 단계마다 10초씩 보내 160회 모두 성공, 429·한도 헤더 없음(`backend/eval/probe_rate_limit.py`). 긴 요청·분 단위 한도는 미측정): `llm.py`의 공급자별 최소 호출 간격 리미터(A.X 250ms, EXAONE·KT 500ms, 429면 그 공급자만 1초 늦춤)를 스냅샷 경로(`POST /sessions/cluster`)와 배치가 공유한다. 배치 안에서는 클러스터별 의도 분석과 세션 재요약을 각각 동시 2개까지 부르고, 세션 반영(phase 2)은 클러스터 순서대로 차례로 한다(2026-10-23, 첫 배치 13.35초의 89%가 두 LLM 단계를 차례로 부른 시간). 배치 소요 시간이 2~5분으로 늘어날 수 있으므로 `/sync/status`로 진행 상황(현재 배치/처리량)을 노출한다.
 
 ## 6. 개인정보 보호 구조
 
