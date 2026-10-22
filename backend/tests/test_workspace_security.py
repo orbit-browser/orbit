@@ -458,6 +458,28 @@ def test_left_or_kicked_member_loses_team_reads_immediately(api, actor):
         assert response.status_code == 404, (method, path, response.text)
 
 
+@pytest.mark.parametrize("actor", ["alice", "bob"])
+@pytest.mark.parametrize("suffix", ["", "/events", "/versions"])
+def test_left_or_kicked_member_cannot_read_teammate_session_by_id(api, actor, suffix):
+    # Baseline proves the 404 below is the revoked membership, not a missing route.
+    assert api("GET", f"/sessions/shared{suffix}").status_code == 200
+    assert api("DELETE", "/workspaces/alpha/members/bob", user=actor).status_code == 204
+    assert api("GET", f"/sessions/shared{suffix}").status_code == 404
+
+
+def test_former_member_cannot_read_deleted_team(api):
+    assert api("GET", "/workspaces/alpha/sessions").status_code == 200
+    assert api("GET", "/sessions/shared").status_code == 200
+    assert api("DELETE", "/workspaces/alpha", user="alice").status_code in (200, 204)
+    assert all(workspace["workspace_id"] != "alpha" for workspace in api("GET", "/workspaces").json())
+    assert api("GET", "/workspaces/alpha/sessions").status_code == 404
+    for suffix in ("", "/events", "/versions"):
+        assert api("GET", f"/sessions/shared{suffix}").status_code == 404
+    assert api("POST", "/ask/stream", json={"query": "record", "workspace_id": "alpha"}).status_code == 404
+    # The owner keeps the session in their personal record.
+    assert api("GET", "/sessions/shared", user="alice").status_code == 200
+
+
 def test_share_admitted_before_leave_but_committed_after_is_invisible(api, db, monkeypatch):
     original_member_check = workspaces._member_or_404
 
