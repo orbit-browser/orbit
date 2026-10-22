@@ -1604,7 +1604,7 @@ body {
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 24px;
-  padding: 24px 0 28px;
+  padding: 14px 0 18px;
   border-bottom: 1.5px solid var(--border-default);
 }
 
@@ -2631,4 +2631,25 @@ body {
 .ex-print__page--narrow {
   width: 455px;
   page: narrow;
+}
+
+/* 정면 비교: 막대 묶음 두 개와 오른쪽의 다시 열기 숫자 */
+.ex-refusal__board {
+  display: grid;
+  grid-template-columns: 1fr 1fr 220px;
+  align-items: start;
+  gap: 32px;
+  padding: 16px 0 12px;
+}
+
+.ex-refusal__group {
+  margin-bottom: 4px !important;
+  color: var(--text-secondary);
+  font: 650 15px/1.4 var(--kr);
+  word-break: keep-all;
+}
+
+.ex-chart__tick {
+  font-size: 9px;
+  fill: var(--text-tertiary);
 }

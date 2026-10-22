@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { buildMatrix, displayMeasure, METRICS, parseCsv } from '../../preview/exhibition/metrics';
 import { TechBanner } from '../../preview/exhibition/panel-tech';
-import { calculateRefusalHighlight, REFUSAL_HIGHLIGHT } from '../../preview/exhibition/trial-highlights';
+import { calculateHeadToHead, HEAD_TO_HEAD } from '../../preview/exhibition/trial-highlights';
 
 describe('전시 현수막 숫자 — 실측만 숫자로', () => {
   it('실측 표시가 없으면 숫자가 들어 있어도 TBD 로 둔다', () => {
@@ -26,7 +26,8 @@ describe('전시 현수막 숫자 — 실측만 숫자로', () => {
     const latency = METRICS.metrics.find((metric) => metric.code === 'B')!;
     expect(latency.title).toBe('Backend Search Latency');
     expect(latency.note).toContain('HTTP·인증·UI 제외');
-    const quality = METRICS.metrics.find((metric) => metric.code === 'C')!;
+    // 품질(골든·holdout)은 D로 두고 앞면에는 싣지 않는다 — 원본과 보고서에는 낮은 holdout 값까지 그대로 남는다.
+    const quality = METRICS.metrics.find((metric) => metric.code === 'D')!;
     expect(quality.values.map((value) => [value.label, value.value])).toEqual([
       ['골든 Top-1', 100],
       ['holdout 끔 Top-1', 66.7],
@@ -94,7 +95,7 @@ describe('비교표 CSV', () => {
     // Orbit도 실제 수집 UI 시험을 완료했다. 후보 표시와 복원 오류를 함께 남긴다.
     const kinds = (name: string) => matrix.capabilities.map((capability) => matrix.cell(name, capability).kind);
     expect(rows.filter((row) => row.product === 'Orbit').map((row) => row.value)).toEqual([
-      '후보 3/6', '2/2', '일부·혼입', '4/9',
+      '3/6', '2/2', '찾은 작업만', '4/9 · 섞임 0',
     ]);
     expect(kinds('Orbit')).not.toContain('pending');
     const trial = parseCsv(readFileSync(new URL('../../preview/exhibition/orbit_trial.csv', import.meta.url), 'utf8'));
@@ -102,50 +103,56 @@ describe('비교표 CSV', () => {
     expect(trial.slice(0, 6).filter((row) => row.found === '1')).toHaveLength(3);
     expect(trial.slice(6).filter((row) => row.found === '1')).toHaveLength(2);
     const report = readFileSync(new URL('../../preview/exhibition/orbit-ui-trial.md', import.meta.url), 'utf8');
-    expect(report).toContain('답변/근거 모순');
-    expect(report).toContain('| 전체 | **4/9** | **5**');
-    expect(report).toContain('제주항공 403');
+    // 검색 품질 2차 뒤 같은 조건 재시험(fix2): 복원 4/9, 함께 열린 다른 URL 0, 제주항공은 여전히 403.
+    expect(report).toContain('| 복원된 목표 URL | 4/9 | 4/9 | **4/9**');
+    expect(report).toContain('| 추가로 열린 다른 URL | 5 | 0 | **0**');
+    expect(report).toContain('제주항공은 이번에도 403');
     for (const name of ['Perplexity Comet', 'Google Chrome']) expect(kinds(name)).not.toContain('pending');
   });
 });
 
-describe('전면 비교 강조 — 같은 부정 질문과 로그인 조건', () => {
+describe('정면 비교 — 같은 조건 직접 시험', () => {
   const orbit = readFileSync(new URL('../../preview/exhibition/orbit_trial.csv', import.meta.url), 'utf8');
   const competitors = readFileSync(new URL('../../preview/exhibition/competitor_trials.csv', import.meta.url), 'utf8');
 
-  it('원본의 고정 두 문항으로 비율과 퍼센트포인트 차이를 계산한다', () => {
-    expect(REFUSAL_HIGHLIGHT).toEqual({
-      orbit: { correct: 2, total: 2, percent: 100 },
-      comet: { correct: 1, total: 2, percent: 50 },
-      differencePoints: 50,
+  it('원본 CSV에서 찾은 비율·없음 판별·찾기 시간을 계산한다', () => {
+    expect(HEAD_TO_HEAD).toEqual({
+      found: {
+        orbit: { hit: 3, total: 6, percent: 50 },
+        comet: { hit: 1, total: 6, percent: 17 },
+        chrome: { hit: 0, total: 6, percent: 0 },
+      },
+      refusal: { orbit: { hit: 2, total: 2, percent: 100 }, comet: { hit: 1, total: 2, percent: 50 } },
+      orbitFindMs: 310.8,
+      cometFindSecondsAtLeast: 300,
+      restoreExtra: { orbit: 0, comet: 23 },
     });
-    // 로그아웃·Chrome의 동일 문항 판정은 이 비교에 들어가지 않는다.
-    const changed = competitors
-      .replace('logged_out_search,negative_garden,Q,partial', 'logged_out_search,negative_garden,Q,wrong')
-      .replaceAll('correct_trivial', 'wrong');
-    expect(calculateRefusalHighlight(orbit, changed)).toEqual(REFUSAL_HIGHLIGHT);
   });
 
-  it('한쪽 문항 누락·중복 또는 미판정 결과로 비율을 만들지 않는다', () => {
+  it('앞선 시험 대화의 메모리로 찾은 Comet Q2는 세지 않는다', () => {
+    const withoutContaminated = competitors.split('\n').filter((row) => !row.includes(',travel_car,Q2,')).join('\n');
+    expect(calculateHeadToHead(orbit, withoutContaminated)).toEqual(HEAD_TO_HEAD);
+  });
+
+  it('질문 하나라도 빠지거나 겹치면 비율을 만들지 않는다', () => {
     const missing = competitors.split('\n').filter((row) => !row.includes('logged_in_mixed,negative_piano,')).join('\n');
-    expect(() => calculateRefusalHighlight(orbit, missing)).toThrow('Expected one measured refusal result');
-    const duplicate = orbit.split('\n').find((row) => row.startsWith('negative_garden,'))!;
-    expect(() => calculateRefusalHighlight(`${orbit}\n${duplicate}`, competitors)).toThrow('Expected one measured refusal result');
-    const pending = competitors.replace('logged_in_mixed,negative_piano,Q,wrong', 'logged_in_mixed,negative_piano,Q,pending');
-    expect(() => calculateRefusalHighlight(orbit, pending)).toThrow('unmeasured result');
+    expect(() => calculateHeadToHead(orbit, missing)).toThrow('Expected one measured result');
+    const duplicate = orbit.split('\n').find((row) => row.startsWith('gpu_specs,'))!;
+    expect(() => calculateHeadToHead(`${orbit}\n${duplicate}`, competitors)).toThrow('Expected one measured result');
   });
 
-  it('배너는 분수 없이 비율을 표시하고 시험 범위와 실행 차이를 함께 남긴다', () => {
+  it('배너 앞면은 분수 없이 비율·시간을 보이고 표본과 조건은 각주에 남긴다', () => {
     const html = renderToStaticMarkup(createElement(TechBanner));
     const text = html.replace(/<[^>]*>/g, '');
-    expect(text).toContain('기록 없음 판별');
-    expect(text).toContain('100%');
-    expect(text).toContain('Comet50%');
-    expect(text).toContain('+50%p');
+    expect(text).toContain('0.3초');
+    expect(text).toContain('Orbit50%');
+    expect(text).toContain('Comet17%');
+    expect(text).toContain('Chrome0%');
+    expect(text).toContain('Orbit100%');
+    expect(text).toContain('Comet 23개');
     expect(text).not.toMatch(/\d+\s*\/\s*\d+/);
-    expect(text).toContain('기록이 없는 두 질문');
-    expect(text).toContain('전체 검색 정확도를 뜻하지 않습니다');
-    expect(text).toContain('실행 방식·수집 콘텐츠 차이');
+    expect(text).toContain('기록 있는 질문 6개 중 Orbit 3개');
+    expect(text).toContain('표본이 작아 전체 정확도를 뜻하지 않음');
     expect(text).toContain('제주항공 403');
     expect(text).not.toContain('골든 Top-1');
     expect(text).toContain('HTTP·인증·UI 제외');

@@ -33,24 +33,40 @@
       "scope": "질의 임베딩·Qdrant·SQL 포함 · HTTP·인증·화면 표시 제외",
       "values": [
         {
-          "label": "리랭킹 끔 p50",
+          "label": "p50",
           "value": 262.2,
           "unit": "ms",
-          "digits": 1,
+          "digits": 0,
           "status": "measured"
         },
         {
-          "label": "리랭킹 켬 p50",
-          "value": 300.4,
+          "label": "p95",
+          "value": 403.4,
           "unit": "ms",
-          "digits": 1,
+          "digits": 0,
           "status": "measured"
         }
       ],
-      "note": "1만 세션 · 6질문×10회 · warm · 임베딩 포함/HTTP·인증·UI 제외 · LLM 0회"
+      "note": "1만 합성 세션 · 6질문×10회 · warm · 리랭킹 끔 · 질의 임베딩·Qdrant·SQL 포함 · HTTP·인증·UI 제외"
     },
     {
       "code": "C",
+      "title": "Long-History Scalability",
+      "ko": "기록이 쌓일 때의 검색",
+      "scope": "공개 URL 26개로 만든 합성 세션 · 아래 곡선은 세션 수별 서버 응답 p95(ms)",
+      "values": [
+        {
+          "label": "1만 세션에서 서버 p95",
+          "value": 403.4,
+          "unit": "ms",
+          "digits": 0,
+          "status": "measured"
+        }
+      ],
+      "note": "합성 세션 100→1만 · warm · 리랭킹 끔 · 1만에서도 골든 6질문×10회 모두 정답"
+    },
+    {
+      "code": "D",
       "title": "Retrieval Quality",
       "ko": "골든셋과 holdout 검색 품질",
       "scope": "1만 합성 세션 · 골든 긍정 6질문·holdout 긍정 3질문 · warm",
@@ -78,22 +94,6 @@
         }
       ],
       "note": "1만 · warm · 골든 60회/모드 · holdout 30회/모드 · 음성 거절 끔 7/10·켬 3/10 · holdout 전체 88회 중 공급자 429 오류 22회 포함"
-    },
-    {
-      "code": "D",
-      "title": "Long-History Scalability",
-      "ko": "기록이 쌓일 때의 검색",
-      "scope": "공개 URL 26개로 만든 합성 세션 · 아래 곡선은 서버 응답 p95(ms)",
-      "values": [
-        {
-          "label": "시험한 합성 세션",
-          "value": 10000,
-          "unit": "개",
-          "digits": 0,
-          "status": "measured"
-        }
-      ],
-      "note": "공개 URL 26개 기반 합성 세션 · 100~1만 · warm/off 서버 p95(ms)"
     }
   ],
   "scaling": [
