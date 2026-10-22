@@ -60,7 +60,7 @@ beforeEach(async () => {
       return new Response('event: delta\ndata: {"text":"TEAM_ANSWER"}\n\nevent: done\ndata: {"model":"m"}\n\n');
     }
     if (url.endsWith('/workspaces/join')) return Response.json(backendTeam);
-    if (url.endsWith('/workspaces')) return Response.json([]);
+    if (new URL(url).pathname.endsWith('/workspaces')) return Response.json([]);
     if (init?.method === 'DELETE') return new Response(null, { status: 204 });
     return Response.json([]);
   }));

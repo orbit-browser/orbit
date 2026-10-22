@@ -74,7 +74,7 @@ beforeEach(async () => {
     if (url.includes('/ask')) {
       return new Response('event: delta\ndata: {"text":"TEAM_ANSWER"}\n\nevent: done\ndata: {"model":"m"}\n\n');
     }
-    if (url.endsWith('/workspaces')) {
+    if (new URL(url).pathname.endsWith('/workspaces')) {
       workspaceListCalls += 1;
       return Response.json(teamListed ? [backendTeam] : []);
     }

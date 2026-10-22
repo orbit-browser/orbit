@@ -105,19 +105,50 @@ export async function getEvent(eventId: string): Promise<ExplorationEvent | unde
   return db.get(EVENTS_STORE, eventId);
 }
 
-/** onCommitted의 짧은 리다이렉트 치환용 — open 상태일 때만 URL/domain을 제자리에서 교체한다. */
+/**
+ * onCommitted의 짧은 리다이렉트 치환용 — open 상태일 때만 URL/domain을 제자리에서 교체한다.
+ * `keepTeamLabel(newUrl)`이 false면 팀 표시를 지운다 — 로그인 화면으로 튕기는 리다이렉트가 흔해서
+ * 첫 주소로만 판정하면 로그인 화면이 팀으로 간다(docs/team-collect-mode.md §2.1).
+ */
 export async function replaceEventUrl(
   eventId: string,
   newUrl: string,
   domain: string,
+  keepTeamLabel: (url: string) => Promise<boolean> = async () => true,
 ): Promise<boolean> {
   const db = await getDB();
   const event = await db.get(EVENTS_STORE, eventId);
   if (!event || event.status !== 'open') return false;
+  if (event.workspaceId && !(await keepTeamLabel(newUrl))) {
+    event.workspaceId = null;
+    event.collectWindowId = null;
+  }
   event.url = newUrl;
   event.domain = domain;
   await db.put(EVENTS_STORE, event);
   return true;
+}
+
+/**
+ * 돌아보기의 "남은 방문도 모두 빼기" 로컬 단계 — 그 수집 창의 아직 보내지 않은 방문을 개인으로 돌린다.
+ * 전송 중(syncing) 배치는 응답을 잃으면 다시 보내지는데, 서버는 처음 저장한 표시를 남기므로 서버 빼기도 꼭 부른다.
+ */
+export async function clearTeamLabels(accountId: string, collectWindowId: string): Promise<number> {
+  const db = await getDB();
+  const tx = db.transaction(EVENTS_STORE, 'readwrite');
+  const index = tx.store.index('by-account-status');
+  let cleared = 0;
+  for (const status of ['open', 'pending', 'syncing'] as const) {
+    for (const event of await index.getAll([accountId, status])) {
+      if (event.collectWindowId !== collectWindowId) continue;
+      event.workspaceId = null;
+      event.collectWindowId = null;
+      await tx.store.put(event);
+      cleared += 1;
+    }
+  }
+  await tx.done;
+  return cleared;
 }
 
 /** tabs.onUpdated(title 변경) 보강용 — open 상태일 때만 반영한다. */

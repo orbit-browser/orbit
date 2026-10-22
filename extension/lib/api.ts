@@ -2,8 +2,13 @@ import { getTabPageContent } from './chrome-bridge';
 import type { WireEvent } from './events/types';
 import { isSensitiveUrl } from './sensitive-domains';
 import { readSseStream } from './sse';
+import { getDeviceId } from './device-id';
 import type {
   AskStreamEvent,
+  CollectStartResult,
+  CollectStatus,
+  CollectWindow,
+  WithdrawResult,
   AskStreamRequest,
   AssistantRouteResult,
   Folder,
@@ -75,6 +80,16 @@ interface BackendWorkspace {
   role: 'owner' | 'member';
   member_count: number;
   created_at: string;
+  collect_allowed?: boolean;
+  my_collect?: BackendCollectWindow | null;
+}
+
+interface BackendCollectWindow {
+  window_id: string;
+  workspace_id: string;
+  device_id: string;
+  started_at: string;
+  expires_at: string;
 }
 
 interface BackendWorkspaceMember {
@@ -90,6 +105,7 @@ interface BackendWorkspaceMember {
 interface BackendWorkspaceSession extends BackendSession {
   shared_by: { user_id: string; name: string | null; picture: string | null };
   shared_at: string;
+  collected?: boolean;
 }
 
 interface BackendShareResult {
@@ -240,6 +256,18 @@ function mapWorkspace(b: BackendWorkspace): Workspace {
     role: b.role,
     memberCount: b.member_count,
     createdAt: b.created_at,
+    collectAllowed: b.collect_allowed ?? false,
+    myCollect: b.my_collect ? mapCollectWindow(b.my_collect) : null,
+  };
+}
+
+function mapCollectWindow(b: BackendCollectWindow): CollectWindow {
+  return {
+    windowId: b.window_id,
+    workspaceId: b.workspace_id,
+    deviceId: b.device_id,
+    startedAt: b.started_at,
+    expiresAt: b.expires_at,
   };
 }
 
@@ -251,6 +279,7 @@ function mapWorkspaceSession(b: BackendWorkspaceSession): WorkspaceSession {
     folderAssignedBy: undefined,
     sharedBy: { userId: b.shared_by.user_id, name: b.shared_by.name, picture: b.shared_by.picture },
     sharedAt: b.shared_at,
+    collected: b.collected ?? false,
   };
 }
 
@@ -435,8 +464,10 @@ export async function removeSessionFromFolder(
 
 // ── 팀 워크스페이스 (docs/api-design-v2.md §14) ───────
 
+/** `device_id` 를 실어야 서버가 이 기기의 수집 창(`myCollect`)을 채워 준다. */
 export async function fetchWorkspaces(): Promise<Workspace[]> {
-  const data = await request<BackendWorkspace[]>('/workspaces');
+  const deviceId = await getDeviceId();
+  const data = await request<BackendWorkspace[]>(`/workspaces?device_id=${encodeURIComponent(deviceId)}`);
   return data.map(mapWorkspace);
 }
 
@@ -515,6 +546,109 @@ export async function shareSessions(workspaceId: string, sessionIds: string[]): 
 
 export async function unshareSession(workspaceId: string, sessionId: string): Promise<void> {
   await request<void>(`/workspaces/${workspaceId}/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+// ── 팀 수집 모드 (docs/team-collect-mode.md §5) ───────
+
+/** owner 전용. 끄면 그 팀의 열린 수집 창이 모두 끝난다. */
+export async function setCollectAllowed(workspaceId: string, collectAllowed: boolean): Promise<Workspace> {
+  const data = await request<BackendWorkspace>(`/workspaces/${workspaceId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ collect_allowed: collectAllowed }),
+  });
+  return mapWorkspace(data);
+}
+
+export async function fetchCollectStatus(workspaceId: string): Promise<CollectStatus> {
+  const data = await request<{
+    allowed: boolean;
+    my_windows: BackendCollectWindow[];
+    collecting: { user_id: string; name: string | null; picture: string | null; expires_at: string }[];
+  }>(`/workspaces/${workspaceId}/collect`);
+  return {
+    allowed: data.allowed,
+    myWindows: data.my_windows.map(mapCollectWindow),
+    collecting: data.collecting.map((m) => ({
+      userId: m.user_id,
+      name: m.name,
+      picture: m.picture,
+      expiresAt: m.expires_at,
+    })),
+  };
+}
+
+export async function startCollect(
+  workspaceId: string,
+  deviceId: string,
+  durationMinutes: number,
+  consentVersion: string,
+): Promise<CollectStartResult> {
+  const data = await request<{
+    window: BackendCollectWindow;
+    server_now: string;
+    ended_workspace_id: string | null;
+  }>(`/workspaces/${workspaceId}/collect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId, duration_minutes: durationMinutes, consent_version: consentVersion }),
+  });
+  return {
+    window: mapCollectWindow(data.window),
+    serverNow: data.server_now,
+    endedWorkspaceId: data.ended_workspace_id ?? null,
+  };
+}
+
+export type CollectStopReason = 'stop' | 'pause' | 'browser_restart' | 'account_switch';
+
+/** `deviceId` 가 null 이면 이 팀에 대한 내 모든 기기의 창을 끝낸다. `token` 은 계정 전환 때 이전 계정 것. */
+export async function stopCollect(
+  workspaceId: string,
+  deviceId: string | null,
+  reason: CollectStopReason,
+  token?: string,
+): Promise<void> {
+  const query = new URLSearchParams({ reason });
+  if (deviceId) query.set('device_id', deviceId);
+  await request<void>(`/workspaces/${workspaceId}/collect?${query}`, { method: 'DELETE' }, token);
+}
+
+export async function fetchWindowSessions(workspaceId: string, windowId: string): Promise<Session[]> {
+  const data = await request<BackendSession[]>(`/workspaces/${workspaceId}/collect/windows/${windowId}/sessions`);
+  return data.map(mapSession);
+}
+
+export async function withdrawWindow(workspaceId: string, windowId: string, token?: string): Promise<WithdrawResult> {
+  const data = await request<{ withdrawn_events: number; sessions: BackendSession[]; window_closed: boolean }>(
+    `/workspaces/${workspaceId}/collect/windows/${windowId}/withdraw`,
+    { method: 'POST' },
+    token,
+  );
+  return {
+    withdrawnEvents: data.withdrawn_events,
+    sessions: data.sessions.map(mapSession),
+    windowClosed: data.window_closed,
+  };
+}
+
+/** 돌아보기의 되돌리기. 조건이 깨졌으면 409(`ApiError.status`). */
+export async function restoreCollectSession(workspaceId: string, sessionId: string): Promise<void> {
+  await request<void>(`/workspaces/${workspaceId}/collect/sessions/${sessionId}/restore`, { method: 'POST' });
+}
+
+export async function fetchTeamCollectExcluded(token?: string): Promise<string[]> {
+  const data = await request<{ team_collect_excluded_domains?: string[] }>('/settings', undefined, token);
+  return data.team_collect_excluded_domains ?? [];
+}
+
+export async function updateTeamCollectExcluded(domains: string[]): Promise<string[]> {
+  const data = await request<{ team_collect_excluded_domains?: string[] }>('/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ team_collect_excluded_domains: domains }),
+  });
+  return data.team_collect_excluded_domains ?? [];
 }
 
 /** 미정리 세션별 폴더 제안(점수 내림차순). */
@@ -687,6 +821,10 @@ export interface EventBatchResponse {
   duplicates: number;
   filtered: number;
   pending_total: number;
+  team_accepted?: number;
+  team_downgraded?: number;
+  /** 이 배치가 실은 수집 창이 서버에서 이미 끝났다. 로컬 수집을 끄는 유일한 신호다. */
+  window_closed?: boolean;
 }
 
 /** `token`은 이벤트 주인 계정의 토큰이다(`authorized` 주석). */

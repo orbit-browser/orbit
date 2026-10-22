@@ -22,6 +22,7 @@ import {
   updateSyncStatus,
 } from '../events/queue';
 import { drainPreviousAccount, requestDrain, RETRY_ALARM_NAME } from './engine';
+import { handleAccountSwitch } from '../team-collect';
 
 const SYNC_ALARM_NAME = 'orbit-sync';
 /** 유휴 상태가 idleSyncMin(분) 동안 지속되면 실제로 drain('idle')을 실행하는 1회성 알람. */
@@ -89,6 +90,10 @@ export async function applyAccountConsent(migrationOwner?: string): Promise<void
 function watchAccountChange(): void {
   onSessionChange((session, previous) => {
     if (session?.user.id === previous?.user.id) return;
+    // 이전 계정의 팀 수집 창은 로컬부터 끄고 그 계정 토큰으로 서버 창을 끝낸다(docs/team-collect-mode.md §6.5).
+    handleAccountSwitch(previous).catch((err) =>
+      console.error('[Orbit] 계정 전환 뒤 팀 수집 끄기 실패', err),
+    );
     applyAccountConsent(previous?.user.id ?? session?.user.id).catch((err) =>
       console.error('[Orbit] 계정 전환 뒤 수집 동의 적용 실패', err),
     );

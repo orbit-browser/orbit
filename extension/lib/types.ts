@@ -111,6 +111,51 @@ export interface Workspace {
   memberCount: number;
   /** ISO 8601 */
   createdAt: string;
+  /** owner 가 팀 수집을 허용했는지(docs/team-collect-mode.md §1.1). */
+  collectAllowed?: boolean;
+  /** 이 기기에서 이 팀으로 열린 수집 창. 없으면 null. */
+  myCollect?: CollectWindow | null;
+}
+
+// ── 팀 수집 모드 (docs/team-collect-mode.md §5) ───────────────────────
+
+/** 서버가 만든 수집 창. 팀 판정의 근거는 언제나 서버의 이 행이다. */
+export interface CollectWindow {
+  windowId: string;
+  workspaceId: string;
+  deviceId: string;
+  /** ISO 8601 */
+  startedAt: string;
+  /** ISO 8601 */
+  expiresAt: string;
+}
+
+export interface CollectingMember {
+  userId: string;
+  name: string | null;
+  picture: string | null;
+  /** ISO 8601 */
+  expiresAt: string;
+}
+
+export interface CollectStatus {
+  allowed: boolean;
+  /** 이 팀에 대한 내 모든 기기의 열린 창(다른 기기 것을 끄기 위해). */
+  myWindows: CollectWindow[];
+  collecting: CollectingMember[];
+}
+
+export interface CollectStartResult {
+  window: CollectWindow;
+  /** ISO 8601 — 기기 시계 보정 기준 */
+  serverNow: string;
+  endedWorkspaceId: string | null;
+}
+
+export interface WithdrawResult {
+  withdrawnEvents: number;
+  sessions: Session[];
+  windowClosed: boolean;
 }
 
 export interface WorkspaceMember {
@@ -136,6 +181,8 @@ export interface MemberBrief {
  */
 export interface WorkspaceSession extends Session {
   sharedBy: MemberBrief;
+  /** 이 팀으로 수집된 세션인지(팀 수집 모드). */
+  collected?: boolean;
   /** ISO 8601 */
   sharedAt: string;
 }

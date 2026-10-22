@@ -7,6 +7,7 @@
 import { getSession, onSessionChange } from '../auth';
 import { getSettings, hasCollectionConsent } from '../settings';
 import { isSensitiveUrl } from '../sensitive-domains';
+import { teamLabelFor } from '../team-collect';
 import type { PageContent } from '../types';
 import {
   addDwell,
@@ -127,12 +128,28 @@ function isTrackableUrl(url: string | undefined): url is string {
 async function tryReplaceRecentOpenEvent(
   openEventId: string,
   newUrl: string,
+  accountId: string,
 ): Promise<boolean> {
   const event = await getEvent(openEventId);
   if (!event || event.status !== 'open') return false;
   const age = Date.now() - new Date(event.visitedAt).getTime();
   if (age >= REDIRECT_REPLACE_WINDOW_MS) return false;
-  return replaceEventUrl(openEventId, newUrl, domainFromUrl(newUrl));
+  // 리다이렉트로 주소가 바뀌면 팀 표시를 다시 판정한다(로그인 화면으로 튕기는 경우).
+  return replaceEventUrl(openEventId, newUrl, domainFromUrl(newUrl), async (url) => {
+    const label = await teamLabelFor(accountId, url);
+    return label?.collectWindowId === event.collectWindowId;
+  });
+}
+
+/**
+ * 팀 표시가 붙은 방문의 제목(S5). onCommitted 시점의 `tab.title`은 직전 페이지(개인·민감일 수 있음)의
+ * 제목일 수 있어 비워 두고, 지금 탭 주소가 그 방문 주소와 같을 때만 채운다.
+ */
+async function fillTeamTitle(eventId: string, tab: chrome.tabs.Tab | null, title: string | undefined): Promise<void> {
+  if (!title || !tab?.url) return;
+  const event = await getEvent(eventId);
+  if (!event?.workspaceId || event.url !== tab.url) return;
+  await updateEventTitle(eventId, title);
 }
 
 async function handleCommitted(
@@ -162,9 +179,11 @@ async function handleCommitted(
     details.transitionQualifiers.includes('client_redirect');
 
   if (isRedirect && prevState?.openEventId) {
-    const replaced = await tryReplaceRecentOpenEvent(prevState.openEventId, details.url).catch(
-      () => false,
-    );
+    const replaced = await tryReplaceRecentOpenEvent(
+      prevState.openEventId,
+      details.url,
+      session.user.id,
+    ).catch(() => false);
     if (replaced) {
       await setTabState(tabId, {
         openEventId: prevState.openEventId,
@@ -185,11 +204,12 @@ async function handleCommitted(
 
   const eventId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const team = await teamLabelFor(session.user.id, details.url).catch(() => null);
   const input: NewEventInput = {
     eventId,
     eventType: 'visit',
     url: details.url,
-    title: tab?.title ?? '',
+    title: team ? '' : tab?.title ?? '',
     domain: domainFromUrl(details.url),
     visitedAt: now,
     endedAt: null,
@@ -200,6 +220,8 @@ async function handleCommitted(
     activeDurationMs: 0,
     contentExcerpt: null,
     accountId: session.user.id,
+    workspaceId: team?.workspaceId ?? null,
+    collectWindowId: team?.collectWindowId ?? null,
   };
 
   try {
@@ -238,6 +260,7 @@ async function requestSpaContent(tabId: number, eventId: string): Promise<void> 
 
   try {
     await attachContent(eventId, content.textContent);
+    await fillTeamTitle(eventId, tab, tab.title);
   } catch (err) {
     console.error('[Orbit] attachContent(spa_nav) 실패', err);
   }
@@ -266,11 +289,13 @@ async function commitSpaNavigation(tabId: number, url: string): Promise<void> {
 
   const eventId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const team = await teamLabelFor(session.user.id, url).catch(() => null);
   const input: NewEventInput = {
     eventId,
     eventType: 'spa_nav',
     url,
-    title: tab?.title ?? '',
+    // SPA 는 history 변경 뒤 탭 제목이 이미 그 페이지 것이지만, 팀 방문은 본문을 붙일 때 다시 읽는다.
+    title: team ? '' : tab?.title ?? '',
     domain: domainFromUrl(url),
     visitedAt: now,
     endedAt: null,
@@ -281,6 +306,8 @@ async function commitSpaNavigation(tabId: number, url: string): Promise<void> {
     activeDurationMs: 0,
     contentExcerpt: null,
     accountId: session.user.id,
+    workspaceId: team?.workspaceId ?? null,
+    collectWindowId: team?.collectWindowId ?? null,
   };
 
   try {
@@ -339,7 +366,9 @@ async function handleTabUpdated(
   if (!openEventId) return;
 
   try {
-    await updateEventTitle(openEventId, changeInfo.title);
+    const event = await getEvent(openEventId);
+    if (event?.workspaceId) await fillTeamTitle(openEventId, tab, changeInfo.title);
+    else await updateEventTitle(openEventId, changeInfo.title);
   } catch (err) {
     console.error('[Orbit] title 보강 실패', err);
   }
@@ -453,6 +482,7 @@ export async function handlePageContentReady(
 
   try {
     await attachContent(openEventId, content.textContent);
+    await fillTeamTitle(openEventId, tab, tab?.title);
   } catch (err) {
     console.error('[Orbit] attachContent(PAGE_CONTENT_READY) 실패', err);
   }

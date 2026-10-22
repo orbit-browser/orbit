@@ -12,32 +12,17 @@ import {
   updateSyncStatus,
 } from '../events/queue';
 import { toWire } from '../events/types';
+import { getDeviceId } from '../device-id';
+import { handleBatchWindowClosed, reconcileNow } from '../team-collect';
 
 const BATCH_SIZE = 50;
 const DRAIN_LOCK_NAME = 'orbit-drain';
-const DEVICE_ID_KEY = 'orbit:deviceId';
 
 /** 재시도 알람 이름 — sync/triggers.ts의 onAlarm 리스너와 공유한다. */
 export const RETRY_ALARM_NAME = 'orbit-retry';
 
 /** signout: 로그아웃·계정 교체 직후 이전 계정의 남은 이벤트를 그 계정 토큰으로 보낸다. */
 export type DrainReason = 'manual' | 'periodic' | 'threshold' | 'idle' | 'retry' | 'signout';
-
-let deviceIdPromise: Promise<string> | null = null;
-
-async function getDeviceId(): Promise<string> {
-  if (!deviceIdPromise) {
-    deviceIdPromise = (async () => {
-      const stored = await chrome.storage.local.get(DEVICE_ID_KEY);
-      const existing = stored[DEVICE_ID_KEY] as string | undefined;
-      if (existing) return existing;
-      const generated = crypto.randomUUID();
-      await chrome.storage.local.set({ [DEVICE_ID_KEY]: generated });
-      return generated;
-    })();
-  }
-  return deviceIdPromise;
-}
 
 async function scheduleRetry(released: Awaited<ReturnType<typeof releaseToPending>>): Promise<void> {
   const now = Date.now();
@@ -85,8 +70,18 @@ async function drain(reason: DrainReason, owner?: AuthSession): Promise<void> {
     if (batch.length === 0) break;
 
     try {
-      await postEventBatch(deviceId, batch.map(toWire), session.token);
+      const result = await postEventBatch(deviceId, batch.map(toWire), session.token);
       await markSynced(batch.map((e) => e.eventId));
+      // 서버가 이 창을 이미 끝냈으면(owner 허용 끄기·다른 기기에서 끄기·탈퇴) 로컬 수집도 끈다.
+      try {
+        await handleBatchWindowClosed(
+          session.user.id,
+          result?.window_closed,
+          batch.map((e) => e.collectWindowId ?? null),
+        );
+      } catch (err) {
+        console.error('[Orbit] team collect window_closed handling failed', err);
+      }
       if (reportStatus) {
         await updateSyncStatus({ lastSyncAt: new Date().toISOString(), lastError: null });
       }
@@ -107,6 +102,11 @@ async function drain(reason: DrainReason, owner?: AuthSession): Promise<void> {
 
   // 이벤트 전송만으로는 세션이 만들어지지 않는다 — 서버 배치 세션화를 명시적으로 트리거한다.
   // manual은 보낼 이벤트가 없어도 호출(서버에 이미 쌓인 pending을 사용자가 지금 분석하길 원한 것).
+  // 보낼 방문이 없어도 서버가 창을 끝냈는지 주기마다 확인한다(`my_collect`). 이전 계정 drain 은 제외.
+  if (reportStatus && (reason === 'periodic' || reason === 'manual')) {
+    await reconcileNow().catch((err) => console.error('[Orbit] team collect reconcile failed', err));
+  }
+
   if (sentAny || reason === 'manual') {
     try {
       await triggerServerSync(SERVER_TRIGGER_BY_REASON[reason], session.token);
