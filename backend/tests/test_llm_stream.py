@@ -4,7 +4,7 @@ import asyncio
 
 import httpx
 import pytest
-from openai import APIStatusError, OpenAIError
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAIError
 
 from app.ai import llm
 
@@ -103,6 +103,32 @@ def test_stream_does_not_fallback_after_first_token(monkeypatch):
         with pytest.raises(llm.StreamInterruptedError) as info:
             await anext(stream)
         assert info.value.model == "exaone/K-EXAONE"
+
+    asyncio.run(scenario())
+    assert [c["model"] for c in calls] == ["K-EXAONE"]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        lambda: APIConnectionError(request=httpx.Request("POST", "https://llm.test")),
+        lambda: APITimeoutError(request=httpx.Request("POST", "https://llm.test")),
+    ],
+    ids=["connection", "timeout"],
+)
+def test_stream_does_not_fallback_on_network_error_after_first_token(monkeypatch, error):
+    # 연결·timeout은 첫 토큰 전이면 A.X로 넘기는 오류다. 첫 토큰 뒤에는 넘기지 않고 끊김으로 올린다.
+    async def cut(model):
+        yield "partial"
+        raise error()
+
+    calls = _setup(monkeypatch, cut)
+
+    async def scenario():
+        stream = llm.chat_completion_stream_with_meta("system", "user")
+        assert await anext(stream) == ("partial", "exaone/K-EXAONE")
+        with pytest.raises(llm.StreamInterruptedError):
+            await anext(stream)
 
     asyncio.run(scenario())
     assert [c["model"] for c in calls] == ["K-EXAONE"]
