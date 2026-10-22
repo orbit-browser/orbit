@@ -3,7 +3,7 @@
  * 단위는 현수막의 mm 다(1px = 1mm). 화면에서는 줄이고, 인쇄에서는 1mm 로 키운다(exhibition.css).
  */
 import { useState, type CSSProperties, type ReactNode } from 'react';
-import { faviconFor, shotFor, type ExhibitPage } from './content';
+import { faviconFor, SHOT_FOCUS, shotFor, type ExhibitPage } from './content';
 
 export const BANNER = {
   height: 2380,
@@ -15,15 +15,13 @@ export const BANNER = {
 const STEPS = ['USE', 'CHAOS', 'ORBIT', 'TECHNOLOGY', 'TEAM'] as const;
 
 interface BannerFrameProps {
-  /** STEPS 안의 자리 */
+  /** STEPS 안의 자리 — 머리글 번호(01–05)도 여기서 나온다. 벽 순서·바닥글 진행 표시와 같다 */
   step: number;
-  /** 머리글 오른쪽 장 번호(가운데 벽 세 장만) */
-  number?: string;
   label: string;
   children: ReactNode;
 }
 
-export function BannerFrame({ step, number, label, children }: BannerFrameProps) {
+export function BannerFrame({ step, label, children }: BannerFrameProps) {
   return (
     <article className={`ex-banner ex-banner--${STEPS[step].toLowerCase()}`} aria-label={label}>
       {children}
@@ -34,7 +32,7 @@ export function BannerFrame({ step, number, label, children }: BannerFrameProps)
           <span>Orbit</span>
         </div>
         <div className="ex-head__chapter">
-          {number && <b>{number}</b>}
+          <b>{String(step + 1).padStart(2, '0')}</b>
           <span>{STEPS[step]}</span>
         </div>
       </header>
@@ -102,10 +100,19 @@ export function Favicon({ url, domain }: { url: string; domain: string }) {
   return <img className="ex-fav" src={faviconFor(url)} alt="" draggable={false} onError={() => setFailed(true)} />;
 }
 
-/** 페이지 화면(공개 웹페이지 캡처). 못 찍었거나 뺀 화면은 아틀라스의 회색 칸처럼 페이지 모양만 옅게. */
+/** 페이지 화면(공개 웹페이지 캡처). 못 찍은 화면은 아틀라스의 회색 칸처럼 페이지 모양만 옅게. */
 export function PageShot({ url }: { url: string }) {
   const shot = shotFor(url);
-  if (shot) return <img src={shot} alt="" draggable={false} />;
+  const focus = SHOT_FOCUS[url];
+  // 고른 부분(x, y, 폭)이 카드 폭을 채우게 키운다. 세로 여백(%)도 폭 기준이라 비율 그대로 옮겨진다
+  const style: CSSProperties | undefined = focus && {
+    width: `${(1000 / focus.w) * 100}%`,
+    height: 'auto',
+    maxWidth: 'none',
+    marginLeft: `${(-focus.x / focus.w) * 100}%`,
+    marginTop: `${(-focus.y / focus.w) * 100}%`,
+  };
+  if (shot) return <img src={shot} alt="" draggable={false} style={style} />;
   return (
     <div className="ex-placeholder" aria-hidden>
       <i style={{ width: '38%' }} />

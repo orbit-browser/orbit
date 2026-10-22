@@ -88,40 +88,82 @@ export const SESSIONS: ExhibitSession[] = mine
 export const sessionById = (id: string): ExhibitSession => SESSIONS.find((session) => session.id === id)!;
 
 /**
- * ORBIT 갤러리에서 오갈 수 있는 세션(페이지 셋 이상). 폴더끼리 붙여 둔다 — 막대가 아틀라스처럼
- * 같은 폴더의 세션을 위아래 줄로 보여 준다. 첫 번째가 인쇄되는 세션이다.
- * 페이지 절반 이상이 회색 칸인 세션(화면을 못 찍었거나 EXCLUDED_SHOTS 로 뺀 것 — FastAPI, 그래픽카드, 발표 자료)은
- * 두지 않는다. 화면 목록은 렌더 뒤에 읽히므로 여기서 계산하지 않고 손으로 고른다.
+ * ORBIT 갤러리에서 오갈 수 있는 세션 — 인쇄할 수 있는 페이지(printable)가 셋 이상인 것만. 폴더끼리 붙여 둔다(막대가
+ * 아틀라스처럼 같은 폴더의 세션을 위아래 줄로 보여 준다). 첫 번째가 인쇄되는 세션이다.
  */
-export const GALLERY_SESSION_IDS = ['s-jeju', 's-osaka', 's-mv3', 's-qdrant', 's-react'];
+export const GALLERY_SESSION_IDS = ['s-jeju', 's-mv3', 's-qdrant'];
 
 // ── 페이지 화면 ─────────────────────────────────────────────────────
 
 /**
- * 인쇄물에 남의 사이트 화면이 들어가므로 쓸 화면을 골라 둔다(보고서에 목록을 남긴다).
- * 뺀 것: 사람 얼굴이 크게 보이는 영상·광고 화면, 동의 팝업만 찍힌 화면, 덜 그려진 화면, 제품 사진 위주의 브랜드 페이지,
- * 홍보 문구가 크게 찍힌 화면, 남의 작품을 모아 보이는 화면.
+ * 인쇄물에 남의 사이트 화면이 들어가므로 쓸 화면을 고른다(보고서에 목록을 남긴다). 기준은 "카드에 보이는 자리에
+ * 있는가"다 — 흐린 뒤쪽 카드도 실제 크기로는 수십 cm 다. 여기 있는 페이지는 화면을 그리지 않고, 갤러리·팀 카드·
+ * CHAOS 에서 아예 쓰지 않는다(printable).
  */
 export const EXCLUDED_SHOTS = new Set([
+  // 사람 얼굴이 크게 보이는 영상·광고
   'https://quasarzone.com/bbs/qc_qsz',
   'https://www.youtube.com/watch?v=5070noise',
   'https://www.youtube.com/watch?v=toss-template',
+  // 동의 팝업, 제품 사진 위주의 브랜드 페이지, 광고
   'https://www.nike.com/kr/t/pegasus-42',
+  'https://www.apple.com/kr/airpods-pro/',
+  'https://www.hankyung.com/article/2026091512',
+  // 남의 작품(디자인 모음, 작가 글의 표지, 글쓴이가 만든 썸네일 그림)
   'https://www.behance.net/search/projects/product%20demo',
   'https://dribbble.com/search/pitch-deck',
-  'https://www.hankyung.com/article/2026091512',
-  'https://www.apple.com/kr/airpods-pro/',
-  'https://fastapi.tiangolo.com/advanced/custom-response/#streamingresponse',
-  'https://velog.io/@web/fetch-stream-abort',
-  'https://stackoverflow.com/questions/66618136',
   'https://www.figma.com/community/presentation-templates',
-  // 정부 홍보 배너가 크게 찍혀 전시물에서 홍보 문구로 읽힌다
+  'https://brunch.co.kr/@techtalk/42',
+  'https://velog.io/@react/react19',
+  'https://velog.io/@nlp/summary-metrics',
+  // 홍보 배너·할인 팝업·혜택 띠가 보이는 자리에 있다
   'https://www.molit.go.kr/jeonse',
-  // 문서 위 띠·오른쪽 칸에 후원사 광고(암호화폐 결제, 코드 리뷰 도구, 후원사 로고)가 찍힌다
+  'https://carmore.kr/home/',
+  'https://subway.city.fukuoka.lg.jp/route/',
+  // 블로그 검색 결과의 썸네일이 "특가 할인" 광고 그림이다
+  'https://blog.naver.com/runner/2231',
+  // "광고" 표시가 붙은 상품 줄, 할인율·쿠폰 딱지
+  'https://prod.danawa.com/list/?cate=112753',
+  'https://search.danawa.com/dsearch.php?query=에어팟프로3',
+  'https://www.compuzone.co.kr/search/search.htm?SearchProductKey=5070',
+  'https://www.musinsa.com/category/103004',
+  // 문서 위 띠·옆 칸의 후원사 광고(암호화폐 결제, 코드 리뷰 도구, 후원사 로고, API 도구, 강의 할인)
   'https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/',
   'https://fastapi.tiangolo.com/tutorial/background-tasks/',
+  'https://fastapi.tiangolo.com/advanced/custom-response/#streamingresponse',
   'https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates',
+  'https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html',
+  'https://www.promptingguide.ai/techniques',
+  // 덜 그려진 화면
+  'https://velog.io/@web/fetch-stream-abort',
+  'https://stackoverflow.com/questions/66618136',
+  // 헤드리스를 막아 화면이 없다(capture-shots.mjs BLOCKED)
+  'https://stackoverflow.com/questions/72921178',
+  'https://tabelog.com/osaka/rstLst/',
 ]);
+
+/** 인쇄에 쓰는 페이지 — 화면을 뺀 페이지는 갤러리·팀 카드·CHAOS 에 두지 않는다(회색 칸을 남기지 않는다). */
+export const printable = (page: ExhibitPage): boolean => !EXCLUDED_SHOTS.has(page.url);
+
+/** 갤러리·막대에 보이는 세션 — 인쇄할 수 있는 페이지만. 타임라인은 원래 세션의 모든 방문을 보인다. */
+export const shownSession = (id: string): ExhibitSession => {
+  const session = sessionById(id);
+  return { ...session, pages: session.pages.filter(printable) };
+};
+
+/**
+ * 화면의 한 부분만 쓰는 페이지 — 위쪽 혜택 카드, 오른쪽 혜택 칸, 지도 위 안내 말풍선을 피해 깨끗한 부분을 키워 보인다.
+ * 값은 1000px 폭 캡처의 CSS px(x, y, 폭). 카드는 고른 폭의 최대 1.17배 높이(CHAOS 세로 카드)까지 보이므로
+ * 그 높이까지 깨끗한 자리로 잡았다(2026-10-22 캡처에서 잼).
+ */
+export const SHOT_FOCUS: Record<string, { x: number; y: number; w: number }> = {
+  // 네이버 항공권 첫 화면: 검색 상자까지(y 652 부터 혜택 카드, 왼쪽 위 '여행핫딜' 메뉴와 오른쪽 위 쿠폰 표시는 밖)
+  'https://flight.naver.com/flights/domestic/GMP-CJU': { x: 226, y: 0, w: 547 },
+  // 야놀자 숙소 상세: 사진·이름·평점·후기(x 918 부터 로그인 혜택 칸, y 1010 부터 숙소 이벤트)
+  'https://www.yanolja.com/search/서귀포': { x: 0, y: 0, w: 840 },
+  // 다이닝코드: 왼쪽 목록(x 462 부터 지도 위 안내 말풍선, y 690 에 빈 광고 자리)
+  'https://www.diningcode.com/list.dc?query=애월카페': { x: 0, y: 0, w: 440 },
+};
 
 let shots: Record<string, string> = {};
 
@@ -148,6 +190,6 @@ export function faviconFor(url: string): string {
   }
 }
 
-/** CHAOS 에 흩어지는 페이지 — 내 모든 방문(제주 세션 포함, ORBIT 에서 다시 만난다). */
-export const ALL_PAGES: ExhibitPage[] = mine.flatMap((session) => session.events.map(toPage));
+/** CHAOS 에 흩어지는 페이지 — 합성 데이터의 모든 방문(제주 세션 포함, ORBIT 에서 다시 만난다). */
+export const ALL_PAGES: ExhibitPage[] = db.sessions.flatMap((session) => session.events.map(toPage));
 export const pageByUrl = (url: string): ExhibitPage | undefined => ALL_PAGES.find((page) => page.url === url);

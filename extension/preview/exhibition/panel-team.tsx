@@ -6,7 +6,7 @@
  * 측정 방법은 저장소의 평가 하네스(backend/eval)와 설정(backend/app/config.py)에서 확인한 것만 쓴다.
  * 결선 벤치마크의 조건은 metrics.json 의 method 에서 온다(측정 전 TBD).
  */
-import { sessionById, shotFor } from './content';
+import { printable, sessionById } from './content';
 import { BannerFrame, Favicon, PageShot } from './frame';
 import { METRICS } from './metrics';
 
@@ -55,7 +55,7 @@ export function TeamBanner() {
           <br />
           같이 찾습니다.
         </h1>
-        <p className="ex-team__sub">팀에는 내가 고른 세션만 공유됩니다. 개인 기록은 그대로 나만 볼 수 있습니다.</p>
+        <p className="ex-team__sub">팀에는 내가 고른 세션만 공유됩니다. 개인 기록은 그대로 나만&nbsp;볼&nbsp;수&nbsp;있습니다.</p>
       </section>
 
       <section className="ex-team__stage" aria-label="팀 화면">
@@ -78,6 +78,17 @@ export function TeamBanner() {
           <h2>How We Measure</h2>
           <span className="ex-status">저장소의 평가 하네스</span>
         </div>
+        <div className="ex-measure__bench">
+          <h3>결선 벤치마크 조건</h3>
+          <div className="ex-method">
+            {METRICS.method.map((row) => (
+              <div key={row.label}>
+                <span>{row.label}</span>
+                <b>{row.value ?? 'TBD'}</b>
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="ex-measure__grid">
           <div>
             <h3>골든셋</h3>
@@ -96,17 +107,6 @@ export function TeamBanner() {
                 <em>{value}</em>
                 <b>{name}</b>
                 <small>{detail}</small>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="ex-measure__bench">
-          <h3>결선 벤치마크 조건</h3>
-          <div className="ex-method">
-            {METRICS.method.map((row) => (
-              <div key={row.label}>
-                <span>{row.label}</span>
-                <b>{row.value ?? 'TBD'}</b>
               </div>
             ))}
           </div>
@@ -168,8 +168,8 @@ function TeamAtlas() {
   const session = sessionById('s-mv3');
   // 한 세션은 한 사람이 공유한다 — 그 세션의 카드에는 모두 같은 이름이 붙는다(아틀라스와 같다)
   const sharer = DEMO_TEAM.members[1];
-  // 화면이 있는 페이지를 앞에 — 못 찍었거나 뺀 페이지(빈 Stack Overflow)는 회색 칸이 된다
-  const cards = [...session.pages].sort((a, b) => Number(!shotFor(a.url)) - Number(!shotFor(b.url))).slice(0, 3);
+  // 화면을 뺀 페이지(빈 Stack Overflow)는 건너뛴다 — 카드 수와 위 줄의 점·글이 같다
+  const cards = session.pages.filter(printable).slice(0, 3);
   return (
     <div className="ex-layer ex-ui ex-ui--atlas" style={{ ['--hue' as string]: session.hue }}>
       <div className="ex-ui__row">
@@ -177,13 +177,13 @@ function TeamAtlas() {
           <i style={{ background: DEMO_TEAM.teams[0].hue }} />
           {DEMO_TEAM.teams[0].name}
         </span>
-        <span className="ex-ui__muted">공유된 세션 · 세션 4개</span>
+        <span className="ex-ui__muted">공유된 세션 · 페이지 {cards.length}개</span>
       </div>
       <div className="ex-ui__rail">
         <b>{session.title}</b>
         <small>{sharer}</small>
         <span className="ex-ui__dots">
-          {session.pages.map((page, index) => (
+          {cards.map((page, index) => (
             <i key={page.id} className={index === 1 ? 'is-on' : undefined} />
           ))}
         </span>
@@ -194,10 +194,11 @@ function TeamAtlas() {
             <div className="ex-ui__shot">
               <PageShot url={page.url} />
             </div>
-            <span className="ex-ui__who">{sharer}</span>
+            {/* 공유한 사람 이름은 아래 띠에 — 페이지 글자를 가리지 않는다 */}
             <span className="ex-ui__site">
               <Favicon url={page.url} domain={page.domain} />
-              {page.domain}
+              <span>{page.domain}</span>
+              <span className="ex-ui__who">{sharer}</span>
             </span>
           </div>
         ))}

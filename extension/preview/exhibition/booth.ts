@@ -39,4 +39,6 @@ export const BOOTH = {
   team: 'Orbit',
   /** QR 빈 칸 한 변(mm) — 출력 뒤 스티커로 붙인다. 오른쪽 앞 띠의 눈높이에 있다 */
   qr: 100,
+  /** QR 칸 둘레의 흰 여백(mm) — 어두운 바탕 위에서도 QR 이 읽히게(QR 고요 영역) */
+  qrMargin: 16,
 };

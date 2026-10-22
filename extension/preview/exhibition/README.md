@@ -6,7 +6,7 @@
 
 ```sh
 cd extension
-SHOT_SCALE=1.5 node preview/capture-shots.mjs   # 카드 속 페이지 화면(처음 한 번, git 제외)
+SHOT_SCALE=2 node preview/capture-shots.mjs     # 카드 속 페이지 화면(처음 한 번, git 제외)
 pnpm preview:ui --port 5203
 # http://127.0.0.1:5203/preview/exhibition/
 ```
@@ -35,7 +35,8 @@ pnpm preview:ui --port 5203
   실제 크기는 CSS mm 기준이며 모니터에서 자로 잰 크기를 보장하지 않는다.
 - `안전 여백`: 위·옆 50mm, 아래 80mm. 안내선은 인쇄에 나오지 않는다.
 - `애니메이션`: CHAOS 카드의 움직임. `인쇄용 정적 모드`는 움직임과 갤러리 조작을 끈다.
-- ORBIT 갤러리: 끌기·스와이프, 초점 상태에서 ← →, 카드 클릭, 위 막대의 ↑ ↓ 세션 전환.
+- ORBIT 갤러리: 끌기·스와이프, 초점 상태에서 ← →, 카드 클릭, 위 막대의 ↑ ↓ 세션 전환(제주 → MV3 → Qdrant).
+  조작 단추와 안내는 화면에서만 보이고 인쇄·정적 모드에는 없다. 머리글 번호(01 USE … 05 TEAM)는 벽 순서와 같다.
 
 보기 옵션은 주소에 남는다. 예: `?view=4&zoom=0.5&still=1&session=0&page=2`.
 `session`은 `content.ts`의 `GALLERY_SESSION_IDS` 순서, `page`는 가운데 카드의 0부터 시작하는 번호다.
@@ -54,8 +55,10 @@ node preview/exhibition/export.mjs --no-png
 - 통합 PDF 병합은 Python의 `pypdf`를 사용한다(`python -m pip install pypdf`).
   Python 실행 경로는 `ORBIT_PYTHON`으로 지정할 수 있다. PNG만 출력할 때는 필요 없다.
 - 결과는 git에서 제외된 `preview/exhibition/out/`에 생긴다.
-  `orbit-banner-<번호>-<id>.pdf`가 장별 파일, `orbit-banners.pdf`는 선택한 장을 모은 검토용이다.
-  일부 장만 내보내면 통합 PDF도 그 선택만 포함한다.
+  `orbit-banner-<번호>-<id>.pdf`가 장별 파일(인쇄 원본), `orbit-banners.pdf`는 선택한 장을 모은 검토용이다.
+  일부 장만 내보내면 통합 PDF도 그 선택만 포함한다. PNG는 검토용이며 파일에 해상도(pHYs, `--dpi`)를 적는다.
+- 내보내기는 `out/`을 비우지 않는다. 출력소에 보낼 꾸러미는 새로 만든 PDF만으로 묶는다(옛 파일을 섞지 않는다):
+  `cd preview/exhibition/out && zip orbit-banners-print-<날짜>.zip orbit-banner-?-*.pdf orbit-banners.pdf`.
 - `?print=1&panel=all` 또는 `?print=1&panel=1,4,7`은 인쇄 화면이다.
   PDF는 실제 크기의 페이지이며 455mm 두 장에는 별도 페이지 규격을 적용한다.
   내보내기는 PNG 픽셀 크기와 PDF 페이지 수·크기를 확인하고 다르면 실패한다.
@@ -70,15 +73,25 @@ node preview/exhibition/export.mjs --no-png
 ## 승인된 자산과 QR
 
 - 카드 속 페이지 화면은 공개 웹페이지 캡처다(대표 2026-10-22 — 앞선 "타사 화면 제외"를 대신한다).
-  `SHOT_SCALE=1.5 node preview/capture-shots.mjs`가 새 임시 프로필(로그인·쿠키 없음)의 헤드리스 크롬으로
-  `fixtures.ts`의 주소를 찍는다. 결과 `preview/shots/`는 git에 올리지 않으며, 화면이 없으면 회색 자리표시로 나온다.
-- 사람 얼굴이 크게, 광고(후원사 광고 포함), 동의·할인 팝업, 남의 작품, 홍보 배너가 찍힌 화면은
-  `content.ts`의 `EXCLUDED_SHOTS`로 뺀다. CHAOS 목록(`panel-chaos.tsx`)에는 뺀 화면을 넣지 않는다.
-  첫 화면이 팝업으로 덮이는 사이트는 `capture-shots.mjs`의 `ALTERNATE`로 같은 사이트의 다른 화면을 찍는다.
-- 다시 찍으면 화면이 바뀔 수 있다(광고·팝업). 출력 전에 PNG로 카드를 눈으로 확인하고, 인쇄에 들어간 사이트 목록을 남긴다.
+  `SHOT_SCALE=2 node preview/capture-shots.mjs`가 새 임시 프로필(로그인·쿠키 없음)의 헤드리스 크롬으로
+  `fixtures.ts`의 주소를 1000 × 1600 창에서 찍는다. 카드는 화면 위쪽(폭의 1.17배 높이까지)만 보이므로,
+  화면 아래에 붙는 쿠키 안내·앱 설치 띠는 어느 카드에도 들어오지 않는다. 결과 `preview/shots/`는 git에 올리지 않는다.
+- 제외 기준은 "카드에 보이는 자리에 있는가"다. 흐린 뒤쪽 카드도 실제 크기로는 수십 cm다.
+  사람 얼굴이 크게, 광고("광고" 표시 상품 줄·후원사 광고 포함), 동의·할인 팝업과 안내 말풍선, 남의 작품(디자인 모음·작가 표지·
+  썸네일 그림), 홍보 배너·혜택 띠, 덜 그려진 화면은 `content.ts`의 `EXCLUDED_SHOTS`로 뺀다.
+  뺀 페이지는 CHAOS·ORBIT 갤러리·TEAM 카드에 아예 두지 않는다(`printable`). 타임라인 글줄에는 남는다.
+- 같은 사이트의 깨끗한 화면이 있으면 그것을 찍는다(`capture-shots.mjs`의 `ALTERNATE` — 모바일 블로그 검색, 좌표가 든 지도,
+  숙소 상세). 화면 한 부분만 깨끗하면 `content.ts`의 `SHOT_FOCUS`로 그 부분만 키워 보인다(네이버 항공권, 야놀자, 다이닝코드).
+  `tests/unit/exhibition-content.test.ts`가 목록과 잘라 쓰는 범위를 지킨다.
+- 다시 찍으면 화면이 바뀔 수 있다(광고·팝업·회전 배너). 출력 전에 100dpi PNG를 큰 카드는 원본 크기, 나머지는 2배로
+  확인하고, 인쇄에 들어간 사이트 목록을 남긴다. 인쇄에 쓴 화면과 증빙은 `~/.cache/orbit-agents/exhibition-print/`에
+  해시와 함께 둔다.
 - Orbit 마크는 제품의 `public/orbit-mark.png`를 쓴다. 팀 이름은 Orbit, 팀원 이름은 넣지 않는다.
 - 행사 로고는 대표의 마지막 지시에 따라 제외한다. 나중에 추가할 경우 `frame.tsx`에서 공통 배치를 검토한다.
-- QR은 7번 띠에 **100 × 100mm** 빈 칸이다. 대표가 만든 QR 스티커를 붙이며 임의 주소·가짜 QR을 넣지 않는다.
+- QR은 7번 띠에 **100 × 100mm** 스티커 칸이다. 어두운 띠 위에서도 읽히게 둘레 16mm 흰 여백을 둔 132mm 흰 판 안에 있다
+  (`booth.ts` `qr`, `qrMargin`). 대표가 만든 QR 스티커를 붙이며 임의 주소·가짜 QR을 넣지 않는다.
+- 행동 유도는 같은 말로 세 곳에 둔다: 7번 QR 위 "QR로 설치하고 지금 써 보세요"와 아래 "시연은 가운데 화면에서",
+  1번 띠 메시지 아래, 2번 USE 첫머리. 가운데 벽 앞에 시연 화면이 있다는 전제다.
 - 경쟁 제품 이름은 비교 그래프의 텍스트로만 쓴다. 사이트 화면·로고 사용과 구분한다.
 
 ## 성능 숫자와 비교표

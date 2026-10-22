@@ -4,7 +4,7 @@
 //   node preview/exhibition/export.mjs --dpi 150 --panels 4,7 --no-pdf
 // 결과는 preview/exhibition/out/(git 에 올리지 않는다). 크롬 경로는 CHROME=<경로> 로 바꿀 수 있다.
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, closeSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, closeSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,6 +93,43 @@ function pngSize(file) {
   return [header.readUInt32BE(16), header.readUInt32BE(20)];
 }
 
+const crc32 = (bytes) => {
+  let crc = ~0;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return ~crc >>> 0;
+};
+
+/**
+ * PNG 에 해상도(pHYs)를 적는다 — 크롬 스크린샷에는 없어 72dpi 로 읽히고, 출력소가 크기를 1.4배로 잡는다.
+ * 이미 있으면 값만 바꾸고, 없으면 첫 IDAT 앞에 넣는다.
+ */
+function setPngDpi(file, dpi) {
+  const png = readFileSync(file);
+  const ppm = Math.round(dpi / 0.0254);
+  const data = Buffer.alloc(9);
+  data.writeUInt32BE(ppm, 0);
+  data.writeUInt32BE(ppm, 4);
+  data.writeUInt8(1, 8); // 단위: 미터
+  const body = Buffer.concat([Buffer.from('pHYs'), data]);
+  const chunk = Buffer.alloc(21);
+  chunk.writeUInt32BE(9, 0);
+  body.copy(chunk, 4);
+  chunk.writeUInt32BE(crc32(body), 17);
+  for (let offset = 8; offset < png.length; ) {
+    const length = png.readUInt32BE(offset);
+    const type = png.toString('latin1', offset + 4, offset + 8);
+    if (type === 'pHYs' || type === 'IDAT') {
+      const end = type === 'pHYs' ? offset + 12 + length : offset;
+      writeFileSync(file, Buffer.concat([png.subarray(0, offset), chunk, png.subarray(end)]));
+      return;
+    }
+    offset += 12 + length;
+  }
+}
+
 /** PDF 쪽마다 크기(mm). Chrome과 pypdf가 쓰는 비압축 MediaBox를 읽는다. */
 function pdfPagesMm(file) {
   const text = readFileSync(file, 'latin1');
@@ -139,7 +176,8 @@ if (wantPng) {
       fail(`png ${n}`, `${px} x ${py} px, expected ${Math.round(width * scale)} x ${Math.round(HEIGHT_MM * scale)}`);
       continue;
     }
-    console.log(`ok   ${file} (${px} x ${py} px, ${(statSync(file).size / 1e6).toFixed(1)} MB)`);
+    setPngDpi(file, dpi);
+    console.log(`ok   ${file} (${px} x ${py} px at ${dpi} dpi, ${(statSync(file).size / 1e6).toFixed(1)} MB)`);
   }
 }
 

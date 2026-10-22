@@ -16,41 +16,38 @@ const LIGHT = normalize([-0.45, -0.65, 0.62]);
  * 흩어지는 페이지 — 앞에 둘수록 가까운 겹(크게)에 놓인다. 사진·색이 많은 페이지를 앞에, 어두운 문서는 가운데에.
  * 화면을 뺀 페이지(content.ts EXCLUDED_SHOTS)는 회색 칸이 되므로 여기 넣지 않는다.
  */
-const CLOUD = [
+export const CLOUD = [
   // 앞 겹 — 사진과 색
   'https://blog.naver.com/osaka_eat/2231',
-  'https://www.musinsa.com/category/103004',
   'https://www.google.com/maps/place/Dotonbori',
-  'https://prod.danawa.com/list/?cate=112753',
-  'https://velog.io/@react/react19',
-  'https://brunch.co.kr/@techtalk/42',
-  'https://www.compuzone.co.kr/search/search.htm?SearchProductKey=5070',
-  'https://blog.naver.com/runner/2231',
-  // 가운데 — 글 문서
-  'https://react.dev/reference/react/useOptimistic',
-  'https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html',
-  'https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle',
-  'https://github.com/sqlalchemy/sqlalchemy/discussions/9312',
+  'https://blog.naver.com/fukuoka/2231',
+  'https://qdrant.tech/benchmarks/',
   'https://blog.naver.com/gadget/2231',
+  'https://react.dev/reference/react/useOptimistic',
+  'https://blog.naver.com/toss_im3/2231',
+  'https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events',
+  // 가운데 — 글 문서
+  'https://github.com/sqlalchemy/sqlalchemy/discussions/9312',
+  'https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle',
+  'https://platform.openai.com/docs/guides/structured-outputs',
   'https://exam.toeic.co.kr/receipt/examSchList.php',
   'https://www.khug.or.kr/hug/web/ig/dr/igdr000001.jsp',
   'https://github.com/qdrant/qdrant/discussions/2416',
-  // 뒤 겹 — 어두운 문서와 작은 것
+  'https://github.com/pgvector/pgvector',
   'https://qdrant.tech/documentation/concepts/filtering/',
+  // 뒤 겹 — 어두운 문서와 작은 것
   'https://github.com/GoogleChrome/chrome-extensions-samples',
   'https://qdrant.tech/documentation/concepts/indexing/',
   'https://developer.chrome.com/docs/extensions/reference/api/alarms',
   'https://velog.io/@vector/qdrant-filter',
-  'https://blog.naver.com/toss_im3/2231',
 ];
 
-/** 오른쪽 끝으로 빠져나가는 제주 세션 — ORBIT 갤러리와 같은 높이(≈1,080mm). */
-const EXIT = [
+/** 오른쪽 끝으로 빠져나가는 제주 세션 — ORBIT 갤러리와 같은 높이(≈1,080mm), 갤러리와 같은 페이지. */
+export const EXIT = [
   'https://www.diningcode.com/list.dc?query=애월카페',
   'https://www.weather.go.kr/w/index.do',
   'https://blog.naver.com/jejutrip/223101',
   'https://www.yanolja.com/search/서귀포',
-  'https://carmore.kr/home/',
   'https://flight.naver.com/flights/domestic/GMP-CJU',
 ];
 
@@ -192,7 +189,7 @@ const CARDS = layout().sort((a, b) => a.z - b.z);
 
 export function ChaosBanner() {
   return (
-    <BannerFrame step={1} number="01" label="현수막 — 01 CHAOS">
+    <BannerFrame step={1} label="현수막 — CHAOS">
       <div className="ex-chaos__scene" style={{ perspective: `${CAMERA.perspective}px`, perspectiveOrigin: `${CAMERA.x}px ${CAMERA.y}px` }} aria-hidden>
         {CARDS.map((spec, order) => {
           const page = pageByUrl(spec.url);
@@ -207,6 +204,9 @@ export function ChaosBanner() {
           // 초점은 가운데 깊이(z ≈ −100) — 더 가깝거나 멀면 흐려진다
           const blur = clamp(Math.abs(spec.z + 100) / 260 - 1, 0, spec.focus ? 0.8 : 6);
           const haze = clamp((-spec.z - 500) / 2600, 0, 0.5);
+          // 밝기는 덮개로 — CSS filter 가 걸린 카드는 PDF 에서 72ppi 그림으로 굳는다. 초점이 맞은 카드는 filter 없이 둬 선명하게 인쇄한다
+          const brightness = 0.86 + 0.2 * light;
+          const shade = brightness < 1 ? `rgba(0, 0, 0, ${(1 - brightness).toFixed(3)})` : `rgba(255, 255, 255, ${(brightness - 1).toFixed(3)})`;
           const lift = clamp((spec.z + 1800) / 2400, 0, 1);
           return (
             <div
@@ -217,8 +217,9 @@ export function ChaosBanner() {
                 top: y - height / 2,
                 zIndex: order + 1,
                 transform: `translateZ(${spec.z.toFixed(1)}px) rotateZ(${spec.rz.toFixed(1)}deg) rotateY(${spec.ry.toFixed(1)}deg) rotateX(${spec.rx.toFixed(1)}deg)`,
-                filter: `blur(${blur.toFixed(2)}px) brightness(${(0.86 + 0.2 * light).toFixed(3)})`,
+                filter: blur >= 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined,
                 ['--haze' as string]: haze.toFixed(3),
+                ['--shade' as string]: shade,
                 ['--lift' as string]: lift.toFixed(3),
                 ['--float-delay' as string]: `${-((order * 1.7) % 9)}s`,
                 ['--float-time' as string]: `${7 + (order % 5)}s`,
@@ -265,7 +266,7 @@ export function ChaosBanner() {
       </section>
 
       <p className="ex-fineprint ex-chaos__fineprint">
-        카드 속 화면: 공개 웹페이지를 로그인 없이 캡처(2026-10-20·22) · 탭 제목과 방문: 시연용 합성 데이터
+        카드 속 화면: 공개 웹페이지를 로그인 없이 캡처(2026-10-22, 일부는 한 부분을 키움) · 탭 제목과 방문: 시연용 합성 데이터
       </p>
     </BannerFrame>
   );

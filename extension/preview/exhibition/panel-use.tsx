@@ -56,6 +56,11 @@ export function UseBanner() {
           기억합니다.
         </h1>
         <p className="ex-use__sub">수집을 한 번 켜 두면, 평소처럼 탐색하는 동안 방문이 탐색 세션으로 묶입니다. 저장 버튼을 누를 필요가 없습니다.</p>
+        {/* 행동 유도 — 두 앞 띠와 같은 말 */}
+        <p className="ex-cta">
+          <i className="ph ph-arrow-right" />
+          지금 써 보세요 · 시연은 가운데 화면에서 · 설치 QR은 오른쪽 끝에
+        </p>
       </section>
 
       <ol className="ex-howto" aria-label="쓰는 법">
@@ -89,13 +94,16 @@ export function UseBanner() {
   );
 }
 
-/** 사이드패널 수집 안내 */
+/**
+ * 사이드패널 수집 안내(CollectionOptInNotice). 제품 문구의 "민감한 도메인은 자동으로 제외돼요"는 실제 동작과 다르다 —
+ * 민감한 주소는 본문만 건너뛰고 방문(제목·주소)은 남긴다(collector.ts, event_filter.is_sensitive_url). 현수막은 동작대로 쓴다.
+ */
 function OptIn() {
   return (
     <div className="ex-ui ex-ui--optin">
       <i className="ph ph-sparkle" />
       <b>탐색 기록을 자동으로 모아볼까요?</b>
-      <span>방문한 페이지를 시간순으로 기록해 나중에 다시 찾을 수 있게 해줘요. 은행·로그인 등 민감한 도메인은 자동으로 제외돼요.</span>
+      <span>방문한 페이지를 시간순으로 기록해 나중에 다시 찾을 수 있게 해줘요. 은행·로그인 같은 민감한 페이지는 본문을 남기지 않아요.</span>
       <em>수집 켜기</em>
     </div>
   );

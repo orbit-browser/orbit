@@ -378,13 +378,15 @@ body {
   pointer-events: none;
 }
 
-/* 대기 — 멀수록 바탕색이 덮인다 */
+/* 대기 — 멀수록 바탕색이 덮인다. 그 아래 --shade 는 빛을 덜 받는 면의 그늘(CHAOS) */
 .ex-browser::after {
   content: '';
   position: absolute;
   inset: 0;
   z-index: 4;
-  background: rgba(254, 250, 246, var(--haze, 0));
+  background:
+    linear-gradient(rgba(254, 250, 246, var(--haze, 0)), rgba(254, 250, 246, var(--haze, 0))),
+    linear-gradient(var(--shade, transparent), var(--shade, transparent));
   pointer-events: none;
 }
 
@@ -451,6 +453,7 @@ body {
   position: relative;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   background: color-mix(in srgb, var(--text-secondary) 6%, var(--bg-page));
 }
 
@@ -966,6 +969,7 @@ body {
 .ex-gcard__shot {
   position: relative;
   height: 330px;
+  overflow: hidden;
   background: color-mix(in srgb, var(--text-secondary) 6%, var(--bg-page));
 }
 
@@ -1863,7 +1867,7 @@ body {
 
 .ex-edge__try {
   position: absolute;
-  top: 1110px;
+  top: 1000px;
   left: 0;
   right: 0;
   display: flex;
@@ -1872,8 +1876,13 @@ body {
   gap: 24px;
 }
 
-/* QR 빈 칸 — 모서리 표시만(출력 뒤 스티커를 맞춰 붙이기 쉽게) */
+/* QR 자리 — 흰 바탕과 여백 안에 스티커 칸(모서리 표시만, 출력 뒤 맞춰 붙이기 쉽게) */
 .ex-qr {
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ex-qr__slot {
   position: relative;
 }
 
@@ -1881,7 +1890,7 @@ body {
   position: absolute;
   width: 12px;
   height: 12px;
-  border: 0 solid rgba(254, 250, 246, 0.55);
+  border: 0 solid rgba(43, 38, 34, 0.42);
 }
 
 .ex-qr i:nth-child(1) {
@@ -1912,6 +1921,47 @@ body {
   border-bottom-width: 1.2px;
 }
 
+/* 행동 유도 — 왼쪽 띠는 메시지 아래, 오른쪽 띠는 QR 위 */
+.ex-edge__cta {
+  position: absolute;
+  top: 1430px;
+  left: 50px;
+  right: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  color: var(--accent);
+}
+
+.ex-edge__cta .ph {
+  font-size: 46px;
+}
+
+.ex-edge__cta b {
+  font: 800 38px/1.3 var(--kr);
+  letter-spacing: -0.04em;
+}
+
+.ex-edge__cta span {
+  color: rgba(254, 250, 246, 0.74);
+  font: 600 23px/1.4 var(--kr);
+  letter-spacing: -0.02em;
+}
+
+.ex-edge__cta--qr {
+  position: static;
+  align-items: center;
+  text-align: center;
+}
+
+.ex-edge__hint {
+  margin: 0;
+  color: rgba(254, 250, 246, 0.86);
+  font: 700 25px var(--kr);
+  letter-spacing: -0.03em;
+}
+
 .ex-edge__team {
   margin: 0;
   color: rgba(254, 250, 246, 0.72);
@@ -1932,6 +1982,24 @@ body {
 }
 
 /* ═══════════════════════════════ USE ═══════════════════════════════ */
+
+/* 행동 유도 — USE 첫머리(두 앞 띠와 같은 말) */
+.ex-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px !important;
+  padding: 10px 24px 10px 16px;
+  border: 2px solid var(--accent);
+  border-radius: 99px;
+  color: var(--accent-hover);
+  font: 700 23px/1.2 var(--kr);
+  letter-spacing: -0.02em;
+}
+
+.ex-cta .ph {
+  font-size: 26px;
+}
 
 .ex-use__intro,
 .ex-team__intro {
@@ -1958,7 +2026,7 @@ body {
 
 .ex-howto {
   position: absolute;
-  top: 640px;
+  top: 668px;
   left: 50px;
   right: 50px;
   margin: 0;
@@ -2180,7 +2248,7 @@ body {
 
 .ex-privacy {
   position: absolute;
-  top: 1840px;
+  top: 1862px;
   left: 50px;
   right: 50px;
 }
@@ -2395,13 +2463,14 @@ body {
 }
 
 .ex-ui__cards {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 14px;
 }
 
 .ex-ui__card {
   position: relative;
-  width: 214px;
+  min-width: 0;
   overflow: hidden;
   border-radius: 12px;
   box-shadow: 0 0 0 1.5px var(--border-subtle);
@@ -2415,14 +2484,20 @@ body {
 }
 
 .ex-ui__who {
-  position: absolute;
-  bottom: 38px;
-  left: 8px;
+  flex: none;
+  margin-left: auto;
   padding: 3px 9px;
   border-radius: 99px;
   background: rgba(20, 16, 12, 0.66);
   color: #fff;
   font: 600 11px var(--kr);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.ex-ui__site > span:not(.ex-ui__who) {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ex-ui__site {
@@ -2464,12 +2539,12 @@ body {
   gap: 34px;
 }
 
+/* 한글 이름표 — 고정폭 글꼴과 넓은 자간을 쓰면 띄어쓰기가 벌어져 보인다 */
 .ex-measure h3 {
   margin-bottom: 10px !important;
   color: var(--text-secondary);
-  font: 600 15px var(--mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font: 700 17px var(--kr);
+  letter-spacing: -0.01em;
 }
 
 .ex-measure__row {
@@ -2506,7 +2581,7 @@ body {
 }
 
 .ex-measure__bench {
-  margin-top: 36px;
+  margin-bottom: 30px;
 }
 
 /* 조건 글이 길어 두 칸 두 줄로 — 이름은 한 줄, 값은 그 옆에서 줄바꿈 */

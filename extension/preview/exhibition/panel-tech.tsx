@@ -70,7 +70,7 @@ const FEATURED_METRICS = METRICS.metrics.filter((metric) => ['A', 'B', 'D'].incl
 
 export function TechBanner() {
   return (
-    <BannerFrame step={3} number="03" label="현수막 — 03 TECHNOLOGY">
+    <BannerFrame step={3} label="현수막 — TECHNOLOGY">
       <section className="ex-tech__intro">
         <h1 className="ex-tech__title">
           How Orbit

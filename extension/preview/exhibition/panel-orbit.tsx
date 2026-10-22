@@ -5,7 +5,7 @@
  * 뒤 오른쪽 사이드패널 타임라인. 왼쪽 네비게이터도 시험했으나 막대와 겹쳐 읽기를 해쳐 뺐다. 데이터는 합성 시연 데이터다.
  */
 import type { RefObject } from 'react';
-import { GALLERY_SESSION_IDS, SESSIONS, sessionById, type ExhibitSession } from './content';
+import { GALLERY_SESSION_IDS, SESSIONS, sessionById, shownSession, type ExhibitSession } from './content';
 import { BannerFrame, Favicon } from './frame';
 import { SessionGallery } from './gallery';
 
@@ -19,11 +19,12 @@ interface OrbitBannerProps {
 }
 
 export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, interactive, scaleRef }: OrbitBannerProps) {
-  const session = sessionById(GALLERY_SESSION_IDS[sessionIndex]);
+  // 갤러리와 막대는 화면이 있는 페이지만, 타임라인은 그 세션의 모든 방문을 보인다
+  const session = shownSession(GALLERY_SESSION_IDS[sessionIndex]);
   const step = (delta: number) => onSession((sessionIndex + delta + GALLERY_SESSION_IDS.length) % GALLERY_SESSION_IDS.length);
 
   return (
-    <BannerFrame step={2} number="02" label="현수막 — 02 ORBIT">
+    <BannerFrame step={2} label="현수막 — ORBIT">
       <section className="ex-orbit__intro">
         <h1 className="ex-orbit__word">
           Orbit<span>.</span>
@@ -39,7 +40,7 @@ export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, intera
         </div>
         {/* 화면에서만 — 아틀라스의 안내 알약과 같은 말. 인쇄·정적 모드에는 없다 */}
         {interactive && <p className="ex-hint">카드를 끌어 넘겨 보세요 · ← → 페이지 · ↑ ↓ 세션</p>}
-        <Timeline session={session} pageIndex={pageIndex} />
+        <Timeline session={sessionById(session.id)} selectedId={session.pages[pageIndex]?.id} />
         {/* 아틀라스 세부 정보의 "세션 요약" — 방문을 읽고 AI가 쓴 개요와 핵심(합성 데이터) */}
         <div className="ex-orbit__summary">
           <span className="ex-orbit__summary-label">
@@ -75,7 +76,7 @@ export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, intera
       <p className="ex-fineprint ex-orbit__fineprint">
         그림: 새 탭 아틀라스의 막대·세션 갤러리와 사이드패널 타임라인
         <br />
-        세션과 방문은 시연용 합성 데이터, 카드 속 화면은 공개 웹페이지 캡처(2026-10-20·22)
+        세션과 방문은 시연용 합성 데이터, 카드 속 화면은 공개 웹페이지 캡처(2026-10-22, 일부는 한 부분을 키움)
       </p>
     </BannerFrame>
   );
@@ -119,7 +120,7 @@ function Rail({
   // 아틀라스 막대처럼 같은 폴더의 세션만 위아래 줄로 — 지금 세션이 가운데 줄
   const neighbor = (delta: number) => {
     const id = GALLERY_SESSION_IDS[sessionIndex + delta];
-    const other = id ? sessionById(id) : null;
+    const other = id ? shownSession(id) : null;
     return other && other.folder === session.folder ? other : null;
   };
   const [previous, next] = [neighbor(-1), neighbor(1)];
@@ -130,12 +131,17 @@ function Rail({
         <span>
           {session.folder ?? '정리 안 됨'} · 세션 {groupSize}개
         </span>
-        <button type="button" onClick={() => onStep(-1)} disabled={!interactive} aria-label="이전 세션">
-          <i className="ph ph-caret-up" />
-        </button>
-        <button type="button" onClick={() => onStep(1)} disabled={!interactive} aria-label="다음 세션">
-          <i className="ph ph-caret-down" />
-        </button>
+        {/* 조작 단추는 화면에서만 — 인쇄물에서는 누를 수 없다 */}
+        {interactive && (
+          <>
+            <button type="button" onClick={() => onStep(-1)} aria-label="이전 세션">
+              <i className="ph ph-caret-up" />
+            </button>
+            <button type="button" onClick={() => onStep(1)} aria-label="다음 세션">
+              <i className="ph ph-caret-down" />
+            </button>
+          </>
+        )}
       </div>
       <div className="ex-rail__rows">
         {previous ? <RailRow session={previous} pageIndex={0} /> : <div className="ex-rail__row" />}
@@ -170,7 +176,7 @@ function RailRow({ session, current = false, pageIndex }: { session: ExhibitSess
  * 사이드패널 타임라인 — 시각 · 파비콘 · 제목 · 체류(TimelineItem 과 같은 줄). 모두 같은 세션이라
  * 줄마다 붙는 세션 배지는 머리줄에 한 번만 둔다.
  */
-function Timeline({ session, pageIndex }: { session: ExhibitSession; pageIndex: number }) {
+function Timeline({ session, selectedId }: { session: ExhibitSession; selectedId: string | undefined }) {
   return (
     <div className="ex-layer ex-timeline" aria-hidden style={{ ['--hue' as string]: session.hue }}>
       <div className="ex-timeline__tabs">
@@ -183,7 +189,7 @@ function Timeline({ session, pageIndex }: { session: ExhibitSession; pageIndex: 
         <span className="ex-timeline__badge">{session.title}</span>
       </div>
       {[...session.pages].reverse().map((page) => (
-        <div key={page.id} className={`ex-timeline__row${page.id === session.pages[pageIndex]?.id ? ' is-on' : ''}`}>
+        <div key={page.id} className={`ex-timeline__row${page.id === selectedId ? ' is-on' : ''}`}>
           <span className="ex-timeline__time">{page.time}</span>
           <Favicon url={page.url} domain={page.domain} />
           <span className="ex-timeline__title">{page.title}</span>
