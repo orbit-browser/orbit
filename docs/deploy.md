@@ -62,7 +62,7 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
 ## 2. 처음 설치
 
-**관문: CORS 설정화(4장)가 들어간 커밋에서만 `oc up` 한다.** 지금 `main.py`는 `allow_origins=["*"]`다. 공개 주소가 생기면 아무 웹페이지나 브라우저에서 API를 두드릴 수 있으므로, 그 반영 전 커밋으로는 공개 주소를 열지 않는다. 확인: `grep -n "allow_origins" ../backend/app/main.py`에 `"*"`가 없어야 한다.
+**관문: CORS 설정화(4장, `fix/cors-config`)가 들어간 커밋에서만 `oc up` 한다.** 그 전 코드는 `allow_origins=["*"]`라 공개 주소가 생기면 아무 웹페이지나 브라우저에서 API를 두드릴 수 있다. 확인: `grep -n "allow_origins" ../backend/app/main.py`가 `parse_cors_origins(...)`를 보여야 하고 `"*"`가 없어야 한다.
 
 1. DNS: 도메인의 A 레코드(IPv6면 AAAA)를 서버 공인 IP로 둔다. 인증서 발급 전에 전파돼야 한다(`dig +short <도메인>`).
 2. 코드를 받는다: `git clone <저장소> /opt/orbit && cd /opt/orbit/deploy`
@@ -117,9 +117,10 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))"   # JWT_SECRET
 
 ### CORS
 
-지금 `backend/app/main.py`는 `allow_origins=["*"]`다. 공용 서버에서는 설정값으로 좁힌다(제품 코드 반영 대기, GitHub main 통합 뒤 CTO가 반영).
+허용 출처는 설정값 `CORS_ALLOW_ORIGINS`로 정한다(`backend/app/config.py`의 `parse_cors_origins`).
 
-- 새 설정 `CORS_ALLOW_ORIGINS`: 쉼표로 구분한 출처 목록. 기본값은 고정 확장 ID 하나 `chrome-extension://aghgamoeifieijjckhpfkmhiibacnhml`.
+- 쉼표로 구분한 출처 목록. 기본값은 고정 확장 ID 하나 `chrome-extension://aghgamoeifieijjckhpfkmhiibacnhml`. 값을 비우거나 `*`를 넣어도 `*`로 열리지 않고 이 기본값으로 돌아간다.
+- 허용하지 않은 출처의 요청에는 `Access-Control-Allow-Origin` 헤더가 붙지 않는다(`tests/test_cors.py`).
 - 로컬 개발에서 웹 미리보기 출처가 필요하면 `.env`에 `http://localhost:5173`처럼 더한다. 공용 서버에는 넣지 않는다.
 - 인증은 쿠키가 아니라 `Authorization: Bearer` 헤더라 `allow_credentials`는 끈 채로 둔다.
 
@@ -195,7 +196,7 @@ rm orbit-backup.key                       # 꺼낸 개인키 파일을 바로 �
 ssh <서버> "cd /opt/orbit/deploy && ./restore.sh backups/<STAMP>"
 ```
 
-`restore.sh`는 덮어쓰기 전에 지금 상태를 안전 백업으로 한 번 받는다(보관 개수 정리에서 빠지지 않게). 백업 자체가 안 되는 망가진 서버에서만 `SKIP_SAFETY_BACKUP=1`로 건너뛴다.
+`restore.sh`는 덮어쓰기 전에 지금 상태를 `pre-restore-<시각>` 묶음으로 한 번 받는다. 정기 정리는 날짜 이름(`2*`) 묶음만 지우므로 이 묶음은 직접 지울 때까지 남는다. 복구가 잘 됐으면 확인 뒤 지운다. 백업 자체가 안 되는 망가진 서버에서만 `SKIP_SAFETY_BACKUP=1`로 건너뛴다.
 
 순서: 안전 백업 → caddy·backend를 내림 → `pg_restore --clean --if-exists` → 백엔드 이미지로 일회성 컨테이너를 띄워 Qdrant 스냅샷 업로드 → backend·caddy 시작(시작할 때 멱등 마이그레이션이 다시 돌아 옛 백업에 없던 컬럼을 채운다). 중간에 실패하면 caddy와 backend를 내린 채로 멈추고 이유를 출력한다. 고친 뒤 다시 돌린다.
 
@@ -355,6 +356,8 @@ olap up -d --build
 curl -s http://127.0.0.1:8076/health                            # {"status":"ok"}
 ```
 
+- **띄우기 전 디스크 암호화 확인:** 라이브 DB 볼륨과 백업이 모두 노트북 디스크에 평문으로 있으므로 실질 방어는 FileVault다. `fdesetup status`가 `FileVault is On.`이어야 한다. Time Machine을 쓰면 백업 디스크 암호화를 켜거나, `sudo tmutil addexclusion -p ~/OrbitLaptopBackups`로 백업 폴더를 제외한다(Docker 볼륨은 Docker Desktop 디스크 이미지 안에 있어 기본 제외 대상이다).
+- **`BIND_ADDR`를 바꾸지 않는다.** 다른 기기에서 쓰게 하려고 `0.0.0.0`으로 바꾸면 HTTP라서 Bearer 토큰과 방문 기록이 평문으로 Wi-Fi에 흐른다. 여러 기기·사람이 함께 쓰려면 클라우드(13장)로 간다.
 - 프로젝트 이름은 `.env.laptop`의 `COMPOSE_PROJECT_NAME=orbit-laptop`이 정한다. 이 값을 지우거나 `orbit`으로 바꾸지 않는다. 개발 DB 볼륨과 겹친다.
 - 확장 빌드: `VITE_API_BASE_URL=http://127.0.0.1:8076 pnpm build`. `127.0.0.1`은 이미 `host_permissions`에 있다. 빌드 뒤 `grep -rl "127.0.0.1:8076" .output/chrome-mv3`로 확인한다.
 - **여러 계정:** 같은 노트북에서 크롬 프로필을 계정마다 하나씩 만들고, 각 프로필에 같은 빌드(`.output/chrome-mv3`)를 압축 해제된 확장으로 불러온다. 확장 ID가 고정이라 같은 OAuth 클라이언트로 모두 로그인된다. 쓰는 계정은 모두 Google Cloud Console > OAuth 동의 화면 > 테스트 사용자에 등록한다(최대 100명). 계정마다 데이터는 서버에서 `user_id`로 나뉘고, 팀 기능으로 고른 세션만 함께 본다.
@@ -366,7 +369,7 @@ ENV_FILE=.env.laptop BACKUP_DIR=~/OrbitLaptopBackups ./backup.sh
 ENV_FILE=.env.laptop BACKUP_DIR=~/OrbitLaptopBackups ./restore.sh ~/OrbitLaptopBackups/<STAMP>
 ```
 
-- 노트북 모드는 CORS 관문(2장)의 예외다. 127.0.0.1에만 묶여 다른 기기에서 닿지 않기 때문이다. 다만 노트북에서 연 아무 웹페이지는 127.0.0.1:8076을 부를 수 있으므로, 통합 뒤 CORS 설정화가 들어오면 노트북 모드도 그 코드로 다시 올린다.
+- 노트북 모드도 CORS 설정화가 들어간 코드로 올린다. 노트북에서 연 웹페이지가 127.0.0.1:8076을 부르더라도 확장 출처가 아니면 브라우저가 응답을 막는다.
 - 끄기: `olap down`(데이터 유지). `olap down -v`는 데이터를 지우므로 백업 뒤에만 쓴다.
 
 ## 13. 클라우드로 옮기기 (무료 주소 sslip.io / DuckDNS, 대표 결정 10-23)
@@ -391,7 +394,8 @@ ENV_FILE=.env.laptop BACKUP_DIR=~/OrbitLaptopBackups ./restore.sh ~/OrbitLaptopB
    ```
    ssh 전송은 이미 암호화된 경로다. 서버에 올린 묶음은 정기 백업처럼 KEEP으로 정리된다.
 6. 확장을 `VITE_API_BASE_URL=https://<주소>`로 다시 빌드해 각 크롬 프로필에 다시 불러온다. 확장 ID와 OAuth 설정은 그대로다.
-7. 서버에서 로그인과 세션이 보이면 노트북 모드를 끈다(`olap down`, 볼륨은 한동안 남겨 둔다). 백업 cron을 건다(5장).
+7. 서버에서 로그인과 세션이 보이면 노트북 모드를 끈다(`olap down`). 백업 cron을 건다(5장).
+8. **이전 2주 뒤 노트북 사본을 지운다.** 그동안 클라우드 백업이 매일 쌓였는지 확인한 뒤 `olap down -v`(노트북 볼륨 삭제)와 `rm -rf ~/OrbitLaptopBackups`(평문 백업 삭제)를 한다. 더 남겨야 하면 5장처럼 age로 암호화한 사본만 남긴다.
 
 주의: sslip.io와 DuckDNS는 남이 운영하는 무료 서비스다. 멈추거나 정책이 바뀌면 주소를 잃는다. 그때는 새 주소로 4·6단계만 다시 하면 된다(데이터는 서버에 그대로 있다).
 

@@ -10,7 +10,9 @@ ENV_FILE="${ENV_FILE:-.env.production}"
 BACKUP_DIR="${BACKUP_DIR:-backups}"
 DC=(docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE")
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-DEST="$BACKUP_DIR/$STAMP"
+# BACKUP_NAME 을 주면 그 이름으로 받는다(예: restore.sh 의 pre-restore-<시각>).
+# 정리는 날짜 이름(2*)만 지우므로 이런 묶음은 보관 개수와 상관없이 남는다.
+DEST="$BACKUP_DIR/${BACKUP_NAME:-$STAMP}"
 SNAPSHOT_PY="$(cat qdrant_snapshot.py)"
 
 umask 077
