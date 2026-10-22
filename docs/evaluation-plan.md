@@ -120,6 +120,7 @@ Auto Session의 핵심 위험은 "의도 분석 품질 — 오할당이 좋은 �
 | Retrieval Recall@K | 골든셋에 포함된 자연어 질의 → 정답 세션 쌍에 대해, `/search` 결과 상위 K개 안에 정답 세션이 포함된 비율 | `정답이 top-K 안에 있는 질의 수 / 전체 질의 수` |
 
 - Assignment Accuracy/Purity/Coverage/New-vs-Existing/노이즈 제외율은 계획서 F에 명시된 5개 지표를 그대로 정의한 것이다.
+- Assignment Accuracy의 "일치"는 create로 만든 새 세션 키만 클러스터별 다수결 정답 라벨로 바꾼 뒤 비교한다. append로 붙인 기존 세션 키는 그대로 비교하므로, 형제 기존 세션에 잘못 붙인 이벤트(오염)는 오답이다. 2026-10-22 이전 정의(모든 클러스터 리매핑)는 `assignment_accuracy_legacy`로 함께 출력한다(model-eval-v1에서 결함 발견).
 - Retrieval Recall@K는 계획서 F "골든셋에 자연어 질의→정답 세션 쌍 포함, `/search` 대상 측정"을 구체화한 것 — 이 지표가 Intent 검색의 리랭크 사용 여부, 0.35 score threshold 유지 여부, 이벤트 단위 임베딩 도입 여부를 결정하는 실측 근거가 된다(계획서 D-1 "세션 임베딩+키워드로 충분한지 골든셋으로 판단 후 결정").
 
 ## 6. LLM-as-Judge와 Restore Success Rate

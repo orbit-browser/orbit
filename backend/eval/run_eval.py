@@ -351,6 +351,7 @@ async def run(args: argparse.Namespace) -> dict:
         "scenarios": per_scenario,
         "overall": {
             "assignment_accuracy": metrics.assignment_accuracy(all_outcomes),
+            "assignment_accuracy_legacy": metrics.assignment_accuracy(all_outcomes, created_only=False),
             "session_purity": metrics.session_purity(all_outcomes),
             "session_coverage": metrics.session_coverage(all_outcomes),
             "noise_exclusion_rate": metrics.noise_exclusion_rate(all_outcomes),
@@ -368,6 +369,7 @@ def _print_summary(report: dict) -> None:
     overall = report["overall"]
     print("=== Orbit 세션화 파이프라인 평가 결과 ===")
     print(f"Event-to-Session Assignment Accuracy: {_format_pct(overall['assignment_accuracy'])}")
+    print(f"  (legacy, all clusters remapped): {_format_pct(overall['assignment_accuracy_legacy'])}")
     print(f"Session Purity:                       {_format_pct(overall['session_purity'])}")
     print(f"Session Coverage:                     {_format_pct(overall['session_coverage'])}")
     print(f"New-vs-Existing Decision Accuracy:     {_format_pct(overall['new_vs_existing_accuracy'])}")
