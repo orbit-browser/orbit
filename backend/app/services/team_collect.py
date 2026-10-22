@@ -373,7 +373,18 @@ async def restore(db: AsyncSession, workspace_id: str, user_id: str, session_id:
 
     공유 행만 되살리면 "팀에 보이는 개인 스트림 세션"이 되어 이후 개인 방문이 팀에 붙는다. 세션의 모든 방문이
     이 팀·이 사람의 현재 멤버십 이후 창 방문일 때만 허락한다 — 개인 방문이 섞였으면 되돌리지 않는다.
+    잠금은 다른 경로와 같은 순서(창 → 세션)로 잡는다. 탈퇴 정리(창 FOR UPDATE → 세션 UPDATE)와 거꾸로 잡으면 교착한다.
     """
+    window_ids = set(
+        (
+            await db.execute(
+                select(ExplorationEvent.collect_window_id)
+                .join(SessionEvent, SessionEvent.event_id == ExplorationEvent.id)
+                .where(SessionEvent.session_id == session_id)
+            )
+        ).scalars().all()
+    )
+    await _lock_windows_for_share(db, {w for w in window_ids if w})
     session = await db.scalar(
         select(SessionModel)
         .where(SessionModel.id == session_id)
@@ -384,19 +395,8 @@ async def restore(db: AsyncSession, workspace_id: str, user_id: str, session_id:
         raise CollectError("not_found", "session not found")
     if session.status != "active":
         raise CollectError("conflict", "session is not active")
-
-    window_ids = set(
-        (
-            await db.execute(
-                select(ExplorationEvent.collect_window_id)
-                .join(SessionEvent, SessionEvent.event_id == ExplorationEvent.id)
-                .where(SessionEvent.session_id == session_id)
-            )
-        ).scalars().all()
-    )
     if not window_ids or None in window_ids:
         raise CollectError("conflict", "session has visits outside team collection")
-    await _lock_windows_for_share(db, window_ids)  # type: ignore[arg-type]
 
     joined_at = await db.scalar(
         select(WorkspaceMember.joined_at).where(
