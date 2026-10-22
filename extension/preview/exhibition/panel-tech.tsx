@@ -11,7 +11,7 @@ import { PROVEN } from './trial-highlights';
  * 지금 설정의 모델(DecisionLog 2026-10-23). 의도·탭 묶기는 A.X-K2 → KT 믿:음, 요약·리랭크는 A.X-K2 → K-EXAONE,
  * Ask 답변은 K-EXAONE → A.X-K2다(backend/app/ai/llm.py) — 바뀌면 여기만 고친다.
  */
-const MODELS = {
+export const MODELS = {
   // 모델 이름은 줄에서 갈라지지 않게 — 공백은 줄바꿈 없는 공백, 하이픈·쌍점 뒤는 단어 결합자(U+2060).
   // 크롬은 하이픈 뒤와 쌍점 뒤 한글('믿:' | '음')에서도 줄을 바꾼다.
   ax: 'SKT\u00a0A.X-\u2060K2',
@@ -23,7 +23,7 @@ const MODELS = {
 /** 가운뎃점은 앞말에 붙여 줄 끝에 남긴다 — 줄 머리에 '·' 가 오지 않게. */
 const keepDots = (text: string) => text.replaceAll(' · ', '\u00a0· ');
 
-const PIPELINE = [
+export const PIPELINE = [
   {
     en: 'Capture',
     ko: '수집',
