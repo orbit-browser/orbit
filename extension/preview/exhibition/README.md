@@ -66,7 +66,8 @@ node preview/exhibition/export.mjs --no-png
   최종 출력은 내보내기 명령을 사용한다. 개별 PDF를 소프트웨어 렌더링한 뒤,
   통합본은 검증된 파일을 다시 그리거나 축소하지 않고 병합한다.
 - 글자는 벡터로, 원근 카드·흐림·그림자는 일부 래스터로 나온다. 글꼴은 Inter, Noto Sans KR,
-  JetBrains Mono이며 Google Fonts에서 받는다. 로드 실패 경고가 있으면 출력하지 않는다.
+  JetBrains Mono이며 Google Fonts에서 받는다. 받지 못하면 화면 맨 위에 경고 띠가 찍히고, PDF 내보내기는
+  묻힌 글꼴이 이 셋과 아이콘 글꼴(Phosphor)이 아니면 실패한다. PNG만 내보낼 때는 경고 띠를 눈으로 확인한다.
 - 출력소의 블리드·CMYK 요구는 아직 미확정이다. 현재 파일은 블리드 없는 재단 크기다.
   PDF를 실제로 렌더링해 글줄·겹침·화면 누락을 확인한 뒤 전달한다.
 

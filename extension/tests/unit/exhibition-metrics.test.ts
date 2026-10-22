@@ -155,3 +155,14 @@ describe('검증된 숫자 — 100%·0건만 앞면에', () => {
     expect(text).toContain('HTTP·인증·UI 제외');
   });
 });
+
+describe('기술 현수막 모델 표기 — 이름 가운데서 줄이 갈리지 않게', () => {
+  it('최종 배정의 네 모델을 싣고, 이름 안의 공백·하이픈·쌍점에서 줄을 바꾸지 않는다', () => {
+    const text = renderToStaticMarkup(createElement(TechBanner)).replace(/<[^>]*>/g, '');
+    // 공백은 줄바꿈 없는 공백, 하이픈·쌍점 뒤에는 단어 결합자(U+2060) — 'KT 믿:' 과 '음' 이 두 줄로 갈렸다(2026-10-23)
+    const names = ['SKT\u00a0A.X-\u2060K2', 'LG\u00a0K-\u2060EXAONE', 'KT\u00a0믿:\u2060음', 'Upstage\u00a0Embedding'];
+    for (const name of names) expect(text).toContain(name);
+    const rest = names.reduce((left, name) => left.replaceAll(name, ''), text);
+    expect(rest).not.toMatch(/A\.X|EXAONE|믿|Upstage|Embedding/);
+  });
+});

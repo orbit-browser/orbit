@@ -12,10 +12,11 @@ import { PROVEN } from './trial-highlights';
  * Ask 답변은 K-EXAONE → A.X-K2다(backend/app/ai/llm.py) — 바뀌면 여기만 고친다.
  */
 const MODELS = {
-  // 모델 이름은 줄에서 갈라지지 않게(줄바꿈 없는 공백)
-  ax: 'SKT\u00a0A.X-K2',
-  exaone: 'LG\u00a0K-EXAONE',
-  kt: 'KT\u00a0믿:음',
+  // 모델 이름은 줄에서 갈라지지 않게 — 공백은 줄바꿈 없는 공백, 하이픈·쌍점 뒤는 단어 결합자(U+2060).
+  // 크롬은 하이픈 뒤와 쌍점 뒤 한글('믿:' | '음')에서도 줄을 바꾼다.
+  ax: 'SKT\u00a0A.X-\u2060K2',
+  exaone: 'LG\u00a0K-\u2060EXAONE',
+  kt: 'KT\u00a0믿:\u2060음',
   embedding: 'Upstage\u00a0Embedding',
 };
 
