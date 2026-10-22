@@ -332,7 +332,10 @@ async def chat_completion_intent(
     except (APIConnectionError, APITimeoutError):
         logger.warning("A.X 지연/연결 실패 — EXAONE fallback")
     except APIStatusError as e:
-        if _should_fallback(e.status_code):
+        # 의도 분석은 401·403을 넘기지 않는다(품질 회의 2026-10-22-intent-k2). 키·모델 권한 오류를
+        # EXAONE으로 가리면 세션화가 조용히 대체 모델로 돈다 — 올려서 그룹을 hold하고 설정을 고치게 한다.
+        # 다른 경로(_should_fallback)는 origin #17대로 401·403도 넘긴다.
+        if e.status_code in (404, 503) or e.status_code >= 500:
             logger.warning("A.X %s 오류 — EXAONE fallback", e.status_code)
         else:
             raise
