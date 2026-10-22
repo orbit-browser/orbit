@@ -222,33 +222,36 @@ export async function startTeamCollect(
   // 팀 수집은 개인 수집 위에 "어디로 보낼지"만 더한다(설계 §1.1). 동의가 없으면 이벤트가 생기지 않아 배지가 거짓이 된다.
   if (!(await hasCollectionConsent(accountId))) throw new CollectConsentRequiredError();
   const deviceId = await getDeviceId();
-  const { result, requestedAt, receivedAt } = await withServerLock(async () => {
+  // 로컬 창 기록까지 잠금 안에서 끝낸다. 그래야 잠금을 기다리던 끄기(sendOrQueueLocked)가 새 창을 보고 건너뛴다.
+  const active = await withServerLock(async (): Promise<ActiveCollect> => {
     // 서버 시작이 이 기기의 열린 창을 어차피 모두 닫는다. 대기 중인 이 기기 끄기 재시도가 남아 있으면
     // 나중에 새 창을 닫으므로(S1) 먼저 걷어 내고, 시작이 실패하면 되돌려 놓는다.
     const stale = await takeStopRetries(accountId, deviceId);
-    const sentAt = Date.now();
+    const requestedAt = Date.now();
+    let result: Awaited<ReturnType<typeof startCollect>>;
     try {
-      const started = await startCollect(workspace.id, deviceId, durationMinutes, TEAM_COLLECT_CONSENT_VERSION);
-      return { result: started, requestedAt: sentAt, receivedAt: Date.now() };
+      result = await startCollect(workspace.id, deviceId, durationMinutes, TEAM_COLLECT_CONSENT_VERSION);
     } catch (err) {
       for (const item of stale) await queueRetry(item);
       throw err;
     }
-  });
-  // 요청 왕복의 가운데를 서버 시각과 맞춘다.
-  const clockOffsetMs = new Date(result.serverNow).getTime() - Math.round((requestedAt + receivedAt) / 2);
-  const active: ActiveCollect = {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    hue: workspace.hue,
-    windowId: result.window.windowId,
-    startedAt: result.window.startedAt,
-    expiresAt: result.window.expiresAt,
-    clockOffsetMs,
-  };
-  await serialized(async () => {
-    await patchMap<ActiveCollect>(chrome.storage.session, TEAM_COLLECT_KEY, accountId, () => active);
-    await patchUi(accountId, { paused: null, ended: null });
+    const receivedAt = Date.now();
+    // 요청 왕복의 가운데를 서버 시각과 맞춘다.
+    const clockOffsetMs = new Date(result.serverNow).getTime() - Math.round((requestedAt + receivedAt) / 2);
+    const created: ActiveCollect = {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      hue: workspace.hue,
+      windowId: result.window.windowId,
+      startedAt: result.window.startedAt,
+      expiresAt: result.window.expiresAt,
+      clockOffsetMs,
+    };
+    await serialized(async () => {
+      await patchMap<ActiveCollect>(chrome.storage.session, TEAM_COLLECT_KEY, accountId, () => created);
+      await patchUi(accountId, { paused: null, ended: null });
+    });
+    return created;
   });
   await recordTeamConsent(accountId, workspace.id);
   // 사용자 제외 목록은 서버가 다시 판정하지만, 로컬 판정도 같은 목록을 쓰도록 시작할 때 받아 둔다.
@@ -475,7 +478,7 @@ export async function handleBrowserStartup(): Promise<void> {
     for (const workspace of workspaces) {
       if (!workspace.myCollect) continue;
       if (local?.windowId === workspace.myCollect.windowId) continue;
-      await sendOrQueue({
+      await sendOrQueueLocked({
         kind: 'stop',
         accountId: session.user.id,
         workspaceId: workspace.id,
@@ -510,6 +513,16 @@ function isPermanent(err: unknown): boolean {
  * 쓸 토큰이 없으면(만료된 계정 전환·로그아웃) 보내지 않고 큐에 둔다 — 남의 토큰으로 보내면 그 사람의 창을 닫는다.
  */
 async function sendOrQueue(item: RetryItem, token?: string): Promise<void> {
+  await withServerLock(() => sendOrQueueLocked(item, token));
+}
+
+/**
+ * 서버 잠금 안에서만 부른다(브라우저 시작 정리는 이미 잠금 안이라 이것을 직접 부른다 — 중첩 잠금 방지).
+ * 끄기 항목은, 그 사이 이 계정이 이 기기에서 새 창을 열었으면 보내지 않는다. 서버 시작이 이 기기의
+ * 옛 창을 이미 닫았고, 지금 보내면 새 창을 닫는다(일시 정지 직후 다른 화면에서 시작한 경우).
+ */
+async function sendOrQueueLocked(item: RetryItem, token?: string): Promise<void> {
+  if (item.kind === 'stop' && item.deviceId && (await getActiveCollect(item.accountId))) return;
   const session = token ? null : await getSession();
   const usable = token ?? (session?.user.id === item.accountId ? session.token : undefined);
   if (!usable) {

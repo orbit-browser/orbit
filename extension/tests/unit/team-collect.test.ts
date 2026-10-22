@@ -677,3 +677,48 @@ describe('보안 검토 후속 (S1~S3)', () => {
     expect(await getActiveCollect(USER)).toBeNull();
   });
 });
+
+describe('서버 잠금 순서 — 일시 정지 직후 다른 화면에서 시작', () => {
+  /** navigator.locks 대역: 이름별로 요청 순서대로 하나씩 실행한다. 시험이 잠금을 쥐고 순서를 정할 수 있다. */
+  function installLocks() {
+    const chains = new Map<string, Promise<unknown>>();
+    const locks = {
+      request: (name: string, cb: () => Promise<unknown>) => {
+        const run = (chains.get(name) ?? Promise.resolve()).then(() => cb());
+        chains.set(name, run.catch(() => {}));
+        return run;
+      },
+    };
+    vi.stubGlobal('navigator', { ...globalThis.navigator, locks });
+    return locks;
+  }
+
+  it('시작이 먼저 잠금을 잡으면, 그 뒤에 줄 선 끄기 DELETE 는 새 창을 닫지 않는다', async () => {
+    await signIn();
+    await seedActive({ windowId: 'cw-old' });
+    const locks = installLocks();
+    let release!: () => void;
+    const held = locks.request('orbit-team-collect-server', () => new Promise<void>((r) => { release = r; }));
+    // 다른 화면의 시작이 잠금 앞에 줄 선다.
+    const starting = startTeamCollect(TEAM, 120);
+    await new Promise((r) => setTimeout(r, 30));
+    // 사이드패널의 일시 정지: 로컬을 지우고 DELETE 를 잠금 뒤에 줄 세운다.
+    const pausing = endTeamCollect(USER, 'pause');
+    await new Promise((r) => setTimeout(r, 30));
+    release();
+    await Promise.all([held, starting, pausing]);
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+    expect((await getActiveCollect(USER))?.windowId).toBe('cw-new');
+  });
+
+  it('끄기가 먼저 잠금을 잡으면 DELETE 를 보내고, 그 뒤 시작이 새 창을 연다', async () => {
+    await signIn();
+    await seedActive({ windowId: 'cw-old' });
+    installLocks();
+    await endTeamCollect(USER, 'pause');
+    await startTeamCollect(TEAM, 120);
+    const order = calls.filter((c) => c.path.startsWith('/workspaces/ws-1/collect')).map((c) => c.method);
+    expect(order).toEqual(['DELETE', 'POST']);
+    expect((await getActiveCollect(USER))?.windowId).toBe('cw-new');
+  });
+});
