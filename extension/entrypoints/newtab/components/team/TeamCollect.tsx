@@ -26,7 +26,7 @@ import {
   type EndedCollect,
 } from '../../../../lib/team-collect';
 import type { Session, Workspace } from '../../../../lib/types';
-import { startCta, useCollectStatus, useOnline, useTeamCollect } from '../../../../lib/useTeamCollect';
+import { reviewableSessions, startCta, useCollectStatus, useOnline, useTeamCollect } from '../../../../lib/useTeamCollect';
 import { useActiveWorkspace, WORKSPACES_QUERY_KEY } from '../../../../lib/useWorkspaces';
 import { updateSettings } from '../../../../lib/settings';
 import { openSettings } from '../../lib/navigation';
@@ -482,13 +482,18 @@ export function TeamCollectReview({
   }, [toast]);
 
   const all = [...(sessions.data ?? []), ...extra.filter((s) => !sessions.data?.some((d) => d.id === s.id))];
-  const visible = all.filter((s) => !removed.has(s.id));
+  // 접히는 중인 행은 공유가 풀린 뒤에도 전환이 끝날 때까지 남긴다.
+  const shared = new Set(reviewableSessions(all, ended.workspaceId).map((s) => s.id));
+  const visible = all.filter((s) => !removed.has(s.id) && (shared.has(s.id) || leaving.has(s.id)));
 
   const removeOne = async (session: Session) => {
     setRowError(null);
     setLeaving((prev) => new Set(prev).add(session.id));
     try {
-      await unshareSession(ended.workspaceId, session.id);
+      // 404: 그새 공유가 이미 풀렸다(owner 가 풀었거나 다른 화면에서 뺐다). 빠진 상태이므로 성공으로 본다.
+      await unshareSession(ended.workspaceId, session.id).catch((err) => {
+        if (!(err instanceof ApiError && err.status === 404)) throw err;
+      });
       // 행이 접히는 전환이 끝난 뒤 목록에서 뺀다.
       setTimeout(() => setRemoved((prev) => new Set(prev).add(session.id)), 220);
       setToast({ session, state: 'undo' });

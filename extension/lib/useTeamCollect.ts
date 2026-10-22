@@ -13,7 +13,7 @@ import {
   type ActiveCollect,
   type CollectUiState,
 } from './team-collect';
-import type { CollectStatus, Workspace } from './types';
+import type { CollectStatus, Session, Workspace } from './types';
 
 /**
  * 화면이 그릴 팀 수집 상태 하나. 띠·칩·첫 화면이 같은 규칙으로 고르도록 한 곳에 둔다.
@@ -47,6 +47,14 @@ export function startCta(team: Workspace, phase: CollectPhase, collectingTeamId:
   if (collectingTeamId === team.id && phase !== 'idle') return 'none';
   if (team.collectAllowed) return 'start';
   return team.role === 'owner' ? 'allow' : 'hint';
+}
+
+/**
+ * 돌아보기에 `팀에서 빼기`로 보일 세션 — 그 창의 세션 중 지금도 그 팀에 공유된 것만.
+ * owner 가 이미 공유를 풀었거나 내가 뺀 세션에 버튼을 보이면 눌러도 404 가 난다.
+ */
+export function reviewableSessions(sessions: Session[], workspaceId: string): Session[] {
+  return sessions.filter((s) => s.sharedWorkspaceIds?.includes(workspaceId));
 }
 
 /** 지금 계정의 팀 수집 상태. chrome.storage.session 변경을 구독하고, 남은 시간을 위해 15초마다 다시 그린다. */

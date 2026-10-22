@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { CONSENT_VERSION, needsReconsent } from '../../lib/settings';
 import { formatRemaining, normalizeExcludedDomain, type ActiveCollect } from '../../lib/team-collect';
 import type { Workspace } from '../../lib/types';
-import { collectPhase, startCta } from '../../lib/useTeamCollect';
+import { collectPhase, reviewableSessions, startCta } from '../../lib/useTeamCollect';
+import type { Session } from '../../lib/types';
 
 const NOW = Date.parse('2026-10-23T10:00:00Z');
 
@@ -85,5 +86,13 @@ describe('재동의 안내 (CONSENT_VERSION 2)', () => {
     expect(needsReconsent({ a: 2 }, 'a')).toBe(false);
     expect(needsReconsent({ a: false }, 'a')).toBe(false);
     expect(needsReconsent({}, 'a')).toBe(false);
+  });
+});
+
+describe('돌아보기 목록', () => {
+  it('지금도 그 팀에 공유된 세션만 빼기 대상으로 보인다(owner 가 이미 푼 세션 제외)', () => {
+    const make = (id: string, shared: string[]) => ({ id, sharedWorkspaceIds: shared }) as unknown as Session;
+    const list = [make('s1', ['ws-1']), make('s2', []), make('s3', ['ws-2'])];
+    expect(reviewableSessions(list, 'ws-1').map((s) => s.id)).toEqual(['s1']);
   });
 });

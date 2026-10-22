@@ -1,6 +1,6 @@
 # 팀 워크스페이스 2단계 — 팀 수집 모드 설계
 
-> 상태: 설계 확정(b8d5c21). 서버 구현 2026-10-23(`feat/team-collect-mode`, main 3875f4c 기준), 확장·화면은 다음 차례. 협업 사업부장 한지석.
+> 상태: 설계 확정(b8d5c21). 서버 구현 2026-10-23(`feat/team-collect-mode`, main 3875f4c 기준), 확장·화면 구현 2026-10-23(`feat/team-collect-extension`, 배유나 — `extension/lib/team-collect.ts`, `entrypoints/newtab/components/team/`). 협업 사업부장 한지석.
 > 근거: `DecisionLog.md` 2026-10-17 "팀 워크스페이스: 세션 공유(라이브 참조)부터, 팀 수집 모드는 2단계"의 B 단계,
 > 대표 지시 `company/directives/2026-10-22-no-deferral.md` 5번.
 > 기준 코드: 로컬 main(db91269)의 1단계 서버 계약 + `origin/main`의 #22(append 게이트)·#23(본문 16,000자)·

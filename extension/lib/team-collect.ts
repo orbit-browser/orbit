@@ -556,7 +556,7 @@ export async function syncTeamCollectBadge(): Promise<void> {
   }
   if (!active) {
     await chrome.action.setBadgeText({ text: '' });
-    await chrome.action.setTitle({ title: 'Orbit' });
+    await chrome.action.setTitle({ title: chrome.runtime.getManifest().action?.default_title ?? '' });
     await chrome.alarms.clear(TEAM_COLLECT_TICK_ALARM);
     return;
   }
@@ -595,4 +595,6 @@ export function initTeamCollect(): void {
     if (area === 'session' && TEAM_COLLECT_KEY in changes) syncTeamCollectBadge().catch(log('badge'));
   });
   syncTeamCollectBadge().catch(log('badge'));
+  // 확장 업데이트로 재시도 알람이 지워졌을 수 있다 — SW 가 뜰 때 한 번 다시 보낸다.
+  retryTeamCollectRequests().catch(log('retry'));
 }
