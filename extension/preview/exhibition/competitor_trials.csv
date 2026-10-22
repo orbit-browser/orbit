@@ -1,0 +1,36 @@
+product,condition,question_id,kind,result,first_ms,settled_ms,evidence,note
+Perplexity Comet,logged_out_search,travel_car,Q,missed,3716,9945,comet-answers.json,방문 기록에 접근할 수 없다며 웹 정보로 대체
+Perplexity Comet,logged_out_search,travel_flight,Q,missed,2197,8854,comet-answers.json,세션을 확인할 수 없다고 답함
+Perplexity Comet,logged_out_search,dev_shared,Q,missed,2946,9179,comet-answers.json,개인 문서에 접근할 수 없다고 답함
+Perplexity Comet,logged_out_search,dev_reset,Q,web_refind,5660,11685,comet-answers.json,웹 검색으로 ko.react.dev를 찾음(방문한 react.dev 아님)
+Perplexity Comet,logged_out_search,gpu_specs,Q,missed,1655,7673,comet-answers.json,웹 블로그를 기록처럼 제시
+Perplexity Comet,logged_out_search,gpu_benchmark,Q,missed,1205,6970,comet-answers-probe.json,웹의 다른 페이지를 제시(첫 실행은 캡처 실패로 재실행)
+Perplexity Comet,logged_out_search,negative_garden,Q,partial,2311,9519,comet-answers.json,기록이 없다고 했지만 일반 정보를 덧붙임
+Perplexity Comet,logged_out_search,negative_piano,Q,wrong,1941,8118,comet-answers.json,없다고 하지 않고 웹 페이지를 답으로 제시
+Perplexity Comet,logged_out_search,travel_car,S,missed,1296,7168,comet-answers.json,자기 웹 검색 결과를 목록으로 냄
+Perplexity Comet,logged_out_search,travel_car,R,missed,8534,14629,comet-answers.json,다시 열었다고 답했으나 열린 탭 0개
+Perplexity Comet,logged_out_search,probe_explicit_history,Q,not_available,1795,7876,comet-answers-probe.json,'방문 기록에서' 찾아 달라고 해도 접근 불가
+Perplexity Comet,logged_in_search,probe_explicit_history_login,Q,not_available,4598,8474,comet-answers-probe-login.json,로그인 뒤에도 검색 모드는 방문 기록에 접근 불가
+Perplexity Comet,logged_in_computer,probe_explicit_history_computer,Q,timeout,6544,,comet-answers-probe-computer.json,에이전트가 chrome://history를 열고 진행 중 120초 초과
+Perplexity Comet,logged_in_computer,travel_car,Q,found_slow,406,,comet-answers-login-computer.json,에이전트가 myactivity.google.com(시험 계정의 크롬 동기화 기록)을 뒤짐. 300초 시점 진행 중
+Perplexity Comet,logged_in_computer,travel_car,S,over_inclusive,13150,272814,comet-answers-login-computer.json,제주 3개가 아니라 방문 기록 전체를 나열
+Perplexity Comet,logged_in_computer,travel_car,R,over_inclusive,2601,155995,comet-answers-login-computer.json,탭을 실제로 열었으나 26개 전부(정답 3개 포함)
+Perplexity Comet,logged_in_computer,travel_car,Q2,found_memory,5819,13817,comet-answers-computer-positives.json,앞선 시험 대화의 계정 메모리로 찾음(오염됨)
+Perplexity Comet,logged_in_computer,travel_flight,Q,missed,2519,9455,comet-answers-computer-positives.json,세션을 찾지 못함
+Perplexity Comet,logged_in_computer,dev_shared,Q,missed,2451,18788,comet-answers-computer-positives.json,Notion·Drive 연결이 필요하다고 답함
+Perplexity Comet,logged_in_computer,dev_reset,Q,web_refind,3366,39929,comet-answers-computer-positives.json,기록이 있다고 했으나 근거는 웹(ko.react.dev)
+Perplexity Comet,logged_in_computer,gpu_specs,Q,missed,3303,11888,comet-answers-computer-positives.json,개인 기록에서 찾지 못했다고 답하고 웹 자료 제시
+Perplexity Comet,logged_in_computer,gpu_benchmark,Q,missed,2917,37177,comet-answers-computer-positives.json,웹의 다른 페이지(superrendersfarm) 제시
+Perplexity Comet,logged_in_mixed,negative_garden,Q,correct,4408,9594,comet-answers-login-computer.json,저장된 기록에서 찾지 못했다고 답함
+Perplexity Comet,logged_in_mixed,negative_piano,Q,wrong,1081,,comet-answers-login-computer.json,없다고 하지 않고 웹 페이지를 답으로 제시(300초 시점 진행 중)
+Google Chrome,history_search_kr,travel_car,Q,missed,,,chrome-history-search.json,기본 기록 검색에 질문 문장 그대로: 결과 0
+Google Chrome,history_search_kr,travel_flight,Q,missed,,,chrome-history-search.json,결과 0
+Google Chrome,history_search_kr,dev_shared,Q,missed,,,chrome-history-search.json,결과 0
+Google Chrome,history_search_kr,dev_reset,Q,missed,,,chrome-history-search.json,결과 0
+Google Chrome,history_search_kr,gpu_specs,Q,missed,,,chrome-history-search.json,결과 0
+Google Chrome,history_search_kr,gpu_benchmark,Q,missed,,,chrome-history-search.json,결과 0
+Google Chrome,history_search_kr,negative_garden,Q,correct_trivial,,,chrome-history-search.json,결과 0(아무것도 못 찾는 검색이라 의미 약함)
+Google Chrome,history_search_kr,negative_piano,Q,correct_trivial,,,chrome-history-search.json,결과 0
+Google Chrome,gemini_kr,all,Q,not_available,,,,시험 계정·kr에서 Gemini in Chrome 진입점과 설정이 없음
+Google Chrome,history_ai_kr,all,Q,not_available,,,,AI 기반 방문 기록 검색 설정이 숨겨져 있음(미제공)
+Google Chrome,grouped_history_kr,all,S/R,not_available,,,,기록 화면에 그룹별 탭이 없음

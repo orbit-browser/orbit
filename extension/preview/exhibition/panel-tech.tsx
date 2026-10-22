@@ -1,11 +1,11 @@
 /**
- * 3번 현수막 — TECHNOLOGY. 파이프라인은 지금 코드에서 확인한 것만 쓴다(각 단계의 source).
- * 성능 숫자는 metrics.json, 기능 비교는 competitor_matrix.csv 에서만 온다. 실측이 아니면 숫자를 그리지 않는다.
+ * 5번 현수막 — TECHNOLOGY. 파이프라인은 지금 코드에서 확인한 것만 쓴다(각 단계의 source).
+ * 서버 성능은 metrics.json, 이번 UI 시험의 비율은 원본 CSV에서 계산한다.
  */
-import matrixCsv from './competitor_matrix.csv?raw';
 import { SESSION_HUES } from '../../lib/session-hue';
 import { BannerFrame } from './frame';
-import { METRICS, buildMatrix, displayMeasure, isMeasured, parseCsv, type Metric } from './metrics';
+import { METRICS, displayMeasure, isMeasured, type Metric } from './metrics';
+import { REFUSAL_HIGHLIGHT } from './trial-highlights';
 
 /** 지금 설정의 모델(2026-10-20). 코드 기본값은 A.X-K1 이고 운영 설정이 A.X-K2 다 — 바뀌면 여기만 고친다. */
 const MODELS = {
@@ -65,15 +65,12 @@ const PIPELINE = [
   },
 ];
 
-const MATRIX = buildMatrix(parseCsv(matrixCsv));
-const GROUPS = [
-  { documentOnly: false, label: '직접 시험 — 같은 공개 웹페이지 기록으로 묻고 찾았는지 본다' },
-  { documentOnly: true, label: '† 공식 문서 기준 — 직접 시험하지 않았다' },
-];
+// 전면은 지연·규모에 집중한다. 골든/holdout 품질 전체는 metrics.json과 README에 보존한다.
+const FEATURED_METRICS = METRICS.metrics.filter((metric) => ['A', 'B', 'D'].includes(metric.code));
 
 export function TechBanner() {
   return (
-    <BannerFrame index={2} label="현수막 3 — TECHNOLOGY">
+    <BannerFrame step={3} number="03" label="현수막 — 03 TECHNOLOGY">
       <section className="ex-tech__intro">
         <h1 className="ex-tech__title">
           How Orbit
@@ -128,84 +125,54 @@ export function TechBanner() {
             <h2>Measured Performance</h2>
             <span className={`ex-status${METRICS.updated ? ' is-done' : ''}`}>{METRICS.updated ? `측정 ${METRICS.updated}` : METRICS.status}</span>
           </div>
-          {METRICS.metrics.map((metric) => (
+          {FEATURED_METRICS.map((metric) => (
             <MetricRow key={metric.code} metric={metric} />
           ))}
-          <div className="ex-method" aria-label="측정 조건">
-            {METRICS.method.map((row) => (
-              <div key={row.label}>
-                <span>{row.label}</span>
-                <b>{row.value ?? 'TBD'}</b>
-              </div>
-            ))}
-          </div>
         </section>
 
-        <section className="ex-compare" aria-label="과거 탐색 검색 기능 비교">
+        <section className="ex-refusal" aria-label="이번 소규모 시험의 기록 없음 판별 비교">
           <div className="ex-section-head">
-            <h2>Past Browsing Search, Compared</h2>
-            <span className="ex-status">같은 공개 웹페이지 기록으로 시험</span>
+            <h2>Know What Is Missing.</h2>
+            <span className="ex-status">소규모 고정 질문 시험</span>
           </div>
-          <table className="ex-table">
-            <thead>
-              <tr>
-                <th />
-                {MATRIX.capabilities.map((capability) => (
-                  <th key={capability}>{capability}</th>
-                ))}
-              </tr>
-            </thead>
-            {/* 직접 시험한 제품과 공식 문서로만 판정한 제품을 묶음으로 가른다(데이터의 basis 로 정해진다) */}
-            {GROUPS.map((group) => {
-              const products = MATRIX.products.filter((product) => product.documentOnly === group.documentOnly);
-              if (products.length === 0) return null;
-              return (
-                <tbody key={group.label} className={group.documentOnly ? 'is-docs' : undefined}>
-                  <tr className="ex-table__group">
-                    <th colSpan={MATRIX.capabilities.length + 1}>{group.label}</th>
-                  </tr>
-                  {products.map((product) => (
-                    <tr key={product.name} className={product.name === 'Orbit' ? 'is-orbit' : undefined}>
-                      <th>
-                        <ProductName name={product.name} />
-                        {product.documentOnly && <sup>†</sup>}
-                      </th>
-                      {MATRIX.capabilities.map((capability) => {
-                        const cell = MATRIX.cell(product.name, capability);
-                        return (
-                          <td key={capability} className={`is-${cell.kind}${cell.documentOnly ? ' is-docs' : ''}`}>
-                            <i className="ex-mark" aria-hidden />
-                            {cell.text}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              );
-            })}
-          </table>
+          <div className="ex-refusal__hero">
+            <div>
+              <p className="ex-refusal__eyebrow">기록 없음 판별 · 이번 시험</p>
+              <h3>없는 기록은,<br />없다고 답합니다.</h3>
+              <p className="ex-refusal__description">무관한 웹 페이지를 내 기록으로 제시하지 않았습니다.</p>
+            </div>
+            <div className="ex-refusal__score">
+              <span>ORBIT</span>
+              <strong>{REFUSAL_HIGHLIGHT.orbit.percent}<small>%</small></strong>
+            </div>
+          </div>
+          <div className="ex-refusal__comparison">
+            <div className="ex-refusal__bars" aria-label="같은 척도에서 기록 없음 판별 비율 비교">
+              {[
+                { name: 'Orbit', percent: REFUSAL_HIGHLIGHT.orbit.percent, orbit: true },
+                { name: 'Comet', percent: REFUSAL_HIGHLIGHT.comet.percent, orbit: false },
+              ].map((product) => (
+                <div className={`ex-refusal__row${product.orbit ? ' is-orbit' : ''}`} key={product.name}>
+                  <b>{product.name}</b>
+                  <span className="ex-refusal__track" aria-hidden>
+                    <i style={{ width: `${product.percent}%` }} />
+                  </span>
+                  <strong>{product.percent}%</strong>
+                </div>
+              ))}
+            </div>
+            <div className="ex-refusal__difference">
+              <strong>+{REFUSAL_HIGHLIGHT.differencePoints}<small>%p</small></strong>
+              <span>이번 시험의 Comet 대비 차이</span>
+            </div>
+          </div>
           <p className="ex-fineprint">
             {keepDots(
-              '직접 시험 2026-10-20 · 빈 브라우저 프로필에 공개 웹페이지 26개를 방문한 뒤 같은 질문 8개(기록 있음 6 · 없음 2)를 질문마다 한 번씩 · Comet은 로그인한 에이전트 모드 기준이며 찾은 1건은 답까지 5분 넘게 걸렸다 · Chrome은 한국의 시험 계정에서 Gemini 기록 검색이 제공되지 않아 기본 기록 검색으로 시험 · 제품마다 조건이 달라 속도는 비교하지 않는다.',
+              '2026-10-20 자체 시험 · 사전 고정한 기록이 없는 두 질문·각 1회 결과. 전체 검색 정확도를 뜻하지 않습니다. 같은 공개 URL 26개 방문 · Orbit: Headless 확장, Comet: 로그인 시험. 실행 방식·수집 콘텐츠 차이 있음(Orbit 제주항공 403).',
             )}
           </p>
         </section>
 
-        <section className="ex-slots" aria-label="행사와 팀">
-          <div className="ex-slot">
-            <span>AI Rookie 2026 결선</span>
-            <small>행사 로고 자리 — 공식 파일을 받으면 넣는다</small>
-          </div>
-          <div className="ex-slot">
-            <span>Orbit 팀</span>
-            <small>팀 로고·이름 자리 — 자료 요청 중</small>
-          </div>
-          <div className="ex-slot ex-slot--qr">
-            <span>QR</span>
-            <small>체험 링크</small>
-          </div>
-        </section>
       </div>
     </BannerFrame>
   );
@@ -265,17 +232,6 @@ function StageGlyph({ stage }: { stage: number }) {
         </g>
       )}
     </svg>
-  );
-}
-
-/** "Google Chrome (Gemini 기록 검색)" — 괄호 안은 작은 둘째 줄로. */
-function ProductName({ name }: { name: string }) {
-  const [, main, sub] = name.match(/^(.*?)\s*\((.+)\)$/) ?? [null, name, null];
-  return (
-    <span className="ex-table__product">
-      {main}
-      {sub && <small>{sub}</small>}
-    </span>
   );
 }
 

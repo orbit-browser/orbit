@@ -3826,3 +3826,86 @@ extension pnpm test                             # 20 files / 200 passed
 - 검증: `pnpm compile` 통과, 미리보기·시안을 헤드리스 크롬 1440×900으로 찍어 렌더링 확인. 시안은 시험 대상이 아니다
   (합성 데이터 위의 시각 확인용).
 
+
+## 2026-10-20 — 중단된 7장 현수막 작업 인계·마무리
+
+### 중단 지점과 인계
+
+- 프로젝트 대화 세션 `f682193d-4969-454c-ab64-0dd1d3e1bb51`, 디자인 실행 기록,
+  회사 지시문·HANDOFF, 제품 및 worktree 6개의 HEAD·작업 상태를 대조했다.
+- 마지막 대표 지시는 행사 로고 없이 제작 계속. 디자인 실행은 22:17 KST 사용 한도 오류로 종료됐다.
+  7장 전환 코드·혼합 크기 내보내기 수정이 미커밋 상태이고 최종 검증·문서는 미완료였다.
+- 작업은 기존 `feat/exhibition-banners`에서 이어갔다. 기존 staged 파일과 미커밋·신규 파일은 보존했다.
+  제품 브랜치·개발 DB·비밀 설정을 바꾸지 않았으며 커밋·push·PR·병합·배포하지 않았다.
+
+### 이어서 처리한 것
+
+- 950×2,380mm 5장과 455×2,380mm 2장, 좌/중/우 벽 배치, 가상 `.example` 화면,
+  행사 로고 제외, Orbit 팀 이름, 100×100mm QR 빈 칸을 코드·화면에서 확인했다.
+- 완료된 벤치마크 `23bd77c`의 `ef256-rerun/metrics.json`을 조건·제목·주석까지 그대로 반영했다.
+  골든 100%, holdout off66.7%/on40%, 공급자 429 22건을 함께 표시하며 서버 시간과 E2E를 구분했다.
+  비교표의 Orbit UI 시험은 미실시이므로 `TBD`를 유지했다.
+- 지표 반영 뒤 TECHNOLOGY 하단 주석이 바닥글과 겹치는 것을 PDF 렌더로 재현했다.
+  TEAM에도 있는 중복 조건 표만 TECHNOLOGY에서 제거하고 지표별 조건은 유지했다.
+  10,000의 단위 줄바꿈은 숫자의 nowrap과 그래프 폭 조정으로 해결했다.
+- 최초 내보내기는 PNG 7장과 PDF를 만들었지만 ORBIT PDF 저장 후 Chrome의 teardown watchdog으로 실패했다.
+  PDF 실행에만 `--disable-gpu`를 적용해 소프트웨어 렌더링으로 재출력했다. 오류를 성공으로 무시하지 않았다.
+- 통합 PDF와 개별 PDF의 렌더를 비교하니 통합본만 약 75%로 축소됐다. 페이지 크기와 텍스트가
+  같아도 내용 배율이 다른 Chrome 혼합 폭 인쇄 문제였다. 통합본을 개별 PDF의 pypdf 병합으로 바꿨다.
+  제품 런타임 의존성은 바꾸지 않고 출력 도구의 Python/pypdf 요구를 README에 적었다.
+- README 두 곳을 7장 번호·규격·빈 QR·측정 근거·출력 절차에 맞게 갱신했다.
+  Plan·DecisionLog와 회사 HANDOFF·decisions-pending도 현재 상태에 맞췄다.
+
+### 실제 검증
+
+| 명령/검증 | 결과 |
+|---|---|
+| `cd extension && pnpm test && pnpm compile && pnpm build` | 이 배너 브랜치에서 23파일·224테스트 통과, 타입 검사·빌드 성공 |
+| `node --check extension/preview/exhibition/export.mjs` | 성공 |
+| `cd extension && node preview/exhibition/export.mjs` | PNG 7장 생성·크기 일치. PDF 4번의 Chrome 종료 오류로 exit 1(수정 전) |
+| `cd extension && node preview/exhibition/export.mjs --no-png` | 수정 후 개별 PDF 7개·통합 PDF 1개 모두 생성, exit 0 |
+| 브라우저 DOM 확인 | 7장 크기 455/950/950/950/950/950/455 × 2380, 글꼴 경고 0, 이미지 7개 로드, 잘린 지표 0, QR 100×100 |
+| 갤러리·보기 조작 스모크 | 마지막 페이지→첫 페이지 순환, 다음 세션, 정적 모드 조작 차단, 부스 7장/3벽·전체 인쇄 링크 모두 확인 |
+| PDF 확인 | 개별 1쪽×7, 통합 7쪽. 폭 455.08/950.04mm, 높이 2379.81mm(Chrome 반올림, 규격 오차 0.2mm 미만). 전체 텍스트·폰트 경고·실측값 확인, 전 장을 렌더해 육안 검토 |
+| 통합본 축소 회귀 확인 | pypdf 병합 후 전 7쪽의 텍스트가 개별 파일과 일치. PyMuPDF로 세로 1700px 렌더 후 개별/통합 비교에서 전 장 평균 픽셀 차이 0.0 |
+| `test-exhibition-benchmark`: `python -m pytest -p no:asyncio benchmarks/exhibition-2026/test_benchmark.py benchmarks/exhibition-2026/ef256-rerun/test_rerun.py -q` | 21 passed |
+| 같은 worktree: `python benchmarks/exhibition-2026/ef256-rerun/validate.py` | 오프라인 산출물·입력 동결·반복·해시·재집계 검사 45 passed. 재생성 내용 동일, 검사 시각만 바뀐 원본 파일은 복구 |
+| `git diff --check`, `git diff --cached --check` | 통과 |
+
+- 산출물: git 제외 경로 `extension/preview/exhibition/out/`의 개별 PNG/PDF, `orbit-banners.pdf`,
+  `orbit-booth-preview.png`(PNG를 실제 벽 순서·비율로 배치), `orbit-exhibition-7-panels.zip`.
+  QA 렌더와 크기 검사 JSON은 `out/qa/`에 있다.
+- 별도 린트 명령은 package.json에 없다. 제품 백엔드 전체 테스트, 유료 LLM 평가·벤치마크 재측정,
+  경쟁사 재시험, 실제 계정 2개의 확장 E2E는 이번 작업에서 실행하지 않았다.
+- 남음: 같은 조건 Orbit UI 시험 후 비교표 채우기, 출력소 블리드·CMYK 사양 확인, 대표의 실제 QR 부착.
+  고정 질문 반복 결과를 일반 검색 정확도로 주장하지 않는다. 인쇄 시안 검증 완료와 최종 발주는 구분한다.
+
+## 2026-10-20 — 미측정 Orbit 행 실험·인쇄물 반영
+
+- `test/orbit-ui-trial`에서 실제 수집/세션화/새탭Ask8문항/탭복원을 완료했다. 원본 보고서/JSON/스크린샷은 해당 작업트리의 `benchmarks/exhibition-2026/orbit-ui-trial/`.
+- 변경: competitor_matrix.csv 4칸, panel-tech.tsx 비교 설명/제약, orbit_trial.csv(8행), orbit-ui-trial.md 출처 요약, exhibition-metrics.test.ts 원본 대조 및 모순/혼입/403 주의 문구 검증, README/Plan/DecisionLog.
+- 값: 정답 URL 포함 후보3/6(1건 부정 답변과 모순), 부정2/2, 목록일부·혼입, 복원4/9+다른페이지5. 성공 후보 표시 중앙값1.203초는 제품 간 속도 비교에 쓰지 않았다.
+- 검증: `pnpm test && pnpm compile && pnpm build` → 224통과/타입통과/빌드통과. `node preview/exhibition/export.mjs --panels 5` → PNG3740×9370 및 PDF950×2380mm. 개별7PDF를 pypdf로 다시 병합, 쪽수/크기/텍스트일치/실측문구 확인. 한글 자간 때문에 PDF 텍스트 검증은 공백 정규화 후 대조했다. PDF 렌더의 표/각주/바닥글 겹침없음 확인.
+- 산출물: 5번 기술패널, 7장합본, 전체부스미리보기,17파일ZIP 최신화. 기존 다른 패널/작업내용과 staged변경 보존. push/PR/배포없음.
+
+## 2026-10-20 — 강점 중심 비율 강조·전면 분수 표기 제거
+
+- 요청: 대표가 강점 중심의 높은 퍼센트 강조와 `(2/2)` 같은 표기 제거를 지시했다.
+- 변경 파일: `panel-tech.tsx`의 전체 비교표를 기록 없음 판별 비율과 같은 축 막대로 교체하고, `exhibition.css`에 큰 숫자/비교 배치를 추가했다. 자체 성능은 A/B/D만 전면에 선별했다.
+- 계산 근거: 신규 `trial-highlights.ts`가 `orbit_trial.csv`와 원본과 바이트가 같은 `competitor_trials.csv`에서 고정 부정 두 문항만 읽는다. Orbit 100%, 로그인 Comet 50%, 차이 +50%p. 누락·중복·미판정은 실패 처리한다.
+- 표기: 배너의 성공 건수/전체 건수 분수를 제거했다. 소규모 고정 시험이라는 라벨과 두 질문·각 1회, 실행/콘텐츠 차이를 짧은 각주로 남겼다. 일반 검색 정확도나 속도 우위로 바꾸지 않았다.
+- 보존: 전체 비교표, 골든/holdout, 후보 답변 모순·복원 혼입·403 결과와 실제 시험 보고서는 그대로다. 지표 테스트는 전체 원본 보존을 확인하면서, 인쇄되는 컴포넌트의 비율·분수 없음·범위 표기를 검증한다.
+- 문서: `docs/Plan.md`, `docs/DecisionLog.md`, 이 기록, 현수막 `README.md`, 출력 패키지 `README.txt`, 회사 `HANDOFF.md` 갱신.
+
+검증:
+
+- `cd extension && pnpm test && pnpm compile && pnpm build` → 23파일 227테스트 통과, 타입 검사·프로덕션 빌드 성공. 별도 린트 명령 없음.
+- `node preview/exhibition/export.mjs --panels 5` → PNG 3740×9370, 개별 PDF 950×2380mm 생성 성공.
+- 5번 PDF 전체/하단을 렌더해 큰 숫자·막대·각주·바닥글의 겹침과 잘림 없음 확인. 추출 텍스트에서 100%, Comet 50%, +50%p, 범위/조건과 분수 없음 확인.
+- 개별 7PDF를 다시 병합했다. 모든 쪽 규격 오차 0.2mm 미만, 개별/합본 텍스트 및 렌더 픽셀 동일. 부스 미리보기 시각 확인.
+- 17파일 ZIP 무결성과 모든 내부 파일의 최신 바이트 일치 확인. 검사 결과 `out/qa/highlight-package-checks.json`.
+- 경쟁 시험 CSV 원본 사본 SHA-256: `d3c0f05c9815e925044316d870971b95ad8905652aa7004c92a70ac3fb00d1d9`.
+- `git diff --check`, `git diff --cached --check` 통과. 기존 staged 파일 보존.
+
+추가 실험·유료 API·백엔드 테스트·커밋·push·PR·배포는 실행하지 않았다. 인쇄용 선별이라는
+가정으로 적용했으며 제품 성능 개선은 별도 작업이다. 출력소 블리드/CMYK와 실제 QR 부착은 기존 TODO다.

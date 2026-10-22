@@ -41,5 +41,5 @@ Windows 에서는 크롬 경로만 다르다: `"C:\Program Files\Google\Chrome\A
 
 ## 결선 전시 현수막
 
-`/preview/exhibition/` — AI Rookie 결선 부스의 세로 현수막 3장(950 × 2,380mm). 나란히 보기·확대·안전 여백·인쇄용 정적 모드·
+`/preview/exhibition/` — 결선 부스의 족자 현수막 7장(950 × 2,380mm 5장 + 455 × 2,380mm 2장). 부스 배치 보기·확대·안전 여백·인쇄용 정적 모드·
 인쇄 파일 내보내기(`node preview/exhibition/export.mjs`). 자세한 것은 `exhibition/README.md`.

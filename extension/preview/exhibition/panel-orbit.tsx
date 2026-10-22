@@ -2,11 +2,12 @@
  * 2번 현수막 — ORBIT. 흩어졌던 페이지가 세션 하나로 정돈되고, 공간 속에서 넘겨 볼 수 있다.
  *
  * 그림은 실제 화면을 겹으로 나눠 다시 쌓았다: 위 막대(아틀라스의 세션 줄과 점), 가운데 세션 갤러리와 바닥의 궤도,
- * 앞 오른쪽 사이드패널 타임라인. 왼쪽 네비게이터도 시험했으나 막대와 겹쳐 읽기를 해쳐 뺐다. 데이터는 합성 시연 데이터다.
+ * 뒤 오른쪽 사이드패널 타임라인. 왼쪽 네비게이터도 시험했으나 막대와 겹쳐 읽기를 해쳐 뺐다. 데이터는 합성 시연 데이터다.
  */
 import type { RefObject } from 'react';
-import { GALLERY_SESSION_IDS, SESSIONS, sessionById, type ExhibitSession } from './content';
-import { BannerFrame, Favicon } from './frame';
+import { GALLERY_SESSION_IDS, SESSIONS, sessionById, siteOf, type ExhibitSession } from './content';
+import { BannerFrame } from './frame';
+import { SiteMark } from './pages';
 import { SessionGallery } from './gallery';
 
 interface OrbitBannerProps {
@@ -23,7 +24,7 @@ export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, intera
   const step = (delta: number) => onSession((sessionIndex + delta + GALLERY_SESSION_IDS.length) % GALLERY_SESSION_IDS.length);
 
   return (
-    <BannerFrame index={1} label="현수막 2 — ORBIT">
+    <BannerFrame step={2} number="02" label="현수막 — 02 ORBIT">
       <section className="ex-orbit__intro">
         <h1 className="ex-orbit__word">
           Orbit<span>.</span>
@@ -75,7 +76,7 @@ export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, intera
       <p className="ex-fineprint ex-orbit__fineprint">
         그림: 새 탭 아틀라스의 막대·세션 갤러리와 사이드패널 타임라인
         <br />
-        세션과 방문은 시연용 합성 데이터, 카드 속 화면은 공개 웹페이지 캡처(2026-10-20)
+        세션과 방문은 시연용 가상 데이터, 카드 속 페이지는 지어낸 가상 사이트(.example)
       </p>
     </BannerFrame>
   );
@@ -185,7 +186,7 @@ function Timeline({ session, pageIndex }: { session: ExhibitSession; pageIndex: 
       {[...session.pages].reverse().map((page) => (
         <div key={page.id} className={`ex-timeline__row${page.id === session.pages[pageIndex]?.id ? ' is-on' : ''}`}>
           <span className="ex-timeline__time">{page.time}</span>
-          <Favicon url={page.url} domain={page.domain} />
+          <SiteMark site={siteOf(page)} />
           <span className="ex-timeline__title">{page.title}</span>
           <span className="ex-timeline__dur">{page.minutes}분</span>
         </div>

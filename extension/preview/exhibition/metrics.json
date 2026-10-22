@@ -1,111 +1,143 @@
 {
-  "status": "측정 진행 중",
-  "updated": null,
-  "source": "benchmarks/exhibition-2026/benchmark_results.csv (경쟁·벤치마크팀, 아직 도착 전)",
+  "status": "ef256 실측 완료 · 합성 시나리오",
+  "updated": "2026-10-20",
+  "source": "benchmarks/exhibition-2026/ef256-rerun/summary.json; run-20261020-ef256[-holdout]/requests.jsonl",
   "metrics": [
     {
       "code": "A",
       "title": "Vector Retrieval Latency",
       "ko": "벡터 검색 지연",
-      "scope": "질의 임베딩 뒤 Qdrant 코사인 검색과 권한 SQL까지",
+      "scope": "Qdrant 호출 왕복 · 질의 임베딩·SQL 제외",
       "values": [
         {
           "label": "p50",
-          "value": null,
+          "value": 20.0,
           "unit": "ms",
-          "status": "pending"
+          "digits": 1,
+          "status": "measured"
         },
         {
           "label": "p95",
-          "value": null,
+          "value": 43.6,
           "unit": "ms",
-          "status": "pending"
+          "digits": 1,
+          "status": "measured"
         }
       ],
-      "note": null
+      "note": "1만 합성 세션 · 긍정 6질문×10회 · warm/off · Qdrant 왕복만"
     },
     {
       "code": "B",
-      "title": "Natural Language Search Latency",
-      "ko": "자연어 검색 전체 시간",
-      "scope": "입력부터 결과 표시까지 · LLM 리랭킹 켬과 끔을 나눠 잰다",
+      "title": "Backend Search Latency",
+      "ko": "서버 검색 응답 시간",
+      "scope": "질의 임베딩·Qdrant·SQL 포함 · HTTP·인증·화면 표시 제외",
       "values": [
         {
           "label": "리랭킹 끔 p50",
-          "value": null,
+          "value": 262.2,
           "unit": "ms",
-          "status": "pending"
+          "digits": 1,
+          "status": "measured"
         },
         {
           "label": "리랭킹 켬 p50",
-          "value": null,
+          "value": 300.4,
           "unit": "ms",
-          "status": "pending"
+          "digits": 1,
+          "status": "measured"
         }
       ],
-      "note": null
+      "note": "1만 세션 · 6질문×10회 · warm · 임베딩 포함/HTTP·인증·UI 제외 · LLM 0회"
     },
     {
       "code": "C",
       "title": "Retrieval Quality",
-      "ko": "검색 품질",
-      "scope": "정답 세션이 있는 자연어 질문 기준",
+      "ko": "골든셋과 holdout 검색 품질",
+      "scope": "1만 합성 세션 · 골든 긍정 6질문·holdout 긍정 3질문 · warm",
       "values": [
         {
-          "label": "Recall@5",
-          "value": null,
+          "label": "골든 Top-1",
+          "value": 100.0,
           "unit": "%",
-          "status": "pending"
+          "digits": 0,
+          "status": "measured"
         },
         {
-          "label": "Top-1",
-          "value": null,
+          "label": "holdout 끔 Top-1",
+          "value": 66.7,
           "unit": "%",
-          "status": "pending"
+          "digits": 1,
+          "status": "measured"
         },
         {
-          "label": "MRR",
-          "value": null,
-          "unit": "",
-          "status": "pending",
-          "digits": 2
+          "label": "holdout 켬 Top-1",
+          "value": 40.0,
+          "unit": "%",
+          "digits": 1,
+          "status": "measured"
         }
       ],
-      "note": null
+      "note": "1만 · warm · 골든 60회/모드 · holdout 30회/모드 · 음성 거절 끔 7/10·켬 3/10 · holdout 전체 88회 중 공급자 429 오류 22회 포함"
     },
     {
       "code": "D",
       "title": "Long-History Scalability",
       "ko": "기록이 쌓일 때의 검색",
-      "scope": "세션 수에 따른 지연 · 오래된 기록 검색 성공률",
+      "scope": "공개 URL 26개로 만든 합성 세션 · 아래 곡선은 서버 응답 p95(ms)",
       "values": [
         {
-          "label": "오래된 기록 성공률",
-          "value": null,
-          "unit": "%",
-          "status": "pending"
+          "label": "시험한 합성 세션",
+          "value": 10000,
+          "unit": "개",
+          "digits": 0,
+          "status": "measured"
         }
       ],
-      "note": null
+      "note": "공개 URL 26개 기반 합성 세션 · 100~1만 · warm/off 서버 p95(ms)"
     }
   ],
-  "scaling": [],
+  "scaling": [
+    {
+      "sessions": 100,
+      "p50": 540.774,
+      "p95": 1637.3831,
+      "status": "measured"
+    },
+    {
+      "sessions": 1000,
+      "p50": 407.1555,
+      "p95": 1028.208,
+      "status": "measured"
+    },
+    {
+      "sessions": 5000,
+      "p50": 341.2058,
+      "p95": 1147.2105,
+      "status": "measured"
+    },
+    {
+      "sessions": 10000,
+      "p50": 262.2384,
+      "p95": 403.4301,
+      "status": "measured"
+    }
+  ],
   "method": [
     {
       "label": "데이터셋",
-      "value": null
+      "value": "공개 URL 26개 · 합성 세션 · 골든 6+2질문 · holdout 3+1질문"
     },
     {
       "label": "측정 환경",
-      "value": null
+      "value": "macOS 27.0.1 · RAM 16GiB · 로컬 DB/Qdrant · 외부 임베딩"
     },
     {
       "label": "테스트 조건",
-      "value": null
+      "value": "hnsw_ef 256 · 임계 0.28 · 직렬 · warm 10회 · E2E 미측정"
     },
     {
       "label": "측정 날짜",
-      "value": null
+      "value": "2026-10-20 · client-cold 별도 표 · 일반 정확도 보장 아님"
     }
   ]
 }

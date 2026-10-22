@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { buildMatrix, displayMeasure, METRICS, parseCsv } from '../../preview/exhibition/metrics';
+import { TechBanner } from '../../preview/exhibition/panel-tech';
+import { calculateRefusalHighlight, REFUSAL_HIGHLIGHT } from '../../preview/exhibition/trial-highlights';
 
 describe('전시 현수막 숫자 — 실측만 숫자로', () => {
   it('실측 표시가 없으면 숫자가 들어 있어도 TBD 로 둔다', () => {
@@ -18,10 +22,19 @@ describe('전시 현수막 숫자 — 실측만 숫자로', () => {
     expect(displayMeasure({ label: 'MRR', value: 0.8, unit: '', status: 'measured', digits: 2 })).toEqual({ text: '0.80', unit: '', measured: true });
   });
 
-  it('지금 데이터 파일에는 실측 값이 하나도 없다(결과가 오기 전)', () => {
-    const shown = METRICS.metrics.flatMap((metric) => metric.values).filter((value) => displayMeasure(value).measured);
-    expect(shown).toEqual([]);
-    expect(METRICS.scaling).toEqual([]);
+  it('실측 결과는 골든·holdout과 오류를 분리하고 서버 시간을 E2E로 표시하지 않는다', () => {
+    const latency = METRICS.metrics.find((metric) => metric.code === 'B')!;
+    expect(latency.title).toBe('Backend Search Latency');
+    expect(latency.note).toContain('HTTP·인증·UI 제외');
+    const quality = METRICS.metrics.find((metric) => metric.code === 'C')!;
+    expect(quality.values.map((value) => [value.label, value.value])).toEqual([
+      ['골든 Top-1', 100],
+      ['holdout 끔 Top-1', 66.7],
+      ['holdout 켬 Top-1', 40],
+    ]);
+    expect(quality.note).toContain('429 오류 22회');
+    expect(quality.values.every((value) => displayMeasure(value).measured)).toBe(true);
+    expect(METRICS.scaling.map((point) => point.sessions)).toEqual([100, 1000, 5000, 10000]);
   });
 });
 
@@ -78,9 +91,63 @@ describe('비교표 CSV', () => {
       { name: 'Microsoft Edge', documentOnly: true },
     ]);
     expect(matrix.capabilities).toHaveLength(4);
-    // 경쟁 제품은 직접 시험을 마쳤고, Orbit 행은 같은 조건의 시험 결과가 올 때까지 비워 둔다.
+    // Orbit도 실제 수집 UI 시험을 완료했다. 후보 표시와 복원 오류를 함께 남긴다.
     const kinds = (name: string) => matrix.capabilities.map((capability) => matrix.cell(name, capability).kind);
-    expect(new Set(kinds('Orbit'))).toEqual(new Set(['pending']));
+    expect(rows.filter((row) => row.product === 'Orbit').map((row) => row.value)).toEqual([
+      '후보 3/6', '2/2', '일부·혼입', '4/9',
+    ]);
+    expect(kinds('Orbit')).not.toContain('pending');
+    const trial = parseCsv(readFileSync(new URL('../../preview/exhibition/orbit_trial.csv', import.meta.url), 'utf8'));
+    expect(trial).toHaveLength(8);
+    expect(trial.slice(0, 6).filter((row) => row.found === '1')).toHaveLength(3);
+    expect(trial.slice(6).filter((row) => row.found === '1')).toHaveLength(2);
+    const report = readFileSync(new URL('../../preview/exhibition/orbit-ui-trial.md', import.meta.url), 'utf8');
+    expect(report).toContain('답변/근거 모순');
+    expect(report).toContain('| 전체 | **4/9** | **5**');
+    expect(report).toContain('제주항공 403');
     for (const name of ['Perplexity Comet', 'Google Chrome']) expect(kinds(name)).not.toContain('pending');
+  });
+});
+
+describe('전면 비교 강조 — 같은 부정 질문과 로그인 조건', () => {
+  const orbit = readFileSync(new URL('../../preview/exhibition/orbit_trial.csv', import.meta.url), 'utf8');
+  const competitors = readFileSync(new URL('../../preview/exhibition/competitor_trials.csv', import.meta.url), 'utf8');
+
+  it('원본의 고정 두 문항으로 비율과 퍼센트포인트 차이를 계산한다', () => {
+    expect(REFUSAL_HIGHLIGHT).toEqual({
+      orbit: { correct: 2, total: 2, percent: 100 },
+      comet: { correct: 1, total: 2, percent: 50 },
+      differencePoints: 50,
+    });
+    // 로그아웃·Chrome의 동일 문항 판정은 이 비교에 들어가지 않는다.
+    const changed = competitors
+      .replace('logged_out_search,negative_garden,Q,partial', 'logged_out_search,negative_garden,Q,wrong')
+      .replaceAll('correct_trivial', 'wrong');
+    expect(calculateRefusalHighlight(orbit, changed)).toEqual(REFUSAL_HIGHLIGHT);
+  });
+
+  it('한쪽 문항 누락·중복 또는 미판정 결과로 비율을 만들지 않는다', () => {
+    const missing = competitors.split('\n').filter((row) => !row.includes('logged_in_mixed,negative_piano,')).join('\n');
+    expect(() => calculateRefusalHighlight(orbit, missing)).toThrow('Expected one measured refusal result');
+    const duplicate = orbit.split('\n').find((row) => row.startsWith('negative_garden,'))!;
+    expect(() => calculateRefusalHighlight(`${orbit}\n${duplicate}`, competitors)).toThrow('Expected one measured refusal result');
+    const pending = competitors.replace('logged_in_mixed,negative_piano,Q,wrong', 'logged_in_mixed,negative_piano,Q,pending');
+    expect(() => calculateRefusalHighlight(orbit, pending)).toThrow('unmeasured result');
+  });
+
+  it('배너는 분수 없이 비율을 표시하고 시험 범위와 실행 차이를 함께 남긴다', () => {
+    const html = renderToStaticMarkup(createElement(TechBanner));
+    const text = html.replace(/<[^>]*>/g, '');
+    expect(text).toContain('기록 없음 판별');
+    expect(text).toContain('100%');
+    expect(text).toContain('Comet50%');
+    expect(text).toContain('+50%p');
+    expect(text).not.toMatch(/\d+\s*\/\s*\d+/);
+    expect(text).toContain('기록이 없는 두 질문');
+    expect(text).toContain('전체 검색 정확도를 뜻하지 않습니다');
+    expect(text).toContain('실행 방식·수집 콘텐츠 차이');
+    expect(text).toContain('제주항공 403');
+    expect(text).not.toContain('골든 Top-1');
+    expect(text).toContain('HTTP·인증·UI 제외');
   });
 });
