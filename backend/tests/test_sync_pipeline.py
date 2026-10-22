@@ -809,3 +809,24 @@ def test_process_batch_refreshes_two_sessions_at_a_time_and_isolates_failures(mo
     assert gauge.peak == 2
     assert sorted(refreshed) == ["s1", "s3", "s4"]
     assert any("s2" in w and "summary boom" in w for w in warnings)
+
+
+def test_process_group_analyzes_each_subject_of_a_large_subcluster_separately(monkeypatch):
+    events, applied = _group_fakes(monkeypatch, [[0, 1, 2, 3, 4, 5]])
+    seen: list[list[str]] = []
+
+    async def split(cluster_events):
+        assert [e["id"] for e in cluster_events] == ["e0", "e1", "e2", "e3", "e4", "e5"]
+        return [[1, 3, 5], [0, 2, 4]][::-1]
+
+    async def analyze(cluster_events, _candidates):
+        seen.append([e["id"] for e in cluster_events])
+        return [sync_pipeline.Assignment(list(range(len(cluster_events))), "create", title="t")]
+
+    monkeypatch.setattr(sync_pipeline, "split_by_subject", split)
+    monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+
+    asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+
+    assert sorted(seen) == [["e0", "e2", "e4"], ["e1", "e3", "e5"]]
+    assert applied == [["e0", "e2", "e4"], ["e1", "e3", "e5"]]

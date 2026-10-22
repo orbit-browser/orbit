@@ -31,6 +31,7 @@ from ..services.merge_service import auto_merge_duplicates
 from ..services.recommender.service import invalidate as invalidate_recommendations
 from ..services.session_updater import apply_assignments, refresh_session_ai
 from ..services.subclusterer import subcluster
+from ..services.subject_splitter import split_by_subject
 
 logger = logging.getLogger(__name__)
 
@@ -448,7 +449,9 @@ async def _process_group(
     # 이벤트별 임베딩(1회 배치 요청) — 서브클러스터링과 클러스터 centroid 후보검색에 재사용한다.
     # 기존 세션(embedding-passage 저장)을 검색하는 쿼리 벡터이므로 embedding-query(기본값)를 쓴다.
     embeddings = await embed_many([_event_embedding_text(e) for e in filtered_group])
-    clusters_idx = subcluster(embeddings, settings.subcluster_threshold)
+    clusters_idx = await _split_clusters_by_subject(
+        filtered_group, subcluster(embeddings, settings.subcluster_threshold)
+    )
 
     # phase 1 — 클러스터별 후보검색 + 의도분석 + 게이트. apply 전에 모두 수행해, 클러스터가
     # 서로가 방금 만든 세션을 후보로 잡아 쪼갠 주제를 다시 붙이는 것(재병합)을 막는다.
@@ -491,6 +494,23 @@ async def _gather_limited(limit: int, items: list, fn) -> list:
             return await fn(item)
 
     return await asyncio.gather(*(run(item) for item in items), return_exceptions=True)
+
+
+async def _split_clusters_by_subject(events: list[dict], clusters_idx: list[list[int]]) -> list[list[int]]:
+    """큰 서브클러스터를 알아본 대상별로 다시 나눈다(subject_splitter). 임베딩은 같은 범주의 다른 대상을
+    가르지 못한다. 실패한 묶음은 그대로 둔다. 순서는 각 묶음의 첫 이벤트 순이다."""
+
+    async def split(idx_group: list[int]) -> list[list[int]]:
+        parts = await split_by_subject([events[i] for i in idx_group])
+        return [[idx_group[i] for i in part] for part in parts]
+
+    results = await _gather_limited(_INTENT_CONCURRENCY, clusters_idx, split)
+    refined: list[list[int]] = []
+    for idx_group, result in zip(clusters_idx, results):
+        if isinstance(result, BaseException) and not isinstance(result, Exception):
+            raise result
+        refined.extend([idx_group] if isinstance(result, Exception) else result)
+    return sorted(refined, key=lambda part: part[0])
 
 
 def _summarize_models(counts: dict[str, int]) -> str | None:
