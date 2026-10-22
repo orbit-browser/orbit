@@ -18,6 +18,9 @@ import { useActiveWorkspace } from '../../../lib/useWorkspaces';
 import { EmptyStateActions } from './sections/EmptyStateActions';
 import { readAtlasTarget } from '../lib/navigation';
 import { getNavState, useSharedNavState } from '../lib/nav-state';
+import { useAuth } from '../../../lib/useAuth';
+import { canShowSnapshots } from '../../../lib/tab-snapshots';
+import { useTabSnapshots } from '../../../lib/useTabSnapshots';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 const TRAY_INSET = 250;
@@ -94,6 +97,12 @@ export function VariantAtlasReplica() {
   const activeSession = focusedFolder
     ? sessions.find((session) => session.id === nav.selectedSessionId) ?? null
     : focusedSession;
+
+  // 남의 팀 세션에는 내 기기 사진을 붙이지 않는다 — 개인 세션과 내가 공유한 세션만.
+  const myUserId = useAuth().session?.user.id ?? null;
+  const shotsAllowed = !!activeSession && canShowSnapshots(readOnly, activeSession.sharedBy, myUserId);
+  const shotUrls = useMemo(() => activeSession?.pages.map((page) => page.url) ?? [], [activeSession]);
+  const shots = useTabSnapshots(shotUrls, shotsAllowed);
 
   const selectedPageId =
     activeSession?.pages.some((page) => page.id === (nav.selectedPageId ?? target?.pageId))
@@ -414,6 +423,7 @@ export function VariantAtlasReplica() {
             }
             sessionOrder={sessionOrder}
             sharerName={readOnly ? activeSession?.sharedBy?.name ?? null : null}
+            shots={shots}
             onSelectSession={selectSession}
             onStepGroup={stepGroup}
           />

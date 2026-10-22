@@ -1,6 +1,7 @@
 import { handlePageContentReady, initCollector } from '../lib/events/collector';
 import { openOnboardingForInstall } from '../lib/onboarding';
 import { initTriggers } from '../lib/sync/triggers';
+import { initTabCapture } from '../lib/tab-capture';
 import { initTeamCollect } from '../lib/team-collect';
 import type { PageContent } from '../lib/types';
 
@@ -12,6 +13,7 @@ export default defineBackground(() => {
   initCollector();
   initTriggers();
   initTeamCollect();
+  initTabCapture();
 
   chrome.sidePanel
     ?.setPanelBehavior({ openPanelOnActionClick: true })

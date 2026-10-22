@@ -711,6 +711,30 @@ describe('서버 잠금 순서 — 일시 정지 직후 다른 화면에서 시�
     expect((await getActiveCollect(USER))?.windowId).toBe('cw-new');
   });
 
+  it('끄기 항목은 대상 창 id 를 싣고, 로컬 창이 바로 그 대상이면 건너뛰지 않는다', async () => {
+    await signIn();
+    await seedActive({ windowId: 'cw-old' });
+    const locks = installLocks();
+    let release!: () => void;
+    const held = locks.request('orbit-team-collect-server', () => new Promise<void>((r) => { release = r; }));
+    const pausing = endTeamCollect(USER, 'pause');
+    await new Promise((r) => setTimeout(r, 30));
+    // 잠금을 기다리는 사이 로컬 창이 끄려는 그 창이다 — 열린 창이므로 DELETE 를 보내야 한다.
+    await seedActive({ windowId: 'cw-old' });
+    release();
+    await Promise.all([held, pausing]);
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
+  });
+
+  it('큐에 남은 끄기 항목에도 대상 창 id 가 실린다', async () => {
+    await seedActive({ windowId: 'cw-old' });
+    await endTeamCollect(USER, 'stop');
+    const items = (await chrome.storage.local.get('orbit:teamCollectRetry'))['orbit:teamCollectRetry'] as {
+      windowId?: string;
+    }[];
+    expect(items.map((item) => item.windowId)).toEqual(['cw-old']);
+  });
+
   it('끄기가 먼저 잠금을 잡으면 DELETE 를 보내고, 그 뒤 시작이 새 창을 연다', async () => {
     await signIn();
     await seedActive({ windowId: 'cw-old' });

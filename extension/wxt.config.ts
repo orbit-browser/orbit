@@ -80,6 +80,10 @@ export default defineConfig({
     },
     // TODO: 배포 URL 확정 시 프로덕션 백엔드 도메인 추가
     host_permissions: ['http://localhost/*', 'http://127.0.0.1/*'],
+    // 탭 화면 미리보기(tabs.captureVisibleTab)는 activeTab(아이콘을 누른 순간만)이나 <all_urls> 로만 찍을 수 있다.
+    // 상시 권한으로 두면 확장 페이지가 모든 사이트에 쿠키를 실은 요청을 보낼 수 있게 되므로(보안 검토 M1),
+    // 설치 때 받지 않고 사용자가 미리보기를 켤 때 요청하고 끌 때 돌려준다(lib/tab-snapshots.ts).
+    optional_host_permissions: ['<all_urls>'],
     commands: {
       _execute_action: {
         suggested_key: { default: 'Alt+Shift+O' },

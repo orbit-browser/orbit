@@ -63,7 +63,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         id: 'privacy',
         label: '개인정보 보호',
         icon: 'shield',
-        keywords: ['민감', '개인정보', '수집 범위'],
+        keywords: ['민감', '개인정보', '수집 범위', '미리보기', '화면', '캡처'],
       },
     ],
   },

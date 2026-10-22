@@ -23,6 +23,7 @@ import {
 } from '../events/queue';
 import { drainPreviousAccount, requestDrain, RETRY_ALARM_NAME } from './engine';
 import { handleAccountSwitch } from '../team-collect';
+import { pruneOtherAccountSnapshots } from '../tab-snapshots';
 
 const SYNC_ALARM_NAME = 'orbit-sync';
 /** 유휴 상태가 idleSyncMin(분) 동안 지속되면 실제로 drain('idle')을 실행하는 1회성 알람. */
@@ -156,6 +157,11 @@ async function runStartupMaintenance(): Promise<void> {
     await pruneOtherAccounts((await getSession())?.user.id ?? null, OTHER_ACCOUNT_RETENTION_MS);
   } catch (err) {
     console.error('[Orbit] pruneOtherAccounts 실패', err);
+  }
+  try {
+    await pruneOtherAccountSnapshots((await getSession())?.user.id ?? null, OTHER_ACCOUNT_RETENTION_MS);
+  } catch (err) {
+    console.error('[Orbit] pruneOtherAccountSnapshots 실패', err);
   }
   try {
     await evictIfOver(QUEUE_LIMIT);

@@ -11,6 +11,9 @@ import { restoreInNewWindow, restoreInCurrentWindow } from '../../../lib/chrome-
 import { fetchSessionEvents } from '../../../lib/api';
 import { useActiveWorkspace } from '../../../lib/useWorkspaces';
 import { useWorkspaceSessions } from '../hooks/useWorkspaces';
+import { useAuth } from '../../../lib/useAuth';
+import { canShowSnapshots, snapshotKey } from '../../../lib/tab-snapshots';
+import { useTabSnapshots } from '../../../lib/useTabSnapshots';
 
 export function SessionDetailView() {
   const selectedId = useUIStore((s) => s.selectedSessionId);
@@ -23,6 +26,12 @@ export function SessionDetailView() {
   const { data: teamSessions } = useWorkspaceSessions(scopeId);
   const readOnly = !!scopeId;
   const sharedBy = teamSessions?.find((item) => item.id === selectedId)?.sharedBy;
+  // 남의 팀 세션에는 내 기기 사진을 붙이지 않는다.
+  const myUserId = useAuth().session?.user.id ?? null;
+  const shots = useTabSnapshots(
+    session?.tabs.map((tab) => tab.url) ?? [],
+    canShowSnapshots(readOnly, sharedBy, myUserId),
+  );
   const { mutate: renameSession } = useRenameSession();
   const { mutate: retrySummary, isPending: isRetrying } = useRetrySummary();
   const { data: timelineEvents } = useQuery({
@@ -198,7 +207,7 @@ export function SessionDetailView() {
               {activeSubTab === 'tabs' ? (
                 <div className="space-y-0.5">
                   {session.tabs.map((tab) => (
-                    <TabListItem key={tab.id} tab={tab} />
+                    <TabListItem key={tab.id} tab={tab} shot={shots[snapshotKey(tab.url) ?? '']} />
                   ))}
                 </div>
               ) : isFailed ? (
