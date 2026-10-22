@@ -14,6 +14,7 @@ from ..config import settings
 from ..db.models import ExplorationEvent, Session as SessionModel, SessionEvent
 from ..schemas.assistant import AssistantRetrievalIntent
 from ..schemas.session import SessionDetail
+from .event_filter import ai_safe_path, ai_safe_url
 from .tab_action_resolver import cosine_similarity
 from .workspaces import session_scope_clause
 
@@ -59,7 +60,7 @@ def build_event_passage(event: ExplorationEvent) -> str:
     try:
         parsed = urlsplit(event.url or "")
         host = (parsed.hostname or "").removeprefix("www.")
-        path = unquote(parsed.path or "").strip("/")[:300]
+        path = unquote(ai_safe_path(event.url or "")).strip("/")[:300]
     except ValueError:
         host, path = "", ""
     fields = [
@@ -172,14 +173,16 @@ def _session_block(
     excerpts: list[str] = []
     for event in events:
         excerpt = (event.content_excerpt or "").strip()[:MAX_EXCERPT_CHARS]
-        event_label = event.title or event.domain or event.url
-        excerpts.append(f"- {event_label} ({event.url})\n  {excerpt or '(본문 없음)'}")
+        url = ai_safe_url(event.url or "")
+        event_label = event.title or event.domain or url
+        excerpts.append(f"- {event_label} ({url})\n  {excerpt or '(본문 없음)'}")
 
     if not excerpts and model:
         for tab in (model.tabs or [])[:MAX_EVENTS_PER_SESSION]:
             excerpt = (tab.get("text_content") or tab.get("excerpt") or "").strip()[:MAX_EXCERPT_CHARS]
-            label = tab.get("title") or tab.get("url") or "페이지"
-            excerpts.append(f"- {label} ({tab.get('url', '')})\n  {excerpt or '(본문 없음)'}")
+            url = ai_safe_url(tab.get("url") or "")
+            label = tab.get("title") or url or "페이지"
+            excerpts.append(f"- {label} ({url})\n  {excerpt or '(본문 없음)'}")
 
     lines.append("페이지 기록:\n" + ("\n".join(excerpts) if excerpts else "- (페이지 본문 없음)"))
     return "\n".join(lines)

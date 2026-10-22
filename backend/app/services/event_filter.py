@@ -6,7 +6,7 @@
 
 import hashlib
 import re
-from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 _SYSTEM_SCHEMES = {
     "chrome",
@@ -122,6 +122,54 @@ def is_sensitive_url(url: str) -> bool:
     if any(pattern.search(parts.path) for pattern in _SENSITIVE_PATH_PATTERNS):
         return True
     return False
+
+
+_PATH_PIECE = re.compile(r"[A-Za-z0-9]+")
+_HEX_PIECE = re.compile(r"[0-9a-f]{12,}", re.IGNORECASE)
+# 문서 id 같은 base64url 값은 -, _ 로 쪼개면 조각마다 짧아져서 통째로도 본다.
+_ID_RUN = re.compile(r"[A-Za-z0-9_-]{16,}")
+
+
+def _looks_secret(segment: str) -> bool:
+    """문서 id·재설정 토큰·이메일·주문 번호처럼 사람을 특정하거나 접근 권한이 되는 경로 조각."""
+    segment = unquote(segment)
+    if "@" in segment:
+        return True
+    for piece in _PATH_PIECE.findall(segment):
+        if piece.isdigit():
+            if len(piece) >= 8:
+                return True
+        elif _HEX_PIECE.fullmatch(piece):
+            return True
+        elif len(piece) >= 16 and any(c.isdigit() for c in piece):
+            return True
+    return any(
+        any(c.isdigit() for c in run) and any(c.isupper() for c in run) and any(c.islower() for c in run)
+        for run in _ID_RUN.findall(segment)
+    )
+
+
+def ai_safe_path(url: str) -> str:
+    """외부 AI(임베딩·LLM)에 보낼 URL 경로. 쿼리·프래그먼트는 없고, 민감 URL은 빈 문자열."""
+    try:
+        path = urlsplit(url).path
+    except ValueError:
+        return ""
+    if is_sensitive_url(url):
+        return ""
+    return "/".join(segment for segment in path.split("/") if not _looks_secret(segment))
+
+
+def ai_safe_url(url: str) -> str:
+    """Ask 프롬프트의 출처 URL. 사용자 화면의 링크는 원래 URL을 그대로 쓴다."""
+    try:
+        parts = urlsplit(url)
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return ""
+    if not parts.hostname:
+        return ""
+    return f"{parts.scheme}://{parts.hostname}{port}{ai_safe_path(url)}"
 
 
 def _first_query_value(query: str, param: str) -> str | None:

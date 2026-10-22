@@ -7,10 +7,10 @@
 import logging
 import re
 from dataclasses import dataclass
-from urllib.parse import urlsplit
 
 from ..ai.json_utils import extract_json
 from ..ai.llm import chat_completion_intent
+from .event_filter import ai_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -124,10 +124,7 @@ def _format_event_line(index: int, event: dict) -> str:
 
     line = f"[{index}] {title} | {domain} | 체류 {duration_min}분 | {time_str}"
     # 같은 사이트의 페이지는 제목이 같은 경우가 많다(예: "Blender - Open Data"). 경로로 구분한다.
-    try:
-        path = urlsplit(event.get("url") or "").path
-    except ValueError:
-        path = ""
+    path = ai_safe_path(event.get("url") or "")
     if path.strip("/"):
         line += f" | 경로: {path[:_MAX_PATH_CHARS]}"
     search_query = event.get("search_query")

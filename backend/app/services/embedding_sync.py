@@ -15,6 +15,7 @@ from ..db.models import Session as SessionModel
 from ..db.session import AsyncSessionLocal
 from ..db.vector import COLLECTION, point_ids_missing_owner, set_owner, upsert_point
 from ..schemas.session import SessionSummary
+from .event_filter import ai_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def _page_terms(tab: dict) -> str:
         parts = urlsplit("")
     host = (parts.hostname or "").removeprefix("www.")
     # 긴 숫자 id(CNTS_000000000022574 등)는 의미가 없어 뺀다. 5070 같은 짧은 모델 번호는 남긴다.
-    path = " ".join(t for t in _PATH_TOKEN.findall(parts.path) if not (t.isdigit() and len(t) > 6))
+    path = " ".join(t for t in _PATH_TOKEN.findall(ai_safe_path(url)) if not (t.isdigit() and len(t) > 6))
     return " ".join(part for part in ((tab.get("title") or "").strip(), host, path) if part)
 
 
