@@ -148,12 +148,16 @@ LLM 요약이 여러 주제를 한 문단에 섞어도 페이지 단위 질문�
 
 ```bash
 cd backend
-python -m app.services.embedding_sync              # 요약 완료된 모든 세션 재임베딩
-python -m app.services.embedding_sync --user-id <id>  # 한 사용자만
+python -m app.services.embedding_sync --user-id <id> --dry-run   # 대상 DB·Qdrant와 세션 수만 출력
+python -m app.services.embedding_sync --user-id <id> --yes       # 한 사용자만 재임베딩
+python -m app.services.embedding_sync --all --dry-run            # 모든 사용자 대상 미리보기
 ```
 
+`--user-id`나 `--all` 중 하나는 필수다. 실행하면 먼저 대상(DB 호스트/이름, Qdrant 호스트, 컬렉션,
+사용자, 세션 수)을 출력하고, `--yes`가 없으면 아무 호출 없이 멈춘다(종료 코드 1). 비밀번호는 출력하지 않는다.
 세션마다 embedding-passage 호출이 1회 발생한다(유료, 순차 실행). `backend/.env`의 DB·Qdrant를 대상으로
-하므로 실행 전에 대상 환경을 확인한다. 실패한 세션은 `embedding_status=failed`로 남고 기동 복구가 다시 시도한다.
+하므로 `--dry-run` 출력으로 대상 환경을 확인한 뒤 `--yes`를 붙인다. 실패한 세션은 `embedding_status=failed`로
+남고 기동 복구가 다시 시도한다.
 
 ## 알려진 미완성 항목
 

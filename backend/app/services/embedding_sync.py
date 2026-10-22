@@ -7,12 +7,13 @@ from collections.abc import Sequence
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
+from sqlalchemy.engine import make_url
 
 from ..ai.embedding import embed
 from ..config import settings
 from ..db.models import Session as SessionModel
 from ..db.session import AsyncSessionLocal
-from ..db.vector import point_ids_missing_owner, set_owner, upsert_point
+from ..db.vector import COLLECTION, point_ids_missing_owner, set_owner, upsert_point
 from ..schemas.session import SessionSummary
 
 logger = logging.getLogger(__name__)
@@ -102,18 +103,27 @@ async def backfill_owner_payload() -> None:
         logger.warning("Qdrant 소유자 payload backfill 실패 (%s) — 다음 기동 때 재시도", exc)
 
 
+def _reembed_query(user_id: str | None):
+    query = select(SessionModel.id, SessionModel.title, SessionModel.summary).where(
+        SessionModel.summary_status == "done"
+    )
+    if user_id:
+        query = query.where(SessionModel.user_id == user_id)
+    return query
+
+
+async def count_reembed_targets(user_id: str | None = None) -> int:
+    async with AsyncSessionLocal() as db:
+        return len((await db.execute(_reembed_query(user_id))).all())
+
+
 async def reembed_sessions(user_id: str | None = None) -> int:
     """요약이 끝난 세션을 현재 임베딩 텍스트 구성으로 다시 임베딩한다(텍스트 구성을 바꾼 뒤 백필용).
 
     세션마다 임베딩 호출 1회. 순차 실행해 외부 API 제한을 넘지 않는다. 처리한 세션 수를 반환한다.
     """
     async with AsyncSessionLocal() as db:
-        query = select(SessionModel.id, SessionModel.title, SessionModel.summary).where(
-            SessionModel.summary_status == "done"
-        )
-        if user_id:
-            query = query.where(SessionModel.user_id == user_id)
-        rows = (await db.execute(query)).all()
+        rows = (await db.execute(_reembed_query(user_id))).all()
     done = 0
     for session_id, title, summary in rows:
         try:
@@ -127,9 +137,45 @@ async def reembed_sessions(user_id: str | None = None) -> int:
     return done
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Re-embed summarized sessions into Qdrant.")
-    parser.add_argument("--user-id", help="only this user's sessions")
-    args = parser.parse_args()
+def _target_description() -> str:
+    # 비밀번호가 든 URL을 그대로 찍지 않는다. 호스트·DB 이름·컬렉션만 보여 준다.
+    db_url = make_url(settings.database_url)
+    qdrant = urlsplit(settings.qdrant_url)
+    return (
+        f"database={db_url.host}:{db_url.port or ''}/{db_url.database} "
+        f"qdrant={qdrant.hostname}:{qdrant.port or ''} collection={COLLECTION}"
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    # 유료 임베딩을 세션 수만큼 부르므로, 대상을 명시하고 확인(--yes)한 뒤에만 실행한다.
+    parser = argparse.ArgumentParser(description="Re-embed summarized sessions into Qdrant (paid API).")
+    scope = parser.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--user-id", help="only this user's sessions")
+    scope.add_argument("--all", action="store_true", help="every user's sessions")
+    parser.add_argument("--dry-run", action="store_true", help="print the target and count, then exit")
+    parser.add_argument("--yes", action="store_true", help="run without stopping for confirmation")
+    args = parser.parse_args(argv)
+    if args.user_id is not None and not args.user_id.strip():
+        parser.error("--user-id must not be empty")  # 빈 값이 전체 대상으로 새지 않게 한다
     logging.basicConfig(level=logging.INFO)
-    print(f"re-embedded {asyncio.run(reembed_sessions(args.user_id))} sessions")
+
+    return asyncio.run(_run_backfill(None if args.all else args.user_id, args.dry_run, args.yes))
+
+
+async def _run_backfill(user_id: str | None, dry_run: bool, yes: bool) -> int:
+    # 한 이벤트 루프에서 끝낸다. asyncpg 풀은 처음 쓴 루프에 묶인다.
+    count = await count_reembed_targets(user_id)
+    print(f"target: {_target_description()} user={user_id or 'ALL'} sessions={count}")
+    if dry_run:
+        print("dry run: no embedding calls made")
+        return 0
+    if not yes:
+        print(f"stopped: rerun with --yes to make {count} paid embedding calls")
+        return 1
+    print(f"re-embedded {await reembed_sessions(user_id)} sessions")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

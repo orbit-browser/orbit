@@ -166,3 +166,108 @@ def test_reembed_sessions_reuses_embed_and_upsert(monkeypatch):
 
     assert asyncio.run(embedding_sync.reembed_sessions()) == 2
     assert calls == [("s1", "제목1", "개요"), ("s2", "제목3", "개요")]
+
+
+# ── 재임베딩 명령 안전장치 ────────────────────────────────
+
+
+def _cli_doubles(monkeypatch, count=3):
+    calls: dict = {"count": [], "reembed": []}
+
+    async def fake_count(user_id=None):
+        calls["count"].append(user_id)
+        return count
+
+    async def fake_reembed(user_id=None):
+        calls["reembed"].append(user_id)
+        return count
+
+    monkeypatch.setattr(embedding_sync, "count_reembed_targets", fake_count)
+    monkeypatch.setattr(embedding_sync, "reembed_sessions", fake_reembed)
+    monkeypatch.setattr(
+        embedding_sync.settings, "database_url", "postgresql+asyncpg://orbit:s3cret@db.local:5433/orbit_dev"
+    )
+    return calls
+
+
+def test_reembed_cli_without_scope_exits_before_any_call(monkeypatch):
+    calls = _cli_doubles(monkeypatch)
+
+    try:
+        embedding_sync.main([])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("scope is required")
+    assert calls == {"count": [], "reembed": []}
+
+
+def test_reembed_cli_rejects_empty_user_id(monkeypatch):
+    calls = _cli_doubles(monkeypatch)
+
+    try:
+        embedding_sync.main(["--user-id", " "])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("empty user id must not fall back to all users")
+    assert calls == {"count": [], "reembed": []}
+
+
+def test_reembed_cli_stops_without_yes_and_prints_target(monkeypatch, capsys):
+    calls = _cli_doubles(monkeypatch)
+
+    assert embedding_sync.main(["--all"]) == 1
+
+    out = capsys.readouterr().out
+    assert "database=db.local:5433/orbit_dev" in out
+    assert "collection=orbit_sessions" in out
+    assert "user=ALL sessions=3" in out
+    assert "s3cret" not in out
+    assert calls == {"count": [None], "reembed": []}
+
+
+def test_reembed_cli_dry_run_makes_no_embedding_calls(monkeypatch, capsys):
+    calls = _cli_doubles(monkeypatch)
+
+    assert embedding_sync.main(["--user-id", "u1", "--dry-run", "--yes"]) == 0
+
+    assert "user=u1 sessions=3" in capsys.readouterr().out
+    assert calls == {"count": ["u1"], "reembed": []}
+
+
+def test_reembed_cli_runs_with_yes(monkeypatch, capsys):
+    calls = _cli_doubles(monkeypatch)
+
+    assert embedding_sync.main(["--user-id", "u1", "--yes"]) == 0
+
+    assert "re-embedded 3 sessions" in capsys.readouterr().out
+    assert calls == {"count": ["u1"], "reembed": ["u1"]}
+
+
+def test_retrieval_eval_text_matches_product_text(monkeypatch):
+    # 평가 하네스가 제품과 다른 텍스트를 재면 다음 하한 재선정이 옛 텍스트로 측정된다.
+    from eval.run_retrieval_eval import _passage_text
+
+    tabs = [{"title": "Preserving and Resetting State – React",
+             "url": "https://react.dev/learn/preserving-and-resetting-state"}]
+    session = {"title": "React 상태", "overview": "개요", "purpose": "목적", "highlights": ["하나"], "tabs": tabs}
+    db = _FakeDB(owner="u1", tabs=tabs)
+    texts: list[str] = []
+
+    async def fake_embed(text, model):
+        texts.append(text)
+        return [0.1]
+
+    async def fake_upsert(*_args):
+        pass
+
+    monkeypatch.setattr(embedding_sync, "AsyncSessionLocal", lambda: _SessionCtx(db))
+    monkeypatch.setattr(embedding_sync, "embed", fake_embed)
+    monkeypatch.setattr(embedding_sync, "upsert_point", fake_upsert)
+
+    asyncio.run(embedding_sync.embed_and_upsert(
+        "s1", session["title"], SessionSummary(overview="개요", purpose="목적", highlights=["하나"])
+    ))
+
+    assert _passage_text(session) == texts[0]
