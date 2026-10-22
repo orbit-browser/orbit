@@ -679,3 +679,47 @@ def test_fetch_candidates_passes_user_id_to_vector_search(monkeypatch):
 
     asyncio.run(sync_pipeline._fetch_candidates([0.1], "u1"))
     assert seen["user_id"] == "u1"
+
+
+# ── 서브클러스터 안 분할 병합(_merge_split_topic) ─────────────────────────────
+
+
+def _create(indices: list[int]):
+    return sync_pipeline.Assignment(event_indices=indices, action="create", target=None)
+
+
+def test_merge_split_topic_keeps_llm_sibling_split():
+    # 형제 대상(파리·런던)은 임베딩상 한 서브클러스터다. LLM이 대상마다 여러 이벤트로 나눴으면 지킨다.
+    merged = sync_pipeline._merge_split_topic([_create([0, 2, 4]), _create([1, 3, 5])])
+
+    assert [a.event_indices for a in merged] == [[0, 2, 4], [1, 3, 5]]
+
+
+def test_merge_split_topic_folds_single_event_fragment_into_preceding_session():
+    # S1 dev s1p01: 파리를 에펠탑[0,1]과 루브르[2]로 쪼갰다. 조각은 바로 앞 이벤트의 세션으로 돌린다.
+    merged = sync_pipeline._merge_split_topic([_create([0, 1]), _create([2]), _create([3, 4, 5])])
+
+    assert [a.event_indices for a in merged] == [[0, 1, 2], [3, 4, 5]]
+
+
+def test_merge_split_topic_folds_leading_fragment_into_following_session():
+    merged = sync_pipeline._merge_split_topic([_create([0]), _create([1, 2]), _create([3, 4])])
+
+    assert [a.event_indices for a in merged] == [[0, 1, 2], [3, 4]]
+
+
+def test_merge_split_topic_merges_all_fragments_when_no_multi_event_session():
+    # 한 주제를 이벤트마다 세션으로 쪼갠 응답(2026-10-19 과분할)은 예전처럼 하나로 합친다.
+    merged = sync_pipeline._merge_split_topic(
+        [_create([0]), _create([1]), sync_pipeline.Assignment([2], "discard")]
+    )
+
+    assert [(a.action, a.event_indices) for a in merged] == [("create", [0, 1]), ("discard", [2])]
+
+
+def test_merge_split_topic_still_folds_creates_into_single_append():
+    merged = sync_pipeline._merge_split_topic(
+        [sync_pipeline.Assignment([0, 1], "append", target="s1"), _create([2, 3])]
+    )
+
+    assert [(a.action, a.target, a.event_indices) for a in merged] == [("append", "s1", [0, 1, 2, 3])]

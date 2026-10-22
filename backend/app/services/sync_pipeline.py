@@ -343,26 +343,46 @@ def _append_blocked(candidate: dict) -> bool:
 
 
 def _merge_split_topic(assignments: list[Assignment]) -> list[Assignment]:
-    """한 서브클러스터 안에서 LLM이 여러 세션으로 나눈 것을 하나로 합친다(순수 함수).
+    """한 서브클러스터 안에서 LLM이 한 주제를 조각낸 세션을 합친다(순수 함수).
 
-    서브클러스터는 임베딩상 한 주제로 묶인 이벤트다. 실데이터(2026-10-19)에서 선분리는 여정 6개를
-    정확히 나눴지만, LLM(K-EXAONE·A.X 모두)이 그 안을 다시 KTX·숙소·관광지처럼 세부 항목별 세션으로
-    쪼갰다. create끼리, 또는 create와 append(대상 하나)를 묶는다. 서로 다른 기존 세션에 이어 붙이는
-    판단은 LLM이 주제를 구분한 근거가 있으므로 건드리지 않는다. hold·discard도 그대로 둔다.
-    병합 뒤 append는 _gate_appends가 다시 검사한다(대상 유사도 미달이면 create로 강등).
+    서브클러스터는 임베딩상 한 주제로 묶인 이벤트지만, 같은 범주의 다른 대상(파리·런던, 양도소득세·증여세)도
+    임베딩이 가까워 한 서브클러스터로 들어온다(S1 검증셋 47개 중 44개가 서브클러스터 하나). 그래서 LLM이
+    이벤트 둘 이상씩으로 나눈 create는 서로 다른 대상으로 보고 지킨다. 반면 이벤트 하나짜리 create는
+    한 주제에서 떼어 낸 조각(2026-10-19 실데이터의 KTX·숙소·관광지 쪼개기)으로 보고 바로 앞(없으면 뒤)
+    이벤트의 세션에 붙인다. 모두 조각이면 예전처럼 하나로 합친다.
+    append가 있으면 예전 규칙을 따른다: 기존 세션 하나에 create를 묶고, 서로 다른 기존 세션에 잇는 판단은 둔다.
+    hold·discard는 그대로 두고, 병합 뒤 append는 _gate_appends가 다시 검사한다.
     """
     sessions = [a for a in assignments if a.action in ("append", "create")]
+    others = [a for a in assignments if a.action not in ("append", "create")]
     if len(sessions) <= 1:
         return assignments
-    if len({a.target for a in sessions if a.action == "append"}) > 1:
+    has_append = any(a.action == "append" for a in sessions)
+    if has_append and len({a.target for a in sessions if a.action == "append"}) > 1:
         return assignments
-    keeper = next((a for a in sessions if a.action == "append"), sessions[0])
-    merged = replace(
-        keeper,
-        event_indices=sorted(i for a in sessions for i in a.event_indices),
-        relevance=max(a.relevance for a in sessions),
-    )
-    return [merged, *(a for a in assignments if a.action not in ("append", "create"))]
+    keepers = [] if has_append else [a for a in sessions if len(a.event_indices) >= 2]
+    if not keepers:
+        keeper = next((a for a in sessions if a.action == "append"), sessions[0])
+        merged = replace(
+            keeper,
+            event_indices=sorted(i for a in sessions for i in a.event_indices),
+            relevance=max(a.relevance for a in sessions),
+        )
+        return [merged, *others]
+
+    owner = {i: k for k, a in enumerate(keepers) for i in a.event_indices}
+    groups = [list(a.event_indices) for a in keepers]
+    relevance = [a.relevance for a in keepers]
+    for fragment in (a for a in sessions if len(a.event_indices) < 2):
+        index = fragment.event_indices[0]
+        preceding = [owner[i] for i in range(index - 1, -1, -1) if i in owner]
+        k = preceding[0] if preceding else next(owner[i] for i in sorted(owner) if i > index)
+        groups[k].append(index)
+        relevance[k] = max(relevance[k], fragment.relevance)
+    merged = [
+        replace(a, event_indices=sorted(groups[k]), relevance=relevance[k]) for k, a in enumerate(keepers)
+    ]
+    return [*merged, *others]
 
 
 def _gate_appends(assignments: list[Assignment], candidates: list[dict]) -> list[Assignment]:
