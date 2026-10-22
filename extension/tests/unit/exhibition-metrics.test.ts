@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { buildMatrix, displayMeasure, METRICS, parseCsv } from '../../preview/exhibition/metrics';
 import { TechBanner } from '../../preview/exhibition/panel-tech';
-import { calculateHeadToHead, HEAD_TO_HEAD } from '../../preview/exhibition/trial-highlights';
+import { calculateProven, PROVEN } from '../../preview/exhibition/trial-highlights';
 
 describe('전시 현수막 숫자 — 실측만 숫자로', () => {
   it('실측 표시가 없으면 숫자가 들어 있어도 TBD 로 둔다', () => {
@@ -111,49 +111,42 @@ describe('비교표 CSV', () => {
   });
 });
 
-describe('정면 비교 — 같은 조건 직접 시험', () => {
+describe('검증된 숫자 — 100%·0건만 앞면에', () => {
   const orbit = readFileSync(new URL('../../preview/exhibition/orbit_trial.csv', import.meta.url), 'utf8');
   const competitors = readFileSync(new URL('../../preview/exhibition/competitor_trials.csv', import.meta.url), 'utf8');
 
-  it('원본 CSV에서 찾은 비율·없음 판별·찾기 시간을 계산한다', () => {
-    expect(HEAD_TO_HEAD).toEqual({
-      found: {
-        orbit: { hit: 3, total: 6, percent: 50 },
-        comet: { hit: 1, total: 6, percent: 17 },
-        chrome: { hit: 0, total: 6, percent: 0 },
-      },
+  it('원본 CSV와 출처 값으로 계산한다', () => {
+    expect(PROVEN).toEqual({
       refusal: { orbit: { hit: 2, total: 2, percent: 100 }, comet: { hit: 1, total: 2, percent: 50 } },
-      orbitFindMs: 310.8,
-      cometFindSecondsAtLeast: 300,
-      restoreExtra: { orbit: 0, comet: 23 },
+      restorePrecision: { orbit: { hit: 4, total: 4, percent: 100 }, comet: { hit: 3, total: 26, percent: 12 } },
+      teamIsolation: { leaks: 0, paths: 18 },
     });
   });
 
-  it('앞선 시험 대화의 메모리로 찾은 Comet Q2는 세지 않는다', () => {
-    const withoutContaminated = competitors.split('\n').filter((row) => !row.includes(',travel_car,Q2,')).join('\n');
-    expect(calculateHeadToHead(orbit, withoutContaminated)).toEqual(HEAD_TO_HEAD);
+  it('Orbit 거절이 하나라도 실패로 바뀌면 100%가 아니게 계산된다', () => {
+    const failed = orbit.replace(/^negative_piano,([^,]*),1,/m, 'negative_piano,$1,0,');
+    expect(failed).not.toEqual(orbit);
+    expect(calculateProven(failed, competitors).refusal.orbit.percent).toBe(50);
   });
 
   it('질문 하나라도 빠지거나 겹치면 비율을 만들지 않는다', () => {
     const missing = competitors.split('\n').filter((row) => !row.includes('logged_in_mixed,negative_piano,')).join('\n');
-    expect(() => calculateHeadToHead(orbit, missing)).toThrow('Expected one measured result');
-    const duplicate = orbit.split('\n').find((row) => row.startsWith('gpu_specs,'))!;
-    expect(() => calculateHeadToHead(`${orbit}\n${duplicate}`, competitors)).toThrow('Expected one measured result');
+    expect(() => calculateProven(orbit, missing)).toThrow('Expected one measured result');
+    const duplicate = orbit.split('\n').find((row) => row.startsWith('negative_garden,'))!;
+    expect(() => calculateProven(`${orbit}\n${duplicate}`, competitors)).toThrow('Expected one measured result');
   });
 
-  it('배너 앞면은 분수 없이 비율·시간을 보이고 표본과 조건은 각주에 남긴다', () => {
+  it('앞면은 100%·0건만, 표본과 조건은 숫자 밑과 각주에 남긴다', () => {
     const html = renderToStaticMarkup(createElement(TechBanner));
     const text = html.replace(/<[^>]*>/g, '');
-    expect(text).toContain('0.3초');
-    expect(text).toContain('Orbit50%');
-    expect(text).toContain('Comet17%');
-    expect(text).toContain('Chrome0%');
-    expect(text).toContain('Orbit100%');
-    expect(text).toContain('Comet 23개');
+    expect(text).toContain('100%없는 기록은, 없다고 답합니다');
+    expect(text).toContain('같은 조건 시험 2번 중 2번');
+    expect(text).toContain('100%다시 연 페이지가 그 작업의 페이지');
+    expect(text).toContain('Comet은 26개 중 3개(12%)');
+    expect(text).toContain('0건공유하지 않은 팀 기록의 노출');
     expect(text).not.toMatch(/\d+\s*\/\s*\d+/);
-    expect(text).toContain('기록 있는 질문 6개 중 Orbit 3개');
+    expect(text).not.toContain('기록에서 찾아낸 비율'); // Orbit 이 100%가 아닌 지표는 앞면에 싣지 않는다
     expect(text).toContain('표본이 작아 전체 정확도를 뜻하지 않음');
-    expect(text).toContain('제주항공 403');
     expect(text).not.toContain('골든 Top-1');
     expect(text).toContain('HTTP·인증·UI 제외');
   });

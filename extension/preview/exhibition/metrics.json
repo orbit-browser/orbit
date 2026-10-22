@@ -51,19 +51,26 @@
     },
     {
       "code": "C",
-      "title": "Long-History Scalability",
-      "ko": "기록이 쌓일 때의 검색",
-      "scope": "공개 URL 26개로 만든 합성 세션 · 아래 곡선은 세션 수별 서버 응답 p95(ms)",
+      "title": "Long-History Accuracy",
+      "ko": "기록이 1만 개 쌓여도",
+      "scope": "공개 URL 26개로 만든 합성 세션 1만 개 · 골든 질문",
       "values": [
         {
-          "label": "1만 세션에서 서버 p95",
-          "value": 403.4,
-          "unit": "ms",
+          "label": "정답 세션이 1위",
+          "value": 100,
+          "unit": "%",
+          "digits": 0,
+          "status": "measured"
+        },
+        {
+          "label": "없는 기록은 없다고",
+          "value": 100,
+          "unit": "%",
           "digits": 0,
           "status": "measured"
         }
       ],
-      "note": "합성 세션 100→1만 · warm · 리랭킹 끔 · 1만에서도 골든 6질문×10회 모두 정답"
+      "note": "합성 세션 1만 개 · 골든 6질문×10회 모두 1위 · 없는 기록 질문 40번 모두 거절 · warm · 리랭킹 끔·켬 모두"
     },
     {
       "code": "D",

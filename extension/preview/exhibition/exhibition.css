@@ -1418,8 +1418,8 @@ body {
   display: block;
   overflow: hidden;
   color: var(--text-tertiary);
-  font: 500 12.5px var(--mono);
-  letter-spacing: 0.04em;
+  font: 500 13px var(--kr);
+  letter-spacing: 0;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -2652,4 +2652,53 @@ body {
 .ex-chart__tick {
   font-size: 9px;
   fill: var(--text-tertiary);
+}
+
+/* 시험으로 확인한 숫자: 큰 숫자 바로 밑에 조건 한 줄 */
+.ex-proven {
+  margin-top: 4px;
+}
+
+.ex-proven__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 28px;
+  padding: 20px 0 16px;
+}
+
+.ex-proven__stat {
+  padding-top: 14px;
+  border-top: 3px solid var(--accent-hover);
+}
+
+.ex-proven__stat > strong {
+  display: block;
+  color: var(--accent-hover);
+  font: 750 104px/1 var(--sans);
+  letter-spacing: -0.07em;
+}
+
+.ex-proven__stat > strong small {
+  margin-left: 4px;
+  font-size: 42px;
+  letter-spacing: -0.03em;
+}
+
+.ex-proven__stat > h3 {
+  margin: 14px 0 8px !important;
+  font: 700 21px/1.35 var(--kr);
+  letter-spacing: -0.03em;
+  word-break: keep-all;
+}
+
+.ex-proven__stat > p {
+  color: var(--text-secondary);
+  font: 500 14px/1.5 var(--kr);
+  word-break: keep-all;
+}
+
+.ex-proven .ex-fineprint {
+  margin-top: 2px !important;
+  font-size: 13px;
+  line-height: 1.6;
 }

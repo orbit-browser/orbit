@@ -5,7 +5,7 @@
 import { SESSION_HUES } from '../../lib/session-hue';
 import { BannerFrame } from './frame';
 import { METRICS, displayMeasure, isMeasured, type Metric } from './metrics';
-import { HEAD_TO_HEAD } from './trial-highlights';
+import { PROVEN } from './trial-highlights';
 
 /** 지금 설정의 모델(2026-10-20). 코드 기본값은 A.X-K1 이고 운영 설정이 A.X-K2 다 — 바뀌면 여기만 고친다. */
 const MODELS = {
@@ -130,71 +130,40 @@ export function TechBanner() {
           ))}
         </section>
 
-        <section className="ex-refusal" aria-label="같은 조건 직접 시험의 정면 비교">
+        <section className="ex-proven" aria-label="시험으로 확인한 숫자">
           <div className="ex-section-head">
-            <h2>Same Test, Head to Head.</h2>
-            <span className="ex-status">같은 조건 직접 시험</span>
+            <h2>Proven in Tests.</h2>
+            <span className="ex-status">직접 시험 · 같은 조건 비교</span>
           </div>
-          <div className="ex-refusal__hero">
-            <div>
-              <p className="ex-refusal__eyebrow">예전 페이지를 다시 찾기까지</p>
-              <h3>물어보면,<br />바로 꺼내 줍니다.</h3>
-              <p className="ex-refusal__description">
-                {keepDots(`같은 질문에 AI 브라우저 에이전트는 기록 화면을 직접 뒤지며 ${HEAD_TO_HEAD.cometFindSecondsAtLeast / 60}분 넘게 걸렸습니다.`)}
-              </p>
-            </div>
-            <div className="ex-refusal__score">
-              <span>ORBIT</span>
-              <strong>{(HEAD_TO_HEAD.orbitFindMs / 1000).toFixed(1)}<small>초</small></strong>
-            </div>
-          </div>
-          <div className="ex-refusal__board">
-            {[
-              {
-                label: '기록에서 찾아낸 비율',
-                rows: [
-                  { name: 'Orbit', value: HEAD_TO_HEAD.found.orbit.percent, orbit: true },
-                  { name: 'Comet', value: HEAD_TO_HEAD.found.comet.percent, orbit: false },
-                  { name: 'Chrome', value: HEAD_TO_HEAD.found.chrome.percent, orbit: false },
-                ],
-                unit: '%',
-              },
-              {
-                label: '없는 기록에 "없다"고 답한 비율',
-                rows: [
-                  { name: 'Orbit', value: HEAD_TO_HEAD.refusal.orbit.percent, orbit: true },
-                  { name: 'Comet', value: HEAD_TO_HEAD.refusal.comet.percent, orbit: false },
-                ],
-                unit: '%',
-              },
-            ].map((group) => (
-              <div className="ex-refusal__bars" key={group.label} aria-label={group.label}>
-                <p className="ex-refusal__group">{group.label}</p>
-                {group.rows.map((product) => (
-                  <div className={`ex-refusal__row${product.orbit ? ' is-orbit' : ''}`} key={product.name}>
-                    <b>{product.name}</b>
-                    <span className="ex-refusal__track" aria-hidden>
-                      <i style={{ width: `${product.value}%` }} />
-                    </span>
-                    <strong>
-                      {product.value}
-                      {group.unit}
-                    </strong>
-                  </div>
-                ))}
-              </div>
-            ))}
-            <div className="ex-refusal__difference">
+          <div className="ex-proven__grid">
+            <article className="ex-proven__stat">
               <strong>
-                {HEAD_TO_HEAD.restoreExtra.orbit}
-                <small>개</small>
+                {PROVEN.refusal.orbit.percent}
+                <small>%</small>
               </strong>
-              <span>{keepDots(`작업을 다시 열 때 섞인 엉뚱한 페이지 · Comet ${HEAD_TO_HEAD.restoreExtra.comet}개`)}</span>
-            </div>
+              <h3>없는 기록은, 없다고 답합니다</h3>
+              <p>{keepDots(`같은 조건 시험 ${PROVEN.refusal.orbit.total}번 중 ${PROVEN.refusal.orbit.hit}번 · Comet ${PROVEN.refusal.comet.percent}%`)}</p>
+            </article>
+            <article className="ex-proven__stat">
+              <strong>
+                {PROVEN.restorePrecision.orbit.percent}
+                <small>%</small>
+              </strong>
+              <h3>다시 연 페이지가 그 작업의 페이지</h3>
+              <p>{keepDots(`열린 ${PROVEN.restorePrecision.orbit.total}개 모두 · Comet은 ${PROVEN.restorePrecision.comet.total}개 중 ${PROVEN.restorePrecision.comet.hit}개(${PROVEN.restorePrecision.comet.percent}%)`)}</p>
+            </article>
+            <article className="ex-proven__stat">
+              <strong>
+                {PROVEN.teamIsolation.leaks}
+                <small>건</small>
+              </strong>
+              <h3>공유하지 않은 팀 기록의 노출</h3>
+              <p>{keepDots(`계정 둘 실제 서버 시험 · ${PROVEN.teamIsolation.paths}개 경로 모두 차단`)}</p>
+            </article>
           </div>
           <p className="ex-fineprint">
             {keepDots(
-              `2026-10-22 같은 조건 직접 시험 · 빈 브라우저에 같은 공개 웹페이지 26개를 방문하고 같은 질문 8개를 한 번씩 · 기록 있는 질문 ${HEAD_TO_HEAD.found.orbit.total}개 중 Orbit ${HEAD_TO_HEAD.found.orbit.hit}개 · Comet ${HEAD_TO_HEAD.found.comet.hit}개 · Chrome ${HEAD_TO_HEAD.found.chrome.hit}개, 기록 없는 질문 ${HEAD_TO_HEAD.refusal.orbit.total}개 중 Orbit ${HEAD_TO_HEAD.refusal.orbit.hit}개 · Comet ${HEAD_TO_HEAD.refusal.comet.hit}개 · Orbit 시간은 찾은 ${HEAD_TO_HEAD.found.orbit.hit}건의 중앙값 · Comet 로그인 에이전트 모드 · Chrome은 한국 계정에 Gemini 기록 검색이 없어 기본 기록 검색 · Orbit 헤드리스 확장(제주항공 403) · 표본이 작아 전체 정확도를 뜻하지 않음.`,
+              '직접 시험 · 빈 브라우저에 같은 공개 웹페이지 26개를 방문하고 같은 질문을 한 번씩(Orbit 2026-10-22, Comet 2026-10-20 로그인 상태) · 다시 열기는 찾은 작업의 페이지를 한 번에 열었을 때 그 작업의 페이지 비율 · 팀 시험은 2026-10-22 격리 서버에서 계정 둘로 공유·해제·내보내기 · 표본이 작아 전체 정확도를 뜻하지 않음.',
             )}
           </p>
         </section>
@@ -286,46 +255,8 @@ function MetricRow({ metric }: { metric: Metric }) {
             </div>
           );
         })}
-        {metric.code === 'C' && <ScaleChart />}
       </div>
     </article>
   );
 }
 
-/** C — 저장된 세션 수에 따른 서버 응답 p95. 실측한 점만 그린다. 없으면 빈 축과 '측정 진행 중'. */
-function ScaleChart() {
-  const points = METRICS.scaling.filter((point) => isMeasured(point.status, point.p95 ?? point.p50));
-  const width = 250;
-  const height = 74;
-  const max = Math.max(1, ...points.map((point) => point.p95 ?? point.p50 ?? 0));
-  const xs = points.map((point) => point.sessions);
-  const [minX, maxX] = [Math.min(...xs, 100), Math.max(...xs, 10_000)];
-  const x = (sessions: number) => 8 + ((Math.log10(sessions) - Math.log10(minX)) / Math.max(0.0001, Math.log10(maxX) - Math.log10(minX))) * (width - 16);
-  const y = (ms: number) => height - 16 - (ms / max) * (height - 28);
-  return (
-    <svg className="ex-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="저장된 세션 수에 따른 검색 지연">
-      <line x1="8" y1={height - 16} x2={width - 8} y2={height - 16} />
-      <line x1="8" y1="6" x2="8" y2={height - 16} />
-      {points.length === 0 ? (
-        <text className="ex-chart__pending" x={width / 2} y={height / 2 - 2} textAnchor="middle">
-          측정 진행 중
-        </text>
-      ) : (
-        <>
-          <polyline points={points.map((point) => `${x(point.sessions)},${y(point.p95 ?? point.p50 ?? 0)}`).join(' ')} />
-          {points.map((point) => (
-            <g key={point.sessions}>
-              <circle cx={x(point.sessions)} cy={y(point.p95 ?? point.p50 ?? 0)} r="3.5" />
-              <text className="ex-chart__tick" x={x(point.sessions)} y={y(point.p95 ?? point.p50 ?? 0) - 7} textAnchor="middle">
-                {Math.round(point.p95 ?? point.p50 ?? 0)}
-              </text>
-              <text className="ex-chart__tick" x={x(point.sessions)} y={height - 5} textAnchor="middle">
-                {point.sessions >= 1000 ? `${point.sessions / 1000}k` : point.sessions}
-              </text>
-            </g>
-          ))}
-        </>
-      )}
-    </svg>
-  );
-}
