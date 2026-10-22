@@ -93,7 +93,15 @@ export interface CollectUiState {
 }
 
 type RetryItem =
-  | { kind: 'stop'; accountId: string; workspaceId: string; deviceId: string | null; reason: CollectStopReason }
+  | {
+      kind: 'stop';
+      accountId: string;
+      workspaceId: string;
+      deviceId: string | null;
+      reason: CollectStopReason;
+      /** 끄려는 창. 이 값이 없던 때 큐에 들어간 항목은 로컬 창이 있기만 하면 건너뛴다. */
+      windowId?: string;
+    }
   | { kind: 'withdraw'; accountId: string; workspaceId: string; windowId: string };
 
 export interface TeamLabel {
@@ -329,7 +337,10 @@ export async function endTeamCollect(
   const reason = SERVER_REASON[kind];
   if (active && reason) {
     const deviceId = await getDeviceId();
-    await sendOrQueue({ kind: 'stop', accountId, workspaceId: active.workspaceId, deviceId, reason }, options.token);
+    await sendOrQueue(
+      { kind: 'stop', accountId, workspaceId: active.workspaceId, deviceId, reason, windowId: active.windowId },
+      options.token,
+    );
   }
   return active;
 }
@@ -484,6 +495,7 @@ export async function handleBrowserStartup(): Promise<void> {
         workspaceId: workspace.id,
         deviceId,
         reason: 'browser_restart',
+        windowId: workspace.myCollect.windowId,
       });
     }
   });
@@ -518,11 +530,12 @@ async function sendOrQueue(item: RetryItem, token?: string): Promise<void> {
 
 /**
  * 서버 잠금 안에서만 부른다(브라우저 시작 정리는 이미 잠금 안이라 이것을 직접 부른다 — 중첩 잠금 방지).
- * 끄기 항목은, 그 사이 이 계정이 이 기기에서 새 창을 열었으면 보내지 않는다. 서버 시작이 이 기기의
- * 옛 창을 이미 닫았고, 지금 보내면 새 창을 닫는다(일시 정지 직후 다른 화면에서 시작한 경우).
+ * 끄기 항목은, 그 사이 이 계정이 이 기기에서 대상과 다른 새 창을 열었으면 보내지 않는다. 서버 시작이
+ * 이 기기의 옛 창을 이미 닫았고, 지금 보내면 새 창을 닫는다(일시 정지 직후 다른 화면에서 시작한 경우).
+ * 로컬 창이 바로 그 대상이면 아직 열려 있는 창이므로 보낸다.
  */
 async function sendOrQueueLocked(item: RetryItem, token?: string): Promise<void> {
-  if (item.kind === 'stop' && item.deviceId && (await getActiveCollect(item.accountId))) return;
+  if (item.kind === 'stop' && item.deviceId && (await isOtherLocalWindow(item.accountId, item.windowId))) return;
   const session = token ? null : await getSession();
   const usable = token ?? (session?.user.id === item.accountId ? session.token : undefined);
   if (!usable) {
@@ -536,6 +549,11 @@ async function sendOrQueueLocked(item: RetryItem, token?: string): Promise<void>
     console.error('[Orbit] team collect request failed, will retry', err);
     await queueRetry(item);
   }
+}
+
+async function isOtherLocalWindow(accountId: string, target: string | undefined): Promise<boolean> {
+  const local = await getActiveCollect(accountId);
+  return local !== null && (target === undefined || local.windowId !== target);
 }
 
 /** 이 계정·기기의 대기 중인 끄기 항목을 꺼낸다(목록에서 지운다). */
