@@ -129,6 +129,11 @@ describe('계정별 수집 동의', () => {
 });
 
 describe('동의 문구 버전', () => {
+  it('KT 믿:음을 넣은 문구의 동의 버전은 2다', () => {
+    // 저장된 동의 값과 비교하는 버전이다. 문구를 바꾸지 않고 올리거나 내리면 모든 계정의 동의가 흔들린다.
+    expect(CONSENT_VERSION).toBe(2);
+  });
+
   it('외부 AI 안내에 KT 믿:음을 밝힌다', () => {
     // 'SKT'에도 'KT'가 들어 있어 모델 이름까지 본다.
     expect(AI_DISCLOSURE).toContain('KT 믿:음');
