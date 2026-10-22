@@ -55,6 +55,7 @@ def _session(user_id=_OWNER, status="active"):
         folder_id=None,
         folder_assigned_by=None,
         alias=None,
+        collect_workspace_id=None,
     )
 
 

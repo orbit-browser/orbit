@@ -9,14 +9,17 @@
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Session as SessionModel
 from ..db.models import User, Workspace, WorkspaceMember, WorkspaceSession
+from ..db.models import WorkspaceCollectWindow
 from ..db.session import get_db
+from ..db.vector import set_stream_payload
 from ..schemas.workspace import (
+    CollectWindowItem,
     CreateWorkspaceRequest,
     InviteCodeResponse,
     JoinWorkspaceRequest,
@@ -28,6 +31,7 @@ from ..schemas.workspace import (
     WorkspaceMemberItem,
     WorkspaceSessionItem,
 )
+from ..services import team_collect
 from ..services.workspaces import (
     INVITE_TTL,
     get_member,
@@ -83,7 +87,22 @@ async def _member_counts(db: AsyncSession, workspace_ids: list[str]) -> dict[str
     return {workspace_id: count for workspace_id, count in result.all()}
 
 
-def _to_item(workspace: Workspace, role: str, member_count: int) -> WorkspaceItem:
+def window_item(window: WorkspaceCollectWindow) -> CollectWindowItem:
+    return CollectWindowItem(
+        window_id=window.id,
+        workspace_id=window.workspace_id,
+        device_id=window.device_id,
+        started_at=team_collect._aware(window.started_at).isoformat(),
+        expires_at=team_collect._aware(window.expires_at).isoformat(),
+    )
+
+
+def _to_item(
+    workspace: Workspace,
+    role: str,
+    member_count: int,
+    my_collect: WorkspaceCollectWindow | None = None,
+) -> WorkspaceItem:
     return WorkspaceItem(
         workspace_id=workspace.id,
         name=workspace.name,
@@ -91,6 +110,8 @@ def _to_item(workspace: Workspace, role: str, member_count: int) -> WorkspaceIte
         role=role,  # type: ignore[arg-type]
         member_count=member_count,
         created_at=workspace.created_at.isoformat(),
+        collect_allowed=bool(workspace.collect_allowed),
+        my_collect=window_item(my_collect) if my_collect else None,
     )
 
 
@@ -104,6 +125,7 @@ async def _item(db: AsyncSession, workspace: Workspace, role: str) -> WorkspaceI
 
 @router.get("", response_model=list[WorkspaceItem])
 async def list_workspaces(
+    device_id: str | None = Query(None, min_length=1, max_length=64, description="이 기기의 수집 창을 my_collect 로"),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> list[WorkspaceItem]:
@@ -115,7 +137,19 @@ async def list_workspaces(
     )
     rows = result.all()
     counts = await _member_counts(db, [workspace.id for workspace, _role in rows])
-    return [_to_item(workspace, role, counts.get(workspace.id, 0)) for workspace, role in rows]
+    collecting: dict[str, WorkspaceCollectWindow] = {}
+    if device_id is not None:
+        windows = await team_collect.active_windows(
+            db,
+            team_collect.utcnow(),
+            WorkspaceCollectWindow.user_id == user_id,
+            WorkspaceCollectWindow.device_id == device_id,
+        )
+        collecting = {w.workspace_id: w for w in windows}
+    return [
+        _to_item(workspace, role, counts.get(workspace.id, 0), collecting.get(workspace.id))
+        for workspace, role in rows
+    ]
 
 
 @router.post("", response_model=WorkspaceItem, status_code=201)
@@ -171,8 +205,16 @@ async def update_workspace(
     user_id: str = Depends(current_user_id),
 ) -> WorkspaceItem:
     await _owner_or_403(db, workspace_id, user_id)
+    if body.collect_allowed is False:
+        # 창을 먼저 잠가 닫는다 — 진행 중인 인제스트가 끝난 뒤 닫혀, 그 뒤 도착하는 방문은 개인이 된다.
+        await team_collect.close_windows(
+            db, "disallowed", team_collect.utcnow(), WorkspaceCollectWindow.workspace_id == workspace_id
+        )
     workspace = await db.get(Workspace, workspace_id)
-    workspace.name = body.name
+    if body.name is not None:
+        workspace.name = body.name
+    if body.collect_allowed is not None:
+        workspace.collect_allowed = body.collect_allowed
     await db.commit()
     await db.refresh(workspace)
     return await _item(db, workspace, "owner")
@@ -184,12 +226,22 @@ async def delete_workspace(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> None:
-    """팀과 멤버십·공유 관계만 지운다. 공유됐던 원본 세션은 각자의 개인 기록에 그대로 남는다."""
+    """팀과 멤버십·공유 관계만 지운다. 공유됐던 원본 세션은 각자의 개인 기록에 그대로 남는다.
+
+    팀 수집 스트림을 먼저 푼다(창 잠금 → 방문 표시 → 세션 스트림, docs/team-collect-mode.md §6.3).
+    """
     await _owner_or_403(db, workspace_id, user_id)
+    cleared = await team_collect.release_stream(
+        db, workspace_id, None, "team_deleted", team_collect.utcnow()
+    )
     await db.execute(delete(WorkspaceSession).where(WorkspaceSession.workspace_id == workspace_id))
+    await db.execute(
+        delete(WorkspaceCollectWindow).where(WorkspaceCollectWindow.workspace_id == workspace_id)
+    )
     await db.execute(delete(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id))
     await db.execute(delete(Workspace).where(Workspace.id == workspace_id))
     await db.commit()
+    await set_stream_payload(cleared, None)
 
 
 @router.post("/{workspace_id}/invite-code", response_model=InviteCodeResponse)
@@ -267,6 +319,15 @@ async def remove_member(
         if target is None:
             raise HTTPException(status_code=404, detail="멤버를 찾을 수 없습니다")
 
+    # 팀 수집 스트림을 공유 행보다 먼저 푼다(창 잠금 → 방문 표시 → 세션 스트림). 다시 들어와도 옛 창은
+    # 가입 시각 조건으로 무효다.
+    cleared = await team_collect.release_stream(
+        db,
+        workspace_id,
+        target.user_id,
+        "left" if target.user_id == user_id else "removed",
+        team_collect.utcnow(),
+    )
     await db.execute(
         delete(WorkspaceSession).where(
             WorkspaceSession.workspace_id == workspace_id,
@@ -280,6 +341,7 @@ async def remove_member(
         workspace.invite_expires_at = None
     await db.delete(target)
     await db.commit()
+    await set_stream_payload(cleared, None)
 
 
 # ── 공유 세션 ──────────────────────────────────────────
@@ -310,6 +372,7 @@ async def list_workspace_sessions(
                 picture=user.picture if user else None,
             ),
             shared_at=share.shared_at.isoformat(),
+            collected=session.collect_workspace_id == workspace_id,
         )
         for session, share, user in result.all()
     ]
@@ -380,5 +443,13 @@ async def unshare_session(
         raise HTTPException(status_code=404, detail="공유된 세션을 찾을 수 없습니다")
     if share.shared_by != user_id and member.role != "owner":
         raise HTTPException(status_code=403, detail="공유한 사람이나 팀 소유자만 해제할 수 있습니다")
+    # 공유 해제 = 스트림 해제(docs/team-collect-mode.md §3.3). 누가 풀든 이 팀의 수집 세션이면 스트림도 비워,
+    # 이후 팀 방문이 팀에 보이지 않는 세션에 붙거나 스트림이 다른 세션과 자동병합되지 않게 한다.
+    session = await db.get(SessionModel, session_id)
+    cleared = session is not None and session.collect_workspace_id == workspace_id
+    if cleared:
+        session.collect_workspace_id = None
     await db.delete(share)
     await db.commit()
+    if cleared:
+        await set_stream_payload([session_id], None)

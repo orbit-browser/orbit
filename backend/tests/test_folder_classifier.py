@@ -268,6 +268,11 @@ def test_settings_expose_and_update_auto_folder(monkeypatch):
     monkeypatch.setattr(settings_api, "get_bool", get_bool)
     monkeypatch.setattr(settings_api, "set_bool", set_bool)
 
+    async def no_excluded(_db, _user_id):
+        return []
+
+    monkeypatch.setattr(settings_api, "excluded_domains", no_excluded)
+
     assert asyncio.run(settings_api.get_settings(db=None, user_id="u1")).auto_folder_enabled is True
     body = settings_api.UpdateSettingsRequest(auto_folder_enabled=False)
     updated = asyncio.run(settings_api.update_settings(body, db=None, user_id="u1"))

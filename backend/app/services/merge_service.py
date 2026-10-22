@@ -176,6 +176,10 @@ async def merge_sessions(
         raise MergeError("not_found", "session not found")
     if survivor.status != "active" or absorbed.status != "active":
         raise MergeError("conflict", "both sessions must be active")
+    # 스트림이 다른 세션끼리는 병합하지 않는다(docs/team-collect-mode.md §3.3 S4). 개인 세션을 팀 수집 세션에
+    # 흡수시키면 개인 방문이 팀에 보인다. 공유 여부가 아니라 스트림을 직접 비교한다 — 공유가 풀려도 열은 남을 수 있다.
+    if survivor.collect_workspace_id != absorbed.collect_workspace_id:
+        raise MergeError("conflict", "sessions belong to different collection streams")
 
     absorbed_event_ids = await _fetch_events_ordered(db, absorbed_id)
     survivor_event_ids = await _existing_event_ids(db, survivor_id)

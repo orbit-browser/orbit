@@ -38,6 +38,7 @@ _MERGE_ERROR_STATUS = {"not_found": 404, "invalid": 400, "conflict": 409}
 from ..services.embedding_sync import build_embedding_text as _build_embedding_text
 from ..services.embedding_sync import embed_and_upsert as _embed_and_upsert
 from ..services.session_updater import record_version, refresh_session_ai
+from ..services.event_filter import teammate_url
 from ..services.workspaces import is_shared_with, shared_workspaces
 from ..services.summarizer import generate_summary, rule_based_title
 
@@ -61,12 +62,13 @@ def _to_detail(
     *,
     include_private: bool = True,
 ) -> SessionDetail:
-    """include_private=False 면 소유자 개인 정보(폴더·폴더 배정 주체, 공유된 팀)를 뺀다 — 팀원에게 주는 응답용."""
+    """include_private=False 면 소유자 개인 정보(폴더·폴더 배정 주체, 공유된 팀, 수집 스트림)를 빼고
+    페이지 주소의 쿼리를 지운다 — 팀원(팀 범위)에게 주는 응답용(docs/team-collect-mode.md §7.3)."""
     tabs = [
         TabItemResponse(
             id=t.get("tab_id", ""),
             title=t.get("title", ""),
-            url=t.get("url", ""),
+            url=t.get("url", "") if include_private else teammate_url(t.get("url", "")),
             fav_icon_url=t.get("fav_icon_url"),
         )
         for t in (session.tabs or [])
@@ -96,6 +98,7 @@ def _to_detail(
         folder_id=session.folder_id if include_private else None,
         folder_assigned_by=session.folder_assigned_by if include_private else None,
         shared_workspace_ids=(shared_workspace_ids or []) if include_private else [],
+        collect_workspace_id=session.collect_workspace_id if include_private else None,
     )
 
 
@@ -284,7 +287,9 @@ async def get_session_events(
     세션이 없거나 읽을 수 없으면(내 것도, 내 팀에 공유된 것도 아니면) 404.
     origin='snapshot' 세션(session_events 연결 없음)은 빈 배열.
     """
-    await _readable_session(db, session_id, user_id)
+    session = await _readable_session(db, session_id, user_id)
+    # 팀원에게는 쿼리를 지운 주소만 준다. 이전 페이지(referrer)는 누구에게도 싣지 않는다(불변 조건 7).
+    to_url = (lambda url: url) if session.user_id == user_id else teammate_url
 
     result = await db.execute(
         select(SessionEvent, ExplorationEvent)
@@ -295,7 +300,7 @@ async def get_session_events(
     return [
         SessionEventItem(
             event_id=event.id,
-            url=event.url,
+            url=to_url(event.url),
             title=event.title,
             domain=event.domain,
             visited_at=event.visited_at.isoformat(),

@@ -195,26 +195,106 @@ def _first_query_value(query: str, param: str) -> str | None:
     return values[0] if values else None
 
 
+def _search_param(host: str, path: str) -> str | None:
+    """검색엔진 결과 페이지면 검색어 쿼리 이름, 아니면 None."""
+    if _GOOGLE_HOST_RE.search(host) and path == "/search":
+        return "q"
+    if host == "search.naver.com" and path == "/search.naver":
+        return "query"
+    if host in ("youtube.com", "www.youtube.com") and path == "/results":
+        return "search_query"
+    if host in ("bing.com", "www.bing.com") and path == "/search":
+        return "q"
+    return None
+
+
 def extract_search_query(url: str) -> str | None:
     """검색엔진 결과 페이지 URL에서 검색어를 추출 (docs/data-model-v2.md §8)."""
     try:
         parts = urlsplit(url)
     except ValueError:
         return None
+    param = _search_param((parts.hostname or "").lower(), parts.path)
+    return _first_query_value(parts.query, param) if param else None
 
-    host = (parts.hostname or "").lower()
-    path = parts.path
 
-    if _GOOGLE_HOST_RE.search(host) and path == "/search":
-        return _first_query_value(parts.query, "q")
-    if host == "search.naver.com" and path == "/search.naver":
-        return _first_query_value(parts.query, "query")
-    if host in ("youtube.com", "www.youtube.com") and path == "/results":
-        return _first_query_value(parts.query, "search_query")
-    if host in ("bing.com", "www.bing.com") and path == "/search":
-        return _first_query_value(parts.query, "q")
+# ── 팀 수집 전용 판정 (docs/team-collect-mode.md §2.1) ─────────────────────
+# 개인 수집에는 쓰지 않는다. 확장의 같은 목록과 함께 바꾸고, 바꾸면 동의 문구 버전도 올린다.
 
-    return None
+# 로그인 화면으로 보이는 호스트. 경로 정규식(_SENSITIVE_PATH_PATTERNS)이 못 잡는 SSO 화면을 더 잡지만
+# 모든 로그인 화면을 잡지는 못한다 — 동의 문구는 "로그인 주소로 보이는 페이지"까지만 약속한다.
+_LOGIN_HOST_PREFIXES = ("login.", "accounts.", "sso.", "auth.", "signin.")
+_LOGIN_PATHS = {"github.com": ("/session",)}
+
+# 팀 수집 기본 제외(CTO 결정, v1은 사용자가 풀 수 없다): 웹메일·메신저. 검색 결과 페이지는 _search_param 으로 본다.
+_TEAM_EXCLUDED_HOSTS = (
+    "mail.google.com",
+    "outlook.live.com",
+    "outlook.office.com",
+    "outlook.office365.com",
+    "mail.naver.com",
+    "mail.daum.net",
+    "web.whatsapp.com",
+    "web.telegram.org",
+    "app.slack.com",
+    "teams.microsoft.com",
+    "messenger.com",
+)
+_TEAM_EXCLUDED_PATHS = {"discord.com": "/channels", "instagram.com": "/direct"}
+
+
+def _host_matches(host: str, domain: str) -> bool:
+    return host == domain or host.endswith("." + domain)
+
+
+def is_team_blocked_url(url: str, excluded_domains: tuple[str, ...] | list[str] = ()) -> bool:
+    """팀 스트림으로 보내지 않을 주소인가. 민감 URL·로그인 호스트·기본 제외·사용자 제외 목록.
+
+    판정할 수 없는 주소도 막는다(실패 시 닫힘).
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return True
+    host = _decoded(parts.hostname or "").rstrip(".").lower()
+    if not host:
+        return True
+    path = _decoded(parts.path)
+    if is_sensitive_url(url):
+        return True
+    if host.startswith(_LOGIN_HOST_PREFIXES):
+        return True
+    for domain, paths in _LOGIN_PATHS.items():
+        if _host_matches(host, domain) and any(path == p or path.startswith(p + "/") for p in paths):
+            return True
+    if any(_host_matches(host, domain) for domain in _TEAM_EXCLUDED_HOSTS):
+        return True
+    for domain, prefix in _TEAM_EXCLUDED_PATHS.items():
+        if _host_matches(host, domain) and (path == prefix or path.startswith(prefix + "/")):
+            return True
+    if _search_param(host, parts.path) is not None:
+        return True
+    return any(_host_matches(host, domain.strip(".").lower()) for domain in excluded_domains if domain)
+
+
+def teammate_url(url: str) -> str:
+    """팀원 응답에 싣는 페이지 주소. 쿼리·프래그먼트·계정 정보를 지우고, 민감 URL은 도메인만 남긴다(§7.3).
+
+    경로는 남긴다 — 팀원이 링크로 열 수 있어야 한다. 제목·요약 속 검색어는 여기서 지우지 못한다.
+    """
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return ""
+    if not host:
+        return ""
+    netloc = f"[{host}]" if ":" in host else host
+    if port:
+        netloc += f":{port}"
+    path = "/" if is_sensitive_url(url) else (parts.path or "/")
+    return urlunsplit((parts.scheme, netloc, path, "", ""))
 
 
 def content_hash(text: str) -> str:

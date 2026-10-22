@@ -13,7 +13,7 @@ from ..ai.embedding import embed
 from ..config import settings
 from ..db.models import Session as SessionModel
 from ..db.session import AsyncSessionLocal
-from ..db.vector import COLLECTION, point_ids_missing_owner, set_owner, upsert_point
+from ..db.vector import COLLECTION, STREAM_FIELD, point_ids_missing_owner, set_owner, upsert_point
 from ..schemas.session import SessionSummary
 from .event_filter import ai_safe_path
 
@@ -47,23 +47,28 @@ async def embed_and_upsert(session_id: str, title: str, summary: SessionSummary)
         async with AsyncSessionLocal() as db:
             row = (
                 await db.execute(
-                    select(SessionModel.user_id, SessionModel.tabs).where(SessionModel.id == session_id)
+                    select(SessionModel.user_id, SessionModel.tabs, SessionModel.collect_workspace_id).where(
+                        SessionModel.id == session_id
+                    )
                 )
             ).first()
         if row is None:
             # 그 사이 삭제된 세션 — 고아 포인트를 만들지 않는다
             logger.warning("세션이 없어 Qdrant upsert 생략 (session_id=%s)", session_id)
             return
-        user_id, tabs = row
+        user_id, tabs, collect_workspace_id = row
         embed_text = build_embedding_text(title, summary, tabs or [])
         vector = await embed(embed_text, model=settings.embedding_passage_model)
-        await upsert_point(session_id, vector, {
+        payload = {
             "session_id": session_id,
             "user_id": user_id,
             "title": title,
             "overview": summary.overview,
             "purpose": summary.purpose,
-        })
+        }
+        if collect_workspace_id:
+            payload[STREAM_FIELD] = collect_workspace_id
+        await upsert_point(session_id, vector, payload)
         async with AsyncSessionLocal() as db:
             session = await db.get(SessionModel, session_id)
             if session:

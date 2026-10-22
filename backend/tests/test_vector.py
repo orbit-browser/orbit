@@ -129,10 +129,14 @@ def test_init_collection_creates_owner_index_once(monkeypatch):
     created: list = []
     monkeypatch.setattr(vector, "get_qdrant", lambda: _init_client({}, created))
     asyncio.run(vector.init_collection())
-    assert created == ["user_id"]
+    assert created == ["user_id", "collect_workspace_id"]
 
     created.clear()
-    monkeypatch.setattr(vector, "get_qdrant", lambda: _init_client({"user_id": object()}, created))
+    monkeypatch.setattr(
+        vector,
+        "get_qdrant",
+        lambda: _init_client({"user_id": object(), "collect_workspace_id": object()}, created),
+    )
     asyncio.run(vector.init_collection())
     assert created == []
 

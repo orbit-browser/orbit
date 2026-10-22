@@ -25,7 +25,7 @@ from ..schemas.event import (
     ExplorationEventIn,
     PendingCountResponse,
 )
-from ..services import sync_pipeline
+from ..services import sync_pipeline, team_collect
 from ..services.event_filter import (
     content_hash,
     extract_search_query,
@@ -108,10 +108,44 @@ def _build_event_rows(
                 "event_type": event.event_type,
                 "content_excerpt": excerpt,
                 "content_hash": content_hash(excerpt),
+                # 팀 표시는 서버 판정(_apply_team_labels)을 통과해야만 채운다.
+                "workspace_id": None,
+                "collect_window_id": None,
             }
         )
 
     return rows, filtered
+
+
+async def _apply_team_labels(
+    db: AsyncSession, events: list[ExplorationEventIn], rows: list[dict], user_id: str
+) -> team_collect.Judgement:
+    """클라이언트의 팀 표시를 서버가 다시 판정해 통과한 것만 row에 싣는다(docs/team-collect-mode.md §2.2).
+
+    판정은 INSERT 와 같은 트랜잭션이다 — 수집 창 행을 FOR SHARE 로 잠가 빼기·탈퇴와 직렬화한다.
+    시각은 서버 수신 시각을 기준으로 한다. 기기 시계(visited_at)는 믿지 않는다.
+    """
+    by_id = {event.id: event for event in events}
+    judgement = await team_collect.judge_labels(
+        db,
+        user_id,
+        [
+            team_collect.LabelRequest(
+                event_id=row["id"],
+                workspace_id=by_id[row["id"]].workspace_id,
+                window_id=by_id[row["id"]].collect_window_id,
+                device_id=row["device_id"],
+                url=row["url"],
+                visited_at=row["visited_at"],
+            )
+            for row in rows
+        ],
+        team_collect.utcnow(),
+    )
+    for row in rows:
+        if row["id"] in judgement.labels:
+            row["workspace_id"], row["collect_window_id"] = judgement.labels[row["id"]]
+    return judgement
 
 
 async def _count_pending(db: AsyncSession, user_id: str) -> int:
@@ -136,7 +170,10 @@ async def ingest_events(
 
     accepted = 0
     duplicates = 0
+    judgement = team_collect.Judgement(labels={}, downgraded=0, window_closed=False)
     if rows:
+        judgement = await _apply_team_labels(db, body.events, rows, user_id)
+        # 이미 있는 id 는 건드리지 않는다 — 재전송으로 팀 표시를 바꿀 수 없다(바꾸는 길은 withdraw 뿐).
         stmt = pg_insert(ExplorationEvent).values(rows).on_conflict_do_nothing(
             index_elements=["id"]
         )
@@ -153,6 +190,9 @@ async def ingest_events(
         duplicates=duplicates,
         filtered=filtered,
         pending_total=pending_total,
+        team_accepted=len(judgement.labels),
+        team_downgraded=judgement.downgraded,
+        window_closed=judgement.window_closed,
     )
 
 

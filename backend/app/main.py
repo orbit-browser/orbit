@@ -26,6 +26,7 @@ from .api.sessions import router as sessions_router
 from .api.settings import router as settings_router
 from .api.sync import router as sync_router
 from .api.tab_actions import router as tab_actions_router
+from .api.team_collect import router as team_collect_router
 from .api.workspaces import router as workspaces_router
 from .config import settings
 from .db.session import init_db
@@ -87,6 +88,7 @@ app.include_router(tab_actions_router, dependencies=_authenticated)
 app.include_router(assistant_router, dependencies=_authenticated)
 # 팀 워크스페이스 — 멤버십 검사는 각 엔드포인트가 하지만 인증은 여기서 먼저 건다.
 app.include_router(workspaces_router, dependencies=_authenticated)
+app.include_router(team_collect_router, dependencies=_authenticated)
 
 
 @app.get("/health")

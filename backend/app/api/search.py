@@ -19,6 +19,7 @@ from ..db.session import get_db
 from ..db.vector import search_similar, search_similar_with_scores
 from ..schemas.event import MemorySearchEventItem, MemorySearchResponse
 from ..schemas.session import SessionDetail
+from ..services.event_filter import teammate_url
 from ..services.workspaces import session_scope_clause
 from .deps import current_user_id
 from .sessions import _to_detail
@@ -250,7 +251,8 @@ async def _search_memory_events(
     def _to_item(row: dict, matched_by: Literal["session", "keyword"]) -> MemorySearchEventItem:
         return MemorySearchEventItem(
             event_id=row["event_id"],
-            url=row["url"],
+            # 팀 범위 결과는 팀원 응답이다 — 쿼리를 지운 주소만 준다(docs/team-collect-mode.md §7.3).
+            url=row["url"] if workspace_id is None else teammate_url(row["url"]),
             title=row["title"],
             domain=row["domain"],
             visited_at=row["visited_at"].isoformat(),

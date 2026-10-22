@@ -31,7 +31,7 @@ class _FakeDB:
     async def execute(self, _stmt):
         return SimpleNamespace(
             all=lambda: self.rows,
-            first=lambda: (self.owner, self.tabs) if self.owner else None,
+            first=lambda: (self.owner, self.tabs, None) if self.owner else None,
         )
 
     async def get(self, _model, _pk):
@@ -290,7 +290,7 @@ class _Ctx:
         return self.session
 
     async def execute(self, _stmt):
-        row = (self.session.user_id, []) if self.session else None
+        row = (self.session.user_id, [], None) if self.session else None
         return SimpleNamespace(first=lambda: row)
 
     async def commit(self):

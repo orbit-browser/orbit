@@ -527,7 +527,7 @@ def test_fetch_candidates_scores_recent_only_sessions(monkeypatch):
 
     scored_ids = []
 
-    async def score(_vector, session_ids, *, user_id):
+    async def score(_vector, session_ids, *, user_id, stream=None):
         scored_ids.append((list(session_ids), user_id))
         return {"sess-recent": 0.21}
 
@@ -592,7 +592,7 @@ def test_process_group_single_cluster_wires_embed_candidates_analyze_and_apply(m
         calls["embed_kwargs"] = kwargs
         return [[0.1, 0.2] for _ in texts]
 
-    async def fake_fetch_candidates(vector, _user_id):
+    async def fake_fetch_candidates(vector, _user_id, workspace_id=None):
         calls["candidates_vector"] = vector
         return [{"session_id": "s1", "title": "t", "overview": "o", "keywords": [], "score": 0.7}]
 
@@ -632,7 +632,7 @@ def test_process_group_hard_splits_multitopic_into_two_llm_calls(monkeypatch):
     async def fake_embed_many(texts, **_kwargs):
         return [[1.0, 0.0], [0.0, 1.0]]  # 직교 → 분리
 
-    async def fake_fetch_candidates(vector, _user_id):
+    async def fake_fetch_candidates(vector, _user_id, workspace_id=None):
         order.append("fetch")
         return []
 

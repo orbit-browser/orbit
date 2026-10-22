@@ -81,6 +81,23 @@ class _FakeDB:
     async def commit(self):
         self.committed = True
 
+    async def flush(self):
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _no_collect_stream(monkeypatch):
+    """이 파일의 가짜 DB는 1단계 경로만 흉내 낸다. 팀 수집 스트림 정리는 test_team_collect*.py가 실제 SQL로 본다."""
+
+    async def release(*_args, **_kwargs):
+        return []
+
+    async def no_payload(*_args, **_kwargs):
+        pass
+
+    monkeypatch.setattr(workspaces.team_collect, "release_stream", release)
+    monkeypatch.setattr(workspaces, "set_stream_payload", no_payload)
+
 
 def _member(user_id, role="member", workspace_id=_WS):
     return SimpleNamespace(workspace_id=workspace_id, user_id=user_id, role=role, joined_at=_NOW)
@@ -107,6 +124,7 @@ def _session(session_id="s1", user_id=_OWNER, status="active"):
         last_activity_at=None,
         folder_id="private-folder",
         folder_assigned_by="user",
+        collect_workspace_id=None,
     )
 
 
@@ -176,7 +194,7 @@ def test_join_rejects_unknown_or_expired_code():
 
 
 def test_join_adds_member_once():
-    workspace = SimpleNamespace(id=_WS, name="팀", hue="#fff", created_at=_NOW)
+    workspace = SimpleNamespace(id=_WS, name="팀", hue="#fff", created_at=_NOW, collect_allowed=False)
     db = _FakeDB(scalar=workspace, results=[_Result(rows=[(_WS, 2)])])
 
     item = asyncio.run(workspaces.join_workspace(JoinWorkspaceRequest(code="ok"), db, _STRANGER))
@@ -187,7 +205,7 @@ def test_join_adds_member_once():
 
 
 def test_join_is_idempotent_for_existing_member():
-    workspace = SimpleNamespace(id=_WS, name="팀", hue="#fff", created_at=_NOW)
+    workspace = SimpleNamespace(id=_WS, name="팀", hue="#fff", created_at=_NOW, collect_allowed=False)
     db = _team_db(scalar=workspace, results=[_Result(rows=[(_WS, 2)])])
 
     item = asyncio.run(workspaces.join_workspace(JoinWorkspaceRequest(code="ok"), db, _OWNER))
