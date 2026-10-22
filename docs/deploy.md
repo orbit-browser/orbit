@@ -356,7 +356,7 @@ olap up -d --build
 curl -s http://127.0.0.1:8076/health                            # {"status":"ok"}
 ```
 
-- **띄우기 전 디스크 암호화 확인:** 라이브 DB 볼륨과 백업이 모두 노트북 디스크에 평문으로 있으므로 실질 방어는 FileVault다. `fdesetup status`가 `FileVault is On.`이어야 한다. Time Machine을 쓰면 백업 디스크 암호화를 켜거나, `sudo tmutil addexclusion -p ~/OrbitLaptopBackups`로 백업 폴더를 제외한다(Docker 볼륨은 Docker Desktop 디스크 이미지 안에 있어 기본 제외 대상이다).
+- **띄우기 전 디스크 암호화 확인:** 라이브 DB 볼륨과 백업이 모두 노트북 디스크에 평문으로 있으므로 실질 방어는 FileVault다. `fdesetup status`가 `FileVault is On.`이어야 한다. Time Machine을 쓰면 백업 디스크 암호화를 켜거나, `sudo tmutil addexclusion -p ~/OrbitLaptopBackups`로 백업 폴더를 제외한다(Docker 볼륨은 Docker Desktop 디스크 이미지 안에 있다. Time Machine이 그 이미지를 백업하는지는 설정에 따라 다르니 백업 디스크 암호화를 켜는 쪽이 확실하다).
 - **`BIND_ADDR`를 바꾸지 않는다.** 다른 기기에서 쓰게 하려고 `0.0.0.0`으로 바꾸면 HTTP라서 Bearer 토큰과 방문 기록이 평문으로 Wi-Fi에 흐른다. 여러 기기·사람이 함께 쓰려면 클라우드(13장)로 간다.
 - 프로젝트 이름은 `.env.laptop`의 `COMPOSE_PROJECT_NAME=orbit-laptop`이 정한다. 이 값을 지우거나 `orbit`으로 바꾸지 않는다. 개발 DB 볼륨과 겹친다.
 - 확장 빌드: `VITE_API_BASE_URL=http://127.0.0.1:8076 pnpm build`. `127.0.0.1`은 이미 `host_permissions`에 있다. 빌드 뒤 `grep -rl "127.0.0.1:8076" .output/chrome-mv3`로 확인한다.
