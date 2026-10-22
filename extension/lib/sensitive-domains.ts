@@ -118,22 +118,6 @@ function isLoginHostOrPath(host: string, path: string): boolean {
   );
 }
 
-/**
- * 로그인·결제 화면으로 보이는 주소(민감 경로 `/login`·`/checkout` 등 + 팀 수집의 로그인 호스트·경로).
- * 탭 화면 미리보기가 쓴다. 판정할 수 없는 주소도 막는다(실패 시 닫힘).
- */
-export function isLoginOrPaymentUrl(rawUrl: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    return true;
-  }
-  const host = decodedForCheck(url.hostname).replace(/\.+$/, '').toLowerCase();
-  const path = decodedForCheck(url.pathname);
-  return SENSITIVE_PATH_PATTERNS.some((re) => re.test(path)) || isLoginHostOrPath(host, path);
-}
-
 /** 서버 `_search_param` 과 같은 검색엔진 결과 페이지(경로는 디코딩 전 값으로 본다). */
 function isSearchResultPage(host: string, rawPath: string): boolean {
   if (/(^|\.)google\./i.test(host) && rawPath === '/search') return true;

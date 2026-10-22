@@ -106,6 +106,9 @@ describe('찍는 곳과 찍지 않는 곳', () => {
     ['로그인 호스트', 'https://accounts.google.com/v3/signin'],
     ['로그인 경로(팀 수집 표)', 'https://github.com/session'],
     ['내부 페이지', 'chrome://settings'],
+    ['웹메일', 'https://mail.google.com/mail/u/0/#inbox'],
+    ['메신저', 'https://app.slack.com/client/T1/C1'],
+    ['검색 결과', 'https://www.google.com/search?q=orbit'],
   ])('%s는 찍지 않는다', async (_label, url) => {
     await signIn();
     activeTabs = [tab({ url })];

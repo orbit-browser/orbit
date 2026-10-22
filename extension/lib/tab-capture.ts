@@ -1,11 +1,11 @@
 // 탭 화면 미리보기 찍기 — 페이지가 화면에 뜰 때 페이지당 한 번(다시 오면 10분 뒤 갱신).
 // 크롬은 창에 보이는 탭만 찍을 수 있다(`tabs.captureVisibleTab`, `<all_urls>` 호스트 권한 필요).
-// 찍지 않는 곳: 민감 사이트, 로그인·결제 화면, 시크릿 창, 수집 동의가 없거나 옛 버전인 계정, 내부 페이지.
+// 찍지 않는 곳: 민감 사이트, 로그인·결제 화면, 웹메일·메신저·검색 결과, 시크릿 창, 수집 동의가 없거나 옛 버전인 계정, 내부 페이지.
 // 찍는 일이 브라우징을 막아서는 안 되므로 실패는 모두 삼킨다(fail-open, 저장만 건너뛴다).
 
 import { getSession } from './auth';
 import { getSettings, hasCollectionConsent } from './settings';
-import { isLoginOrPaymentUrl, isSensitiveUrl } from './sensitive-domains';
+import { isTeamBlockedUrl } from './sensitive-domains';
 import { putSnapshot, snapshotCapturedAt } from './tab-snapshots';
 
 /** 같은 페이지는 이 간격 안에 다시 찍지 않는다. */
@@ -25,10 +25,14 @@ export function resetCaptureThrottle(): void {
   lastCaptureAt = 0;
 }
 
-/** 이 주소의 화면을 찍어도 되는가(주소만으로 판정할 수 있는 부분). */
+/**
+ * 이 주소의 화면을 찍어도 되는가(주소만으로 판정할 수 있는 부분). 팀 수집 기본 제외와 같은 표를 쓴다 —
+ * 민감 사이트·로그인·결제에 더해 웹메일·메신저·검색 결과 페이지도 찍지 않는다(CTO 2026-10-23, 서버
+ * `is_team_blocked_url` 과 같은 목록). 사용자 제외 목록은 팀 수집 전용이라 넘기지 않는다.
+ */
 export function canSnapshotUrl(url: string | undefined): url is string {
   if (!url || !/^https?:\/\//i.test(url)) return false;
-  return !isSensitiveUrl(url) && !isLoginOrPaymentUrl(url);
+  return !isTeamBlockedUrl(url);
 }
 
 async function activeTabOf(windowId: number): Promise<chrome.tabs.Tab | undefined> {

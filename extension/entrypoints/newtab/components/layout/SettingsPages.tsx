@@ -819,7 +819,7 @@ function PrivacyPage({ settings, patch, onNavigate }: PageProps) {
       <Section title="탭 화면 미리보기">
         <Row
           label="탭 화면 미리보기 저장"
-          description="페이지 카드에 쓸 화면을 찍어 둡니다. 기기 안에만 저장돼요. 민감한 사이트·로그인·결제 화면과 시크릿 창은 찍지 않습니다."
+          description="페이지 카드에 쓸 화면을 찍어 둡니다. 기기 안에만 저장돼요. 메일·메신저·검색 결과·로그인·결제·민감 사이트와 시크릿 창은 찍지 않아요."
         >
           <Switch
             label="탭 화면 미리보기 저장"
