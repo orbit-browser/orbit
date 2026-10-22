@@ -5,7 +5,7 @@
 // 계약 근거: docs/target-architecture.md §1, §3, docs/implementation-roadmap.md M2-7~9
 
 import { getSession, onSessionChange } from '../auth';
-import { getSettings } from '../settings';
+import { getSettings, hasCollectionConsent } from '../settings';
 import { isSensitiveUrl } from '../sensitive-domains';
 import type { PageContent } from '../types';
 import {
@@ -136,6 +136,8 @@ async function handleCommitted(
   // 로그아웃 상태의 방문은 주인을 정할 수 없어 수집하지 않는다(LoginGate 와 같은 원칙).
   const session = await getSession();
   if (!session) return;
+  // 스위치(collectionEnabled)는 계정 전환 직후 잠깐 이전 계정 값일 수 있어, 이 계정의 동의를 직접 본다.
+  if (!(await hasCollectionConsent(session.user.id))) return;
 
   const tabId = details.tabId;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -228,6 +230,7 @@ async function requestSpaContent(tabId: number, eventId: string): Promise<void> 
 async function commitSpaNavigation(tabId: number, url: string): Promise<void> {
   const session = await getSession();
   if (!session) return;
+  if (!(await hasCollectionConsent(session.user.id))) return;
 
   const states = await getTabStates();
   const prevState = states[tabId];

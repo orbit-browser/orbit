@@ -2,8 +2,14 @@
 // SW 시작 시 stale-syncing 리셋 + prune + evict도 이 모듈이 담당한다.
 // 계약 근거: docs/target-architecture.md §4, docs/implementation-roadmap.md M2-10
 
-import { onSessionChange } from '../auth';
-import { getSettings, subscribeSettings, type OrbitSettings } from '../settings';
+import { getSession, onSessionChange } from '../auth';
+import {
+  getCollectionConsent,
+  getSettings,
+  subscribeSettings,
+  updateSettings,
+  type OrbitSettings,
+} from '../settings';
 import { finalizeOrphanOpenEvents } from '../events/collector';
 import {
   evictIfOver,
@@ -60,12 +66,29 @@ function watchPendingThreshold(): void {
 }
 
 /**
+ * 수집 스위치를 지금 계정의 동의로 맞춘다. 다른 계정이 로그인하면 그 계정이 동의하기 전까지
+ * 수집이 멈추고 화면에 동의 안내가 다시 나온다. `migrationOwner`는 계정별 동의로 처음 옮길 때의
+ * 주인이다 — 로그아웃 직후에 처음 옮기면 지금 세션이 없으므로 이전 계정을 넘긴다.
+ */
+export async function applyAccountConsent(migrationOwner?: string): Promise<void> {
+  const consent = await getCollectionConsent(migrationOwner);
+  const session = await getSession();
+  const enabled = session ? consent[session.user.id] === true : false;
+  if ((await getSettings()).collectionEnabled !== enabled) {
+    await updateSettings({ collectionEnabled: enabled });
+  }
+}
+
+/**
  * 로그아웃·계정 교체 때 이전 계정의 남은 이벤트는 그 계정 토큰으로만 보낸다(못 보내면 그 계정
  * 것으로 남아 다음 로그인 때 보낸다). 동기화 요약은 새 계정 기준으로 다시 센다.
  */
 function watchAccountChange(): void {
   onSessionChange((session, previous) => {
     if (session?.user.id === previous?.user.id) return;
+    applyAccountConsent(previous?.user.id ?? session?.user.id).catch((err) =>
+      console.error('[Orbit] 계정 전환 뒤 수집 동의 적용 실패', err),
+    );
     updateSyncStatus({ lastSyncAt: null, lastError: null }).catch((err) =>
       console.error('[Orbit] 계정 전환 뒤 동기화 상태 갱신 실패', err),
     );
@@ -100,6 +123,12 @@ function registerAlarmHandlers(): void {
 }
 
 async function runStartupMaintenance(): Promise<void> {
+  try {
+    // 업데이트 직후 계정별 동의로 옮기고, SW가 꺼져 있던 사이의 계정 변경도 따라잡는다.
+    await applyAccountConsent();
+  } catch (err) {
+    console.error('[Orbit] 수집 동의 적용 실패', err);
+  }
   try {
     await finalizeOrphanOpenEvents();
   } catch (err) {

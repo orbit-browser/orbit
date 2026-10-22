@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { checkHealth } from '../../../lib/api';
 import { useUIStore } from '../store/ui';
 import { useSettingsStore } from '../store/settings';
-import type { OrbitSettings } from '../../../lib/settings';
+import { AI_DISCLOSURE, type OrbitSettings } from '../../../lib/settings';
 import { useServerSettings, useUpdateServerSettings } from '../hooks/useServerSettings';
 import { TeamSettingsSection } from '../components/team/TeamSettingsSection';
 
@@ -289,8 +289,8 @@ export function SettingsView() {
             label="탐색 기록 수집"
             description={
               collectionEnabled
-                ? '방문한 페이지를 시간순으로 기록해요'
-                : '켜면 방문한 페이지를 자동으로 기록해요 (opt-in, 기본 꺼짐)'
+                ? `방문한 페이지를 시간순으로 기록해요. ${AI_DISCLOSURE}`
+                : `켜면 방문한 페이지를 자동으로 기록해요 (opt-in, 계정마다 따로 켜요). ${AI_DISCLOSURE}`
             }
             checked={collectionEnabled}
             onChange={(v) => {
