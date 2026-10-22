@@ -596,3 +596,37 @@ LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 �
   프롬프트에서도 뺀다. 단, 해당 SQL의 스냅샷 이후 철회는 이미 읽은 자료를 회수하지 않는다.
   검색 리랭킹·Ask 본문 임베딩·답변 생성·스트리밍 중 철회에 따른 취소까지 보장하지는 않는다.
 - `GET/PATCH /settings`: 사용자별 값이다. 이전의 전역 값은 읽지 않는다(`data-model-v2.md` §11).
+  `team_collect_excluded_domains: string[]`(최대 200, 호스트 접미사 일치, 소문자)를 더한다(§15).
+
+## 15. 팀 수집 모드 (`/workspaces/{id}/collect`) — 2단계
+
+팀을 켜 둔 동안 이 기기에서 연 페이지를 팀 스트림으로 보내고, 멤버별로 세션화한 뒤 그 팀에 자동 공유한다.
+설계·결정·불변 조건 17개는 `docs/team-collect-mode.md`. 권한 정책은 §14.1과 같다(비멤버 404, owner 전용 403).
+
+| 메서드 | 경로 | 권한 | 설명 |
+|---|---|---|---|
+| `GET` | `/workspaces?device_id=` | 로그인 | 항목에 `collect_allowed`, `my_collect`(이 기기의 활성 창 `{window_id, workspace_id, device_id, started_at, expires_at}` 또는 `null`) |
+| `PATCH` | `/workspaces/{id}` | owner | `{name?, collect_allowed?}`. 허용을 끄면 그 팀의 열린 창이 모두 끝난다 |
+| `GET` | `/workspaces/{id}/collect` | member | `{allowed, my_windows[], collecting[{user_id,name,picture,expires_at}]}`. `my_windows`는 내 모든 기기, `collecting`에는 남의 기기 정보가 없다 |
+| `POST` | `/workspaces/{id}/collect` | member | `{device_id, duration_minutes: 30\|60\|120\|240\|480(기본 120), consent_version}` → `201 {window, server_now, ended_workspace_id}`. 허용 안 된 팀·동시 시작은 `409`. 같은 기기의 다른 창은 끝낸다 |
+| `DELETE` | `/workspaces/{id}/collect?device_id=&reason=` | member | `reason: stop\|pause\|browser_restart\|account_switch`. `device_id`를 빼면 이 팀의 내 모든 창. 멱등 `204` |
+| `GET` | `/workspaces/{id}/collect/windows/{wid}/sessions` | 창 주인 | 돌아보기 — 그 창의 방문이 들어간 내 세션(`SessionDetail[]`). 남의 창 `404` |
+| `POST` | `/workspaces/{id}/collect/windows/{wid}/withdraw` | 창 주인 | 세션에 묶이지 않은 그 창의 방문을 개인으로. 열린 창이면 함께 끝낸다. `{withdrawn_events, sessions: SessionDetail[], window_closed}`. 남의 창 `404` |
+| `POST` | `/workspaces/{id}/collect/sessions/{sid}/restore` | 세션 주인 | 뺀 수집 세션 되돌리기 — 공유 행과 스트림을 함께. 개인 방문이 섞였거나 멤버십·가입 시각이 깨졌으면 `409`. 성공 `204` |
+
+### 15.1 인제스트
+
+- `POST /events` 이벤트마다 `workspace_id`, `collect_window_id`(둘 다 있어야 판정. 기존 `window_id`는 브라우저 창 번호).
+  서버가 그 창 하나로 사람·팀·기기·현재 멤버십(`started_at ≥ joined_at`)·허용·빼기·서버 수신 시각·민감/로그인 호스트/
+  기본 제외(웹메일·메신저·검색 결과)/사용자 제외 목록을 판정해 통과한 것만 저장한다. 어기면 거절하지 않고 개인으로 저장한다.
+- 응답에 `team_accepted`, `team_downgraded`, `window_closed`(가리킨 창이 서버에서 이미 끝났다 — 확장이 로컬 수집을 끄는 유일한 신호).
+- 이미 있는 id는 `ON CONFLICT DO NOTHING`이라 재전송으로 팀 표시를 바꿀 수 없다. 바꾸는 길은 `withdraw`뿐이다.
+
+### 15.2 기존 경로 변경
+
+- 팀원 응답(팀 범위)의 페이지 주소는 쿼리·프래그먼트를 지운다(민감 URL은 도메인만): 공유 세션 단건 `tabs[].url`,
+  `/sessions/{id}/events`의 `url`, 팀 목록, 팀 세션 검색, 팀 방문 검색, Ask 근거. `referrer_url`·`previous_event_id`는 싣지 않는다.
+- `SessionDetail.collect_workspace_id`: 소유자에게만. `WorkspaceSessionItem.collected`: 이 팀의 수집 세션인가.
+- 팀 공유 해제(`DELETE /workspaces/{id}/sessions/{sid}`)는 누가 풀든 그 팀의 수집 세션이면 스트림도 해제한다.
+- 병합·병합 제안: 스트림(`collect_workspace_id`)이 다르면 `409`/제안 제외.
+- 탈퇴·추방·팀 삭제는 창을 먼저 잠가 닫고 방문 표시·세션 스트림을 비운 뒤 공유를 지운다.

@@ -313,6 +313,36 @@ FK에 ON DELETE가 없다(`session_events`와 같다). 정리를 빠뜨리면 �
 남겨 둔다 — 되돌리면 그대로 다시 보인다. 흡수한 생존 세션은 자동으로 공유하지 않는다. 자동병합은 공유 중인 세션을
 건너뛴다. 사용자 모르게 팀에 보이는 범위가 바뀌지 않게 하기 위해서다.
 
+### 10.3 팀 수집 모드 (2단계, `docs/team-collect-mode.md` §4)
+
+기존 표에 열 4개(멱등 러너 `_TABLE_COLUMNS`), 신규 표 1개(create_all), 인덱스 3개(러너 `_INDEXES`, `pg_indexes` 확인 후 생성).
+
+```sql
+ALTER TABLE exploration_events ADD COLUMN workspace_id VARCHAR(36);       -- 서버 판정을 통과한 팀 수집 방문. NULL=개인
+ALTER TABLE exploration_events ADD COLUMN collect_window_id VARCHAR(36);  -- 판정에 쓴 수집 창(빼기·되돌리기 기준)
+ALTER TABLE sessions ADD COLUMN collect_workspace_id VARCHAR(36);         -- 팀 수집 스트림. NULL=개인
+ALTER TABLE workspaces ADD COLUMN collect_allowed BOOLEAN NOT NULL DEFAULT false;
+
+CREATE TABLE workspace_collect_windows (
+  id VARCHAR(36) PRIMARY KEY, workspace_id VARCHAR(36) NOT NULL REFERENCES workspaces(id),
+  user_id VARCHAR(64) NOT NULL, device_id VARCHAR(64) NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ NOT NULL,   -- 최대 8시간
+  ended_at TIMESTAMPTZ, ended_reason VARCHAR(20), withdrawn_at TIMESTAMPTZ
+);
+CREATE INDEX ix_collect_windows_lookup ON workspace_collect_windows (workspace_id, user_id, device_id, started_at);
+CREATE UNIQUE INDEX ux_collect_windows_open ON workspace_collect_windows (user_id, device_id) WHERE ended_at IS NULL;
+CREATE INDEX ix_exploration_events_stream ON exploration_events (user_id, workspace_id, sync_status, visited_at);
+CREATE INDEX ix_exploration_events_collect_window ON exploration_events (collect_window_id) WHERE collect_window_id IS NOT NULL;
+CREATE INDEX ix_sessions_collect_workspace_id ON sessions (collect_workspace_id) WHERE collect_workspace_id IS NOT NULL;
+```
+
+- 공유 행(`workspace_sessions`)은 "팀에 보이는가", `collect_workspace_id`는 "어느 스트림의 방문을 받는가"다. 수동 공유한 개인 세션은
+  팀에 보여도 개인 스트림이다. 배치는 claim·후보·반영 세 곳에서 같은 스트림만 다룬다.
+- 열에 FK가 없다. 팀 삭제·탈퇴 정리가 같은 트랜잭션에서 창을 먼저 잠가 닫고 → 방문 표시 → 세션 스트림 → 공유 행 → (팀 삭제면) 창·멤버·팀 순으로 지운다.
+- 데이터 이관 없음: 기존 행은 NULL = 개인, 기존 팀은 허용 꺼짐. 되돌리기: 열은 남아도 옛 코드는 읽지 않는다.
+- Qdrant payload에 `collect_workspace_id`(keyword index)를 싣는다. 개인 세션은 필드가 없다(백필 불필요). 배치 후보의 recall 필터일 뿐 경계는 SQL이다.
+- `user_settings` 키: `team_collect_excluded_domains`(문자열 배열), `team_collect_consented`(`{workspace_id: {version, at}}`).
+
 ## 11. `user_settings` — 사용자별 설정 (신규 테이블)
 
 ```sql
