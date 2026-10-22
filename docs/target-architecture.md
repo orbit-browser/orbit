@@ -21,6 +21,8 @@ POST /sync (또는 주기 루프 / 개수 임계) → sync_pipeline.run_batch:
   → 그룹별: 그룹 임베딩 → Qdrant로 기존 세션 후보 검색(top3, thr 0.35) + 최근 24h 활성 세션(≤5)
   → LLM 의도 분석 1회: {assignments:[{event_indices, action: append|create|hold|discard, target|title, relevance}]}
     (split은 한 그룹이 여러 assignment로 갈리는 것으로 자연 지원, merge는 후순위 — 스키마만 예약)
+  → append 게이트: 후보의 유한한 유사도 점수 ≥ append_score_floor 및 최근 활동 조건 확인.
+    최근 목록에만 있는 후보(score 없음), 유효하지 않은 점수, 사라진 후보는 create로 분리.
   → session_updater: 세션 생성/갱신 + session_events + tabs JSONB 대표 페이지 top-20 동기화(하위 호환)
   → 변경된 세션: generate_summary(재사용) → session_versions 기록 → _embed_and_upsert(재사용)
 ```

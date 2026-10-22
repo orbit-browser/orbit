@@ -124,10 +124,12 @@ def route_from_vectors(
                 margin=round(margin, 6),
                 reason="semantic",
             )
-        ranked = [item for item in ranked if item[0] != "navigate_tab"]
-        top_intent, top_score = ranked[0]
-        second_score = ranked[1][1]
-        margin = top_score - second_score
+        return AssistantRouteResponse(
+            intent="search_memory",
+            confidence=round(top_score, 6),
+            margin=round(margin, 6),
+            reason="fallback",
+        )
 
     if margin < settings.assistant_route_retrieval_margin:
         return AssistantRouteResponse(

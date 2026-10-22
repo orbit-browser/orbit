@@ -116,10 +116,7 @@ async function runSemanticOpenTabCommand(
     ? tabs.filter((tab) => !isSensitiveUrl(tab.url))
     : tabs;
   if (semanticCandidates.length === 0) {
-    return {
-      model: 'semantic-tab-action',
-      answer: '민감 페이지 제외 설정 때문에 의미 검색에 사용할 수 있는 탭이 없어요. 탭 이름을 정확히 말하면 로컬에서 이동할 수 있어요.',
-    };
+    return null;
   }
 
   let resolved;
@@ -135,21 +132,17 @@ async function runSemanticOpenTabCommand(
     const candidateTabs = resolved.candidates
       .map((candidate) => semanticCandidates.find((tab) => tab.id === candidate.tabId))
       .filter((tab): tab is OpenTabItem => tab !== undefined);
+    if (candidateTabs.length < 2) return null;
     return {
       model: 'semantic-tab-action',
-      answer: candidateTabs.length >= 2
-        ? '비슷한 열린 탭이 여러 개 있어요. 이동할 탭을 선택해 주세요.'
-        : '열린 탭에서 확실하게 일치하는 페이지를 찾지 못했어요. 탭 이름이나 사이트를 조금 더 구체적으로 말해 주세요.',
-      tabCandidates: candidateTabs.length >= 2 ? candidateTabs : undefined,
+      answer: '비슷한 열린 탭이 여러 개 있어요. 이동할 탭을 선택해 주세요.',
+      tabCandidates: candidateTabs,
     };
   }
 
   const matchedTab = semanticCandidates.find((tab) => tab.id === resolved.tabId);
   if (!matchedTab) {
-    return {
-      model: 'semantic-tab-action',
-      answer: '찾은 탭이 방금 닫혔어요. 다시 시도해 주세요.',
-    };
+    return null;
   }
 
   await activateOpenTab(matchedTab);
@@ -180,10 +173,7 @@ async function routeAskRequest(
     tabs = await getAllOpenTabs();
     signal.throwIfAborted();
     if (tabs.length === 0) {
-      return {
-        intent: 'search_memory',
-        command: { model: 'local-tab-action', answer: '현재 찾을 수 있는 열린 탭이 없어요.' },
-      };
+      return { intent: 'search_memory', command: null };
     }
     const localMatch = findBestOpenTab(tabs, localIntent.target);
     if (localMatch) {
@@ -232,10 +222,7 @@ async function routeAskRequest(
   tabs = await getAllOpenTabs();
   signal.throwIfAborted();
   if (tabs.length === 0) {
-    return {
-      intent: 'search_memory',
-      command: { model: 'local-tab-action', answer: '현재 찾을 수 있는 열린 탭이 없어요.' },
-    };
+    return { intent: 'search_memory', command: null };
   }
   return {
     intent: 'search_memory',

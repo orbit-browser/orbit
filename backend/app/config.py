@@ -57,8 +57,8 @@ class Settings(BaseSettings):
 
     # Ask 통합 의도 라우터. 자동 실행인 탭 이동은 별도 floor/margin을 모두 통과해야 한다.
     # 검색 의도가 모호하면 retrieval_margin 아래에서 search_memory로 안전하게 fallback한다.
-    assistant_route_navigation_floor: float = Field(default=0.14, ge=-1.0, le=1.0)
-    assistant_route_navigation_margin: float = Field(default=0.02, ge=0.0, le=2.0)
+    assistant_route_navigation_floor: float = Field(default=0.35, ge=-1.0, le=1.0)
+    assistant_route_navigation_margin: float = Field(default=0.05, ge=0.0, le=2.0)
     assistant_route_retrieval_margin: float = Field(default=0.015, ge=0.0, le=2.0)
 
     # Auto Session 동기화 (M3 sync_pipeline에서 사용 — docs/implementation-roadmap.md M1-1)

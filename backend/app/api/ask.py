@@ -16,6 +16,7 @@ from ..schemas.session import SessionDetail
 from ..services.ask_service import (
     ASK_SYSTEM_PROMPT,
     AskContext,
+    grounded_answer,
     prepare_ask_context,
 )
 from ..services.workspaces import session_scope_clause
@@ -92,6 +93,7 @@ async def _answer_events(
 
     model: str | None = None
     emitted = False
+    parts: list[str] = []
     try:
         async for text, provider_model in chat_completion_stream_with_meta(
             ASK_SYSTEM_PROMPT,
@@ -100,9 +102,13 @@ async def _answer_events(
             if await request.is_disconnected():
                 logger.info("Ask stream client disconnected")
                 return
-            emitted = True
             model = provider_model
-            yield encode_sse("delta", {"text": text})
+            parts.append(text)
+        # 토큰 단위로 먼저 표시하면 뒤늦게 발견한 근거 모순을 되돌릴 수 없다.
+        # 소스는 즉시 표시하고 답변만 완성 후 검증한다. 추가 LLM 호출은 하지 않는다.
+        answer = grounded_answer("".join(parts), context.sources)
+        emitted = True
+        yield encode_sse("delta", {"text": answer})
         yield encode_sse("done", {"model": model})
     except asyncio.CancelledError:
         logger.info("Ask stream cancelled")
@@ -111,7 +117,7 @@ async def _answer_events(
         logger.warning("Ask stream interrupted after partial output (model=%s)", exc.model)
         yield encode_sse(
             "error",
-            {"code": "stream_interrupted", "partial": True, "retryable": True},
+            {"code": "stream_interrupted", "partial": emitted, "retryable": True},
         )
     except Exception:
         logger.exception("Ask answer generation failed")

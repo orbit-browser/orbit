@@ -9,6 +9,7 @@
 
 import asyncio
 import logging
+import math
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -300,8 +301,12 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
 def _append_blocked(candidate: dict) -> bool:
     """append 게이트 — 후보가 유사도 하한 미달이거나 시간 근접을 벗어나면 True(강등 대상)."""
     score = candidate.get("score")
-    # 벡터 매치 후보만 유사도로 판정(최근-only 후보는 score None → 유사도 게이트 우회, recency로만).
-    if isinstance(score, (int, float)) and score < settings.append_score_floor:
+    # 최근 활동은 주제 일치의 증거가 아니다. 검색 실패/누락도 기존 세션 오염을 막아야 한다.
+    if (
+        not isinstance(score, (int, float))
+        or not math.isfinite(score)
+        or not settings.append_score_floor <= score <= 1.0
+    ):
         return True
     days_ago = candidate.get("last_activity_days_ago")
     if isinstance(days_ago, int) and days_ago > settings.append_max_age_days:
@@ -321,12 +326,12 @@ def _gate_appends(assignments: list[Assignment], candidates: list[dict]) -> list
     for assignment in assignments:
         if assignment.action == "append" and assignment.target:
             candidate = meta.get(assignment.target)
-            if candidate is not None and _append_blocked(candidate):
+            if candidate is None or _append_blocked(candidate):
                 logger.info(
-                    "append 게이트 — 후보 %s로의 append를 create로 강등(score=%s, days_ago=%s)",
+                    "Append blocked; creating a separate session (target=%s, score=%s, days_ago=%s)",
                     assignment.target,
-                    candidate.get("score"),
-                    candidate.get("last_activity_days_ago"),
+                    (candidate or {}).get("score"),
+                    (candidate or {}).get("last_activity_days_ago"),
                 )
                 gated.append(replace(assignment, action="create", target=None))
                 continue

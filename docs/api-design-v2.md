@@ -268,10 +268,7 @@ event: sources
 data: {"sessions":[{...SessionDetail...}]}
 
 event: delta
-data: {"text":"가장 낮은 "}
-
-event: delta
-data: {"text":"선택지는 A사였습니다 [1]."}
+data: {"text":"가장 낮은 선택지는 A사였습니다 [1]."}
 
 event: done
 data: {"model":"A.X-K1"}
@@ -280,6 +277,11 @@ data: {"model":"A.X-K1"}
 이벤트 순서는 `sources` → `delta` 0개 이상 → `done` 또는 `error`다. 오류 이벤트는
 `{"code":"stream_interrupted|generation_failed","partial":true|false,"retryable":true}` 형식이다.
 검색/DB 오류처럼 스트림 시작 전 실패는 기존 HTTP 오류 계약을 따른다.
+
+소스 카드는 즉시 전송하지만, 생성 답변은 완성 후 검사해 `delta`로 보낸다. 소스가 있는데
+기록 자체를 부정하는 표현이나 빈 답변이면, 검사 실패를 로그에 남기고 확인된 세션 제목·방문 URL과
+답변 확인 실패 안내를 표시한다. 페이지 본문에 세부 정보가 부족한 것과 방문 기록 부재는 구분한다.
+검증 전에 생성이 끊기면 답변을 표시하지 않으므로 오류의 `partial`은 `false`다.
 
 답변 컨텍스트는 관련 세션 최대 3개의 요약과 세션별 질문 관련 이벤트 최대 4개의
 `content_excerpt`로 제한한다. 세션별 기존 relevance 상위 12개를 후보로 제한한 뒤 질문에는
@@ -312,6 +314,9 @@ EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델�
 - 명확한 결과 형태는 규칙으로 먼저 구분하고 나머지는 query/passage prototype 임베딩으로 판별한다.
 - retrieval 상위 의도의 격차가 작으면 `search_memory`로 fallback한다.
 - `navigate_tab`은 별도 score/margin을 통과해도 아래 탭 후보 resolver를 추가로 통과해야 실행된다.
+- 의미 기반 탭 이동의 기본 하한은 점수 `0.35`, 격차 `0.05`이며, 미달이면 `search_memory`로 간다.
+  열린 대상이 없거나 resolver에서 확실한 후보를 못 찾으면 확장은 저장 기록 검색으로 이어간다.
+  충분한 점수의 열린 후보 여러 개를 resolver가 반환한 경우에는 기존 선택 UI를 유지한다.
 - `reason`은 `rule`, `semantic`, `fallback` 중 하나다. 요청·벡터는 저장하지 않는다.
 
 ### 8.3 `POST /tab-actions/resolve` — 열린 탭 자연어 의미 매칭

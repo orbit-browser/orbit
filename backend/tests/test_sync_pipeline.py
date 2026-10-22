@@ -315,9 +315,9 @@ def test_append_blocked_by_stale_recency():
     assert sync_pipeline._append_blocked({"score": 0.9, "last_activity_days_ago": 5}) is True
 
 
-def test_append_not_blocked_when_score_none_and_recent():
-    # 최근-only 후보(score None)는 유사도 판정을 우회하고 recency로만 본다
-    assert sync_pipeline._append_blocked({"score": None, "last_activity_days_ago": 0}) is False
+def test_append_blocked_when_score_none_and_recent():
+    # 최근-only 후보는 주제 일치 근거가 없어 기존 세션에 붙이지 않는다.
+    assert sync_pipeline._append_blocked({"score": None, "last_activity_days_ago": 0}) is True
 
 
 def test_gate_appends_downgrades_low_similarity_to_create():
@@ -421,7 +421,7 @@ def test_fetch_candidates_falls_back_when_vector_search_fails(monkeypatch):
             "overview": "ov",
             "keywords": ["k"],
             "last_activity_days_ago": 0,
-            # 벡터 검색이 실패해 최근-only로 잡힌 후보 → score None(게이트 유사도 판정 우회)
+            # 벡터 검색 실패 시 최근 후보를 제공하되 append 게이트는 차단한다.
             "score": None,
         }
     ]

@@ -102,8 +102,8 @@ uvicorn app.main:app --reload
 | 환경변수 | 기본값 | 설명 |
 |---|---|---|
 | `SEARCH_SCORE_THRESHOLD` | `0.28` | Qdrant cosine 검색의 최소 유사도. 실제 골든셋에 맞춰 `0.0`~`1.0` 범위에서 조정 |
-| `ASSISTANT_ROUTE_NAVIGATION_FLOOR` | `0.14` | Ask 라우터가 탭 이동을 선택할 최소 점수 |
-| `ASSISTANT_ROUTE_NAVIGATION_MARGIN` | `0.02` | 탭 이동과 다음 의도의 최소 점수 격차 |
+| `ASSISTANT_ROUTE_NAVIGATION_FLOOR` | `0.35` | Ask 라우터가 탭 이동을 선택할 최소 점수 |
+| `ASSISTANT_ROUTE_NAVIGATION_MARGIN` | `0.05` | 탭 이동과 다음 의도의 최소 점수 격차 |
 | `ASSISTANT_ROUTE_RETRIEVAL_MARGIN` | `0.015` | 이보다 모호한 검색 의도는 전체 기록 검색으로 fallback |
 
 검색 임베딩 timeout은 504, 연결 실패는 503, upstream/응답 형식 오류는 502로 반환한다.

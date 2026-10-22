@@ -20,6 +20,49 @@ afterEach(async () => {
 });
 
 describe('Ask AI request', () => {
+  it.each(['empty', 'low_score', 'missing_target', 'sensitive_only'])('열린 대상이 없으면 저장 기록을 검색한다: %s', async (scenario) => {
+    const activateTab = vi.fn();
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({
+        'orbit:auth': {
+          token: 'test-token', expiresAt: '2099-01-01T00:00:00.000Z',
+          user: { id: 'u1', email: 'test@example.com', name: '테스트', picture: null },
+        },
+      })) } },
+      tabs: {
+        query: vi.fn(async () => scenario === 'empty' ? [] : [{
+          id: 42, windowId: 7, index: 0, active: false,
+          title: scenario === 'sensitive_only' ? 'PayPal' : 'News',
+          url: scenario === 'sensitive_only' ? 'https://www.paypal.com/login' : 'https://example.com/news',
+        }]),
+        update: activateTab,
+      },
+    });
+    let askBody: Record<string, unknown> | null = null;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/assistant/route')) {
+        return new Response(JSON.stringify({ intent: 'navigate_tab', confidence: 0.4, margin: 0.1, reason: 'semantic' }));
+      }
+      if (String(input).includes('/tab-actions/resolve')) {
+        return new Response(JSON.stringify(scenario === 'missing_target'
+          ? { action: 'navigate_tab', tab_id: '99', reason: 'matched', score: 0.5, margin: 0.1 }
+          : { action: 'ask', reason: 'low_confidence', score: 0.1, margin: 0.01, candidates: [] }));
+      }
+      expect(String(input)).toContain('/ask/stream');
+      askBody = JSON.parse(String(init?.body));
+      return new Response('event: sources\ndata: {"sessions":[]}\n\nevent: delta\ndata: {"text":"저장 기록 검색 결과"}\n\nevent: done\ndata: {"model":null}\n\n');
+    }));
+    let conversation: ReturnType<typeof useAskConversation> | undefined;
+    function Probe() { conversation = useAskConversation(); return null; }
+    renderToString(createElement(Probe));
+    conversation!.startNewConversation();
+    await conversation!.ask('두 입력창이 따로 바뀌는 문제 때문에 같은 값을 공유하도록 고치던 문서 찾아줘.');
+    expect(askBody).toMatchObject({ intent: 'search_memory' });
+    expect(getAskConversationSnapshot().turns[0].answer).toBe('저장 기록 검색 결과');
+    expect(activateTab).not.toHaveBeenCalled();
+    conversation!.startNewConversation();
+  });
+
   it('현재 질문만 전송하고 이전 질문·답변 필드를 만들지 않는다', async () => {
     let requestBody = '';
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
