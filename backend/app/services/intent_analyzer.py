@@ -113,6 +113,9 @@ class Assignment:
     # 이 assignment를 만든 LLM 호출의 실제 사용 모델(감사용). LLM 예외로 인한
     # hold fallback에서는 None.
     model: str | None = None
+    # 후보 밖 target으로 append했다가 create로 강등됐다. LLM은 같은 호출의 다른 세션과 같은 주제라고 본 것이라
+    # sync_pipeline._merge_split_topic이 이것을 따로 지킬 세션으로 세지 않는다.
+    demoted_append: bool = False
 
 
 def _format_event_line(index: int, event: dict) -> str:
@@ -239,12 +242,14 @@ async def analyze(group: list[dict], candidates: list[dict]) -> list[Assignment]
             action = "hold"
 
         target_session_id: str | None = None
+        demoted_append = False
         if action == "append":
             idx = _parse_candidate_index(item.get("target"))
             if idx is not None and 0 <= idx < len(candidates):
                 target_session_id = candidates[idx].get("session_id")
             else:
                 action = "create"  # 후보 밖 target → create로 강등
+                demoted_append = True
 
         title = item.get("title")
         purpose = item.get("purpose")
@@ -258,6 +263,7 @@ async def analyze(group: list[dict], candidates: list[dict]) -> list[Assignment]
                 purpose=str(purpose).strip() if purpose else None,
                 relevance=_clamp_relevance(item.get("relevance")),
                 model=model,
+                demoted_append=demoted_append,
             )
         )
 
