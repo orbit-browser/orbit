@@ -6,6 +6,7 @@
 
 import hashlib
 import re
+import unicodedata
 from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 _SYSTEM_SCHEMES = {
@@ -109,6 +110,16 @@ def normalize_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
 
 
+def _decoded(text: str) -> str:
+    """판정용 정규화. 이중 인코딩(%2540)까지 풀고 전각 문자(＠, ｌ)를 반각으로 접는다."""
+    for _ in range(5):
+        decoded = unicodedata.normalize("NFKC", unquote(text))
+        if decoded == text:
+            break
+        text = decoded
+    return text
+
+
 def is_sensitive_url(url: str) -> bool:
     """민감 도메인/경로 여부 — 본문 제거 판정용(이벤트 자체는 저장)."""
     try:
@@ -116,10 +127,12 @@ def is_sensitive_url(url: str) -> bool:
     except ValueError:
         return False
 
-    host = parts.hostname or ""
+    # 끝 점 호스트(hometax.go.kr.)와 인코딩한 경로(/%6Cogin/)도 같은 페이지다.
+    host = _decoded(parts.hostname or "").rstrip(".")
+    path = _decoded(parts.path)
     if any(pattern.search(host) for pattern in _SENSITIVE_DOMAIN_PATTERNS):
         return True
-    if any(pattern.search(parts.path) for pattern in _SENSITIVE_PATH_PATTERNS):
+    if any(pattern.search(path) for pattern in _SENSITIVE_PATH_PATTERNS):
         return True
     return False
 
@@ -132,7 +145,7 @@ _ID_RUN = re.compile(r"[A-Za-z0-9_-]{16,}")
 
 def _looks_secret(segment: str) -> bool:
     """문서 id·재설정 토큰·이메일·주문 번호처럼 사람을 특정하거나 접근 권한이 되는 경로 조각."""
-    segment = unquote(segment)
+    segment = _decoded(segment)
     if "@" in segment:
         return True
     for piece in _PATH_PIECE.findall(segment):

@@ -98,3 +98,90 @@ def test_user_facing_fallback_answer_keeps_full_url():
     detail = _detail()
     detail.tabs = [SimpleNamespace(title="문서", url=GOOGLE_DOC)]
     assert GOOGLE_DOC in ask_service.grounded_answer("", [detail])
+
+
+# --- 재검토(security-re.md): 남은 외부 AI 경로와 판정 우회 ---
+
+from app.ai import clusterer
+from app.schemas.session import TabItemRequest
+from app.schemas.tab_action import OpenTabCandidate
+from app.services import summarizer, tab_action_resolver
+from app.services.event_filter import ai_safe_path, is_sensitive_url
+from app.services.recommender import service as recommender_service
+from app.services.recommender.llm_rerank import RecommendationContext
+
+LEAKY = "https://site.com/account/reset-password/9f8e7d6c5b4a3f2e1d0c?token=abc&email=hong%40corp.com#x"
+LEAKY_PARTS = ["9f8e7d6c5b4a3f2e1d0c", "token", "abc", "hong", "corp.com", "#x"]
+
+
+def _tab(url):
+    return TabItemRequest(url=url, title="비밀번호 재설정", text_content="본문")
+
+
+def _leaks(text):
+    return [s for s in LEAKY_PARTS if s in text]
+
+
+def test_summarizer_prompt_sends_only_safe_url():
+    text = summarizer._build_tabs_text([_tab(LEAKY)])
+    assert "URL: https://site.com/account/reset-password\n" in text
+    assert not _leaks(text), text
+
+
+def test_clusterer_prompt_sends_only_safe_url():
+    prompt = clusterer._build_prompt([_tab(LEAKY)])
+    assert "— https://site.com/account/reset-password\n" in prompt
+    assert not _leaks(prompt), prompt
+
+
+def test_open_tab_passage_drops_secret_segments():
+    passage = tab_action_resolver.build_candidate_passage(OpenTabCandidate(id="1", title="t", url=LEAKY))
+    assert "경로: account/reset-password" in passage
+    assert not _leaks(passage), passage
+
+
+def test_recommendation_context_sends_only_safe_url(monkeypatch):
+    sent = []
+
+    async def fake_embed(text):
+        sent.append(text)
+        return [0.0]
+
+    async def fake_search(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(recommender_service, "embed", fake_embed)
+    monkeypatch.setattr(recommender_service, "search_similar_with_scores", fake_search)
+    context = RecommendationContext(current_url=LEAKY)
+    import asyncio
+    asyncio.run(recommender_service._vector_scores(context, "u1"))
+    assert sent == ["https://site.com/account/reset-password"]
+    block = context.to_prompt_block()
+    assert "현재 보고 있는 페이지: https://site.com/account/reset-password" in block
+    assert not _leaks(block), block
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.hometax.go.kr./websquare/refund",  # 끝 점 호스트
+    "https://HOMETAX.GO.KR./x",
+    "https://example.com/%6Cogin/step2",  # 인코딩한 민감 경로
+    "https://example.com/%256Cogin/step2",  # 이중 인코딩
+    "https://example.com/%EF%BD%8Cogin/step2",  # 전각 ｌ
+])
+def test_sensitive_url_survives_encoding_tricks(url):
+    assert is_sensitive_url(url)
+    assert ai_safe_path(url) == ""
+
+
+@pytest.mark.parametrize("segment", [
+    "hong.gildong%2540corp.com",  # 이중 인코딩 @
+    "hong.gildong%EF%BC%A0corp.com",  # 전각 ＠
+    "%EF%BC%91%EF%BC%92%EF%BC%93%EF%BC%94%EF%BC%95%EF%BC%96%EF%BC%97%EF%BC%98",  # 전각 숫자 8자
+])
+def test_secret_segment_survives_encoding_tricks(segment):
+    assert ai_safe_path(f"https://mail.example.com/u/{segment}/inbox") == "/u/inbox"
+
+
+def test_ingest_strips_excerpt_for_trailing_dot_sensitive_host():
+    from app.api import events
+    assert events.is_sensitive_url("https://hometax.go.kr./websquare/refund")

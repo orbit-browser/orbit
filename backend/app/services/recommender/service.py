@@ -35,6 +35,7 @@ from ...db.models import (
 )
 from ...db.session import AsyncSessionLocal
 from ...db.vector import search_similar_with_scores
+from ..event_filter import ai_safe_url
 from .llm_rerank import RecommendationContext, rerank_recommendations
 from .scoring import SessionSignals, pick_top_candidates
 
@@ -166,7 +167,7 @@ async def _vector_scores(context: RecommendationContext, user_id: str) -> dict[s
     나머지 신호로 추천은 계속 나간다.
     """
     text = " ".join(
-        filter(None, [context.query, context.current_title, context.current_url])
+        filter(None, [context.query, context.current_title, ai_safe_url(context.current_url or "")])
     ).strip()
     if not text:
         return {}
