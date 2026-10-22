@@ -7,6 +7,7 @@ from openai import (
     APIStatusError,
     APITimeoutError,
     AsyncOpenAI,
+    OpenAIError,
     RateLimitError,
 )
 
@@ -205,9 +206,11 @@ async def chat_completion_light(
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        if not resp.choices:
-            raise ValueError("A.X 응답에 choices가 없습니다")
-        return resp.choices[0].message.content or ""
+        content = resp.choices[0].message.content if resp.choices else ""
+        # 빈 응답을 돌려주면 cluster_tabs가 전체를 한 그룹으로 묶는다 — 의도 분석과 같은 기준으로 넘긴다.
+        if not (content or "").strip():
+            raise ValueError("A.X 빈 응답")
+        return content
     except Exception as exc:
         logger.warning("A.X 실패 (%s) — EXAONE fallback", exc)
         resp = await _friendli_client().chat.completions.create(
@@ -335,6 +338,9 @@ async def chat_completion_intent(
             raise
     except ValueError as exc:
         logger.warning("A.X 응답 이상 (%s) — EXAONE fallback", exc)
+    except OpenAIError as exc:
+        # 클라이언트 생성 실패(AXK1_API_KEY 없음 등). 위의 상태·연결 오류는 이미 앞에서 걸렸다.
+        logger.warning("A.X 클라이언트 오류 (%s) — EXAONE fallback", type(exc).__name__)
 
     resp = await _friendli_client().chat.completions.create(
         model=settings.exaone_model,

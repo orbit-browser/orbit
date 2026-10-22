@@ -222,7 +222,11 @@ EXAONE은 FriendliAI dedicated endpoint로 호출하므로 `EXAONE_MODEL` 에 en
 - `FRIENDLI_API_KEY` 없음 → EXAONE 클라이언트 생성 단계에서 예외가 나므로 모든 단계의
   폴백이 사라진다. 기능은 도는 것처럼 보이지만 **국내 AI 2종 병행 구성이 실제로는
   1종으로 축소된 상태**이므로 시연 전에 반드시 확인한다.
-- `AXK1_API_KEY` 없음 → 모든 LLM 단계가 매번 EXAONE 폴백으로 처리된다.
+- `AXK1_API_KEY` 없음 → A.X 클라이언트를 만들 수 없다. 의도 분석과 탭 묶기는 EXAONE으로 넘어가
+  계속 동작한다. 나머지는 대체가 없다. 세션 요약은 실패(`summary_status=failed`)하고, Ask 답변은
+  `generation_failed` 오류를 낸다. 검색 리랭킹은 원래 순서를, 추천 리랭킹은 규칙 기반 순서를 쓴다.
+- 예전 `.env.example`을 복사해 `AXK1_MODEL=A.X-K1`이 남아 있다면 `A.X-K2`로 바꾼다. 지금 키로 A.X-K1을
+  부르면 403이 오고, 의도 분석이 매번 그룹 전체를 보류(hold)한다.
 
 ### 구글 로그인 설정 (필수)
 
