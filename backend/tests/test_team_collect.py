@@ -229,6 +229,13 @@ def test_visit_in_window_uses_server_receive_time(visited, received, end, expect
         ("https://search.naver.com/search.naver?query=x", True),
         ("https://www.youtube.com/results?search_query=x", True),
         ("https://www.youtube.com/watch?v=1", False),
+        ("https://search.daum.net/search?w=tot&q=private", True),  # Daum 검색 결과
+        ("https://m.search.naver.com/search.naver?query=private", True),  # Naver 모바일
+        ("https://duckduckgo.com/?q=private", True),  # DuckDuckGo
+        ("https://html.duckduckgo.com/html/?q=private", True),
+        ("https://search.yahoo.com/search?p=private", True),
+        ("https://duckduckgo.com/about", False),
+        ("https://www.daum.net/", False),
         ("not a url", True),  # 판정할 수 없으면 막는다
     ],
 )

@@ -339,6 +339,9 @@ CREATE INDEX ix_sessions_collect_workspace_id ON sessions (collect_workspace_id)
 - 공유 행(`workspace_sessions`)은 "팀에 보이는가", `collect_workspace_id`는 "어느 스트림의 방문을 받는가"다. 수동 공유한 개인 세션은
   팀에 보여도 개인 스트림이다. 배치는 claim·후보·반영 세 곳에서 같은 스트림만 다룬다.
 - 열에 FK가 없다. 팀 삭제·탈퇴 정리가 같은 트랜잭션에서 창을 먼저 잠가 닫고 → 방문 표시 → 세션 스트림 → 공유 행 → (팀 삭제면) 창·멤버·팀 순으로 지운다.
+- 배치 반영 직전 재판정은 멤버십·가입 시각·방문 표시만 다시 본다. `collect_allowed`는 인제스트 판정 조건이라 반영 때 다시 보지 않는다
+  (허용을 끄기 전 창 안에서 받은 방문은 팀 기록으로 남는다).
+- 세션 주인은 owner가 공유를 푼 수집 세션도 되돌리기(`restore`)로 다시 공유할 수 있다(1단계 재공유와 같은 권한, CTO 결정 2026-10-23).
 - 데이터 이관 없음: 기존 행은 NULL = 개인, 기존 팀은 허용 꺼짐. 되돌리기: 열은 남아도 옛 코드는 읽지 않는다.
 - Qdrant payload에 `collect_workspace_id`(keyword index)를 싣는다. 개인 세션은 필드가 없다(백필 불필요). 배치 후보의 recall 필터일 뿐 경계는 SQL이다.
 - `user_settings` 키: `team_collect_excluded_domains`(문자열 배열), `team_collect_consented`(`{workspace_id: {version, at}}`).

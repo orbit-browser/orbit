@@ -705,3 +705,79 @@ def test_leave_waits_for_late_ingest_into_an_ended_window(pg):
         assert await _label(pg, eid) == (None, None)
 
     asyncio.run(scenario())
+
+
+def _pause_after_confirm(monkeypatch):
+    """반영 트랜잭션이 재판정(창 FOR SHARE)을 지난 뒤, 세션을 쓰기 전에 멈추게 한다."""
+    reached, release = asyncio.Event(), asyncio.Event()
+    real = session_updater.confirm_team_events
+
+    async def paused(*args, **kwargs):
+        result = await real(*args, **kwargs)
+        reached.set()
+        await release.wait()
+        return result
+
+    monkeypatch.setattr(session_updater, "confirm_team_events", paused)
+    return reached, release
+
+
+def test_leave_during_apply_waits_and_leaves_no_stale_share(pg, pipeline, api, monkeypatch):
+    """R1: 반영이 재판정을 지난 뒤 탈퇴가 시작돼도, 탈퇴는 창 잠금을 기다렸다가 반영이 만든 공유·스트림까지 지운다.
+
+    잠금이 없으면 탈퇴가 먼저 커밋되고 반영이 낡은 판정으로 공유 행을 만든다 — 재가입하면 옛 세션이 팀에 다시 보인다.
+    """
+
+    async def scenario():
+        await _add_events(pg, [_pending("t1")])
+        pipeline["analyze"] = lambda g, c: asyncio.sleep(0, _create_all(g, c))
+        reached, release = _pause_after_confirm(monkeypatch)
+        batch = asyncio.create_task(pipeline["run_once"]())
+        await asyncio.wait_for(reached.wait(), 20)
+
+        leave = asyncio.create_task(api("DELETE", f"/workspaces/{T}/members/mina"))
+        await asyncio.sleep(0.5)
+        release.set()
+        await asyncio.wait_for(batch, 30)
+        assert (await asyncio.wait_for(leave, 30)).status_code == 204
+
+        [sid] = await _sessions_of(pg, "t1")
+        async with pg() as db:
+            assert await db.get(WorkspaceSession, (T, sid)) is None
+            assert (await db.get(Session, sid)).collect_workspace_id is None
+            db.add(WorkspaceMember(workspace_id=T, user_id="mina", role="member", joined_at=_now()))
+            await db.commit()
+        assert (await api("GET", f"/workspaces/{T}/sessions", user="olive")).json() == []
+
+    asyncio.run(scenario())
+
+
+def test_withdraw_during_apply_waits_and_reports_the_new_session(pg, pipeline, api, monkeypatch):
+    """R1: 반영 도중 빼기는 창 잠금을 기다린다. 반영이 만든 팀 세션은 빼기 응답에 나와 세션별로 뺄 수 있고,
+    팀 세션 안에 빼진(표시 없는) 방문이 섞이지 않는다.
+
+    잠금이 없으면 빼기가 먼저 방문 표시를 지우고, 반영은 낡은 판정으로 그 방문을 팀 세션에 넣는다 — 그 세션은
+    창 id 로 찾을 수 없어 돌아보기에도 나오지 않는다.
+    """
+
+    async def scenario():
+        await _add_events(pg, [_pending("t1")])
+        pipeline["analyze"] = lambda g, c: asyncio.sleep(0, _create_all(g, c))
+        reached, release = _pause_after_confirm(monkeypatch)
+        batch = asyncio.create_task(pipeline["run_once"]())
+        await asyncio.wait_for(reached.wait(), 20)
+
+        withdraw = asyncio.create_task(api("POST", f"/workspaces/{T}/collect/windows/w1/withdraw"))
+        await asyncio.sleep(0.5)
+        release.set()
+        await asyncio.wait_for(batch, 30)
+        body = (await asyncio.wait_for(withdraw, 30)).json()
+
+        [sid] = await _sessions_of(pg, "t1")
+        async with pg() as db:
+            session = await db.get(Session, sid)
+            if session.collect_workspace_id is not None:
+                assert await _label(pg, "t1") == (T, "w1"), "team session must not hold a withdrawn visit"
+                assert sid in [s["session_id"] for s in body["sessions"]]
+
+    asyncio.run(scenario())

@@ -129,7 +129,8 @@
    - **팀 수집 기본 제외(S6, CTO 결정, v1은 해제 불가)**: 웹메일(`mail.google.com`, `outlook.live.com`, `outlook.office.com`,
      `mail.naver.com`, `mail.daum.net`), 메신저(`web.whatsapp.com`, `web.telegram.org`, `app.slack.com`, `teams.microsoft.com`,
      `discord.com/channels`, `messenger.com`, `instagram.com/direct`), 검색 결과 페이지(서버 `extract_search_query`가 검색어를
-     뽑는 주소 = Google·Naver·YouTube·Bing 결과). 목록은 확장·서버에 같은 값으로 두고 민감 목록처럼 함께 바꾼다
+     뽑는 주소 = Google·Naver·YouTube·Bing 결과, 그리고 팀 수집 전용으로 Daum `search.daum.net`·`m.search.daum.net`,
+     Naver 모바일 `m.search.naver.com`, DuckDuckGo(`?q=`·`html.duckduckgo.com/html`), Yahoo, Ecosia 결과). 목록은 확장·서버에 같은 값으로 두고 민감 목록처럼 함께 바꾼다
    - 사용자 제외 목록
 5. 그 밖 → `workspaceId = 창의 팀`.
 
@@ -245,6 +246,8 @@ GitHub main 통합본 위 별도 갈래).
   흡수되지 않았다. 하나라도 깨졌으면 `409`로 막고 화면은 "되돌릴 수 없어요"를 보인다. 서버 경로는
   `POST /workspaces/{id}/collect/sessions/{sid}/restore`(주인 전용, 남의 세션 `404`). 일반 1단계 `POST /workspaces/{id}/sessions`로
   다시 공유하는 것은 개인 스트림 공유이며 되돌리기가 아니다(확인 문구가 라이브 참조를 알린다 — 1단계 그대로).
+  owner가 남의 수집 세션의 공유를 푼 경우에도 세션 주인은 되돌리기로 다시 공유할 수 있다(CTO 결정 2026-10-23) — 1단계에서
+  주인이 같은 세션을 다시 공유할 수 있는 것과 같은 권한이다. owner가 계속 막으려면 그 사람을 내보내거나 팀 수집 허용을 끈다.
 - **폴더 자동 배정(#26)**: 주인의 폴더에 넣는 개인 정리 정보라 그대로 둔다. 팀원 응답의 `folder_id`는 1단계대로 `null`.
 - **추천·병합 제안·개인 검색**: 주인 기준 그대로(팀 수집 세션도 내 세션).
 
@@ -428,7 +431,7 @@ CREATE UNIQUE INDEX ux_collect_windows_open ON workspace_collect_windows (user_i
 | 인제스트 | (대기 없음) | 같은 트랜잭션에서 창 행 `FOR SHARE` 잠금 → 창·빼기·가입 시각·멤버십 판정 후 INSERT. 탈퇴 커밋과 겹쳐 오래된 팀 표시가 저장돼도 아래 두 단계가 거른다 |
 | 빼기(`withdraw`)와 인제스트 | — | `withdraw`는 창 행 `FOR UPDATE`. 먼저 시작한 인제스트가 커밋할 때까지 기다린 뒤 UPDATE하므로(READ COMMITTED에서 새 문장은 커밋된 행을 본다) 그 인제스트의 팀 표시도 비운다. 나중에 시작한 인제스트는 `withdrawn_at`을 보고 개인으로 저장 |
 | 빼기와 배치 반영 | claim 시점의 `workspace_id` | 반영이 ③에서 이벤트 열을 다시 보므로 `processing` 중에 빠진 방문은 개인으로 반영. 반영이 먼저 커밋돼 세션이 됐으면 `withdraw` 응답 `sessions`에 나와 사용자가 공유를 푼다 |
-| 배치 claim → 임베딩 → 의도 분석(LLM) | claim한 이벤트의 `workspace_id`, 후보 세션 목록 | `apply_assignments` 트랜잭션에서: ① 그 사람이 아직 팀 멤버이고 그 방문의 창이 `joined_at` 이후에 열렸는가 ② append 대상 세션의 `collect_workspace_id`가 여전히 그 팀인가(UPDATE의 WHERE에 조건) ③ 이벤트의 `workspace_id`가 아직 그 팀인가(탈퇴 정리·빼기가 비웠을 수 있음, 다시 SELECT). 하나라도 아니면 개인 스트림으로 반영, 공유 행을 넣지 않는다 |
+| 배치 claim → 임베딩 → 의도 분석(LLM) | claim한 이벤트의 `workspace_id`, 후보 세션 목록 | `apply_assignments` 트랜잭션에서: ① 그 사람이 아직 팀 멤버이고 그 방문의 창이 `joined_at` 이후에 열렸는가 ② append 대상 세션의 `collect_workspace_id`가 여전히 그 팀인가(UPDATE의 WHERE에 조건) ③ 이벤트의 `workspace_id`가 아직 그 팀인가(탈퇴 정리·빼기가 비웠을 수 있음, 다시 SELECT). 하나라도 아니면 개인 스트림으로 반영, 공유 행을 넣지 않는다. 팀의 `collect_allowed`는 다시 보지 않는다 — 허용은 인제스트 시점의 판정 조건이고, 끄기 전 창 안에서 받은 방문은 팀 기록으로 남는다(§6.3) |
 | 공유 행 INSERT와 탈퇴의 경합 | — | 반영이 멤버십을 본 직후 탈퇴가 커밋되면 공유 행이 남을 수 있다. 1단계 불변 조건 5의 읽기 조인(공유자 멤버십)이 거른다. 다음 정리(탈퇴 재실행 없이)는 필요 없다 — 보이지 않는 행이다 |
 | 재요약(`refresh_session_ai`) | 세션 id | 재요약은 주인 세션의 요약만 바꾼다. 팀에 보이는지는 읽기 때 판정하므로 철회 후 재요약 결과가 팀에 새지 않는다 |
 | 끝날 때 돌아보기 | 창 id | 조회 SQL이 본인 소유 세션만 돌려준다 |

@@ -242,6 +242,18 @@ _TEAM_EXCLUDED_HOSTS = (
 )
 _TEAM_EXCLUDED_PATHS = {"discord.com": "/channels", "instagram.com": "/direct"}
 
+# _search_param(검색어 추출용) 밖의 검색 결과 페이지. 동의 문구가 "검색 결과 페이지"라고 넓게 말하므로
+# 팀 수집에서는 주요 검색엔진의 결과 경로를 더 막는다. 개인 수집의 검색어 추출(§8)은 바꾸지 않는다.
+_TEAM_SEARCH_PAGES = {
+    "search.daum.net": ("/search",),
+    "m.search.daum.net": ("/search",),
+    "m.search.naver.com": ("/search.naver",),
+    "search.naver.com": ("/search.naver",),
+    "html.duckduckgo.com": ("/html",),
+    "search.yahoo.com": ("/search",),
+    "www.ecosia.org": ("/search",),
+}
+
 
 def _host_matches(host: str, domain: str) -> bool:
     return host == domain or host.endswith("." + domain)
@@ -273,6 +285,10 @@ def is_team_blocked_url(url: str, excluded_domains: tuple[str, ...] | list[str] 
         if _host_matches(host, domain) and (path == prefix or path.startswith(prefix + "/")):
             return True
     if _search_param(host, parts.path) is not None:
+        return True
+    if any(path == p or path.startswith(p + "/") for p in _TEAM_SEARCH_PAGES.get(host, ())):
+        return True
+    if host in ("duckduckgo.com", "www.duckduckgo.com") and "q" in parse_qs(parts.query):
         return True
     return any(_host_matches(host, domain.strip(".").lower()) for domain in excluded_domains if domain)
 

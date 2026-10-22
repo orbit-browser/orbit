@@ -106,7 +106,8 @@ class Judgement:
 async def _lock_windows_for_share(db: AsyncSession, window_ids: set[str]) -> None:
     if window_ids:
         await db.execute(
-            select(Window.id).where(Window.id.in_(window_ids)).with_for_update(read=True)
+            # 여러 창을 잠글 때는 id 순서로 — 정리(FOR UPDATE)와 순서가 엇갈려 교착하지 않게 한다.
+            select(Window.id).where(Window.id.in_(window_ids)).order_by(Window.id).with_for_update(read=True)
         )
 
 
@@ -227,7 +228,11 @@ async def strip_labels(db: AsyncSession, event_ids: list[str]) -> None:
 
 async def _lock_windows(db: AsyncSession, *conditions) -> list[Window]:
     result = await db.execute(
-        select(Window).where(*conditions).with_for_update().execution_options(populate_existing=True)
+        select(Window)
+        .where(*conditions)
+        .order_by(Window.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     return list(result.scalars().all())
 
