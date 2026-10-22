@@ -9,11 +9,7 @@ import { sharedMergeNotice } from '../../lib/merge';
 import { queryClient } from '../../lib/query-client';
 import { resolveWorkspaceScope } from '../../lib/useWorkspaces';
 import type { Workspace } from '../../lib/types';
-import {
-  filterBySharer,
-  sessionSharers,
-  toSessionNode,
-} from '../../entrypoints/newtab/components/atlas/data';
+import { toSessionNode } from '../../entrypoints/newtab/components/atlas/data';
 import { signInTestUser, signOutTestUser } from '../helpers';
 
 beforeEach(async () => {
@@ -156,23 +152,6 @@ describe('atlas sharers', () => {
     summaryStatus: 'done' as const,
     sharedAt: '2026-10-17T00:00:00Z',
   };
-  const minsu = { userId: 'u2', name: '민수', picture: null };
-  const jiyoung = { userId: 'u3', name: '지영', picture: null };
-  const nodes = [
-    toSessionNode({ ...base, id: 's1', sharedBy: minsu }, []),
-    toSessionNode({ ...base, id: 's2', sharedBy: jiyoung }, []),
-    toSessionNode({ ...base, id: 's3', sharedBy: minsu }, []),
-  ];
-
-  it('공유한 사람을 한 번씩 모은다', () => {
-    expect(sessionSharers(nodes)).toEqual([minsu, jiyoung]);
-  });
-
-  it('고른 사람의 세션만 남긴다', () => {
-    expect(filterBySharer(nodes, 'u2').map((n) => n.id)).toEqual(['s1', 's3']);
-    expect(filterBySharer(nodes, null)).toHaveLength(3);
-  });
-
   it('개인 세션에는 공유한 사람이 없다', () => {
     const { sharedAt: _sharedAt, ...personal } = base;
     expect(toSessionNode(personal, []).sharedBy).toBeUndefined();

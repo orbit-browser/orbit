@@ -14,7 +14,7 @@ const STEPS = [
   {
     target: 'collection',
     title: '탐색 기록 수집을 켜세요',
-    description: '방문 흐름을 기록해야 타임라인과 세션이 만들어져요. 민감한 페이지는 자동으로 제외됩니다.',
+    description: '방문 흐름을 기록해야 타임라인과 세션이 만들어져요. 민감한 페이지는 본문 없이 방문(제목·주소)만 남겨요.',
     action: null,
     hint: '강조된 수집 켜기를 눌러주세요',
   },

@@ -235,7 +235,7 @@ body {
   right: 0;
   top: calc(100% + 8px);
   z-index: 60;
-  width: 232px;
+  width: 260px;
   padding: 4px;
   border-radius: 16px;
   background: var(--bg-canvas);
@@ -247,6 +247,18 @@ body {
 @keyframes menu-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes menu-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-4px); }
+}
+
+/* 닫힐 때도 열릴 때처럼 짧게 사라진다(useLingering 이 120ms 동안 붙잡아 둔다). */
+.user-menu__panel[data-state='closed'],
+.user-menu__context[data-state='closed'] {
+  pointer-events: none;
+  animation: menu-out 0.12s ease-in both;
 }
 
 .user-menu__plan {
@@ -295,6 +307,336 @@ body {
   color: var(--text-muted);
   flex-shrink: 0;
 }
+
+/* 지금 있는 워크스페이스(아이콘 + 이름) — 노션 왼쪽 위 이름처럼 어디에 있는지 알린다 */
+.user-menu__trigger:has(.user-menu__workspace) {
+  gap: 7px;
+  padding: 4px 8px 4px 5px;
+}
+
+.user-menu__workspace {
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu__label {
+  padding: 6px 12px 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* 지금 워크스페이스는 체크와 굵은 이름으로만 — 배경까지 칠하면 표시가 겹친다 */
+.user-menu__space--active .user-menu__space-name {
+  font-weight: 600;
+}
+
+/* 팀 — 팀 색의 옅은 네모와 짙은 첫 글자 */
+.user-menu__space-icon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--space-hue) 16%, var(--bg-canvas));
+  color: color-mix(in oklab, var(--space-hue) 80%, #000);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 내 Orbit — 내 아바타(동그라미)를 같은 크기로 */
+.user-menu__space-me {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+}
+
+.user-menu__space-me .user-menu__avatar,
+.user-menu__space-me .user-menu__photo {
+  width: 22px;
+  height: 22px;
+  font-size: 9px;
+}
+
+.user-menu__space-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu__item svg.user-menu__check {
+  color: var(--accent-orange);
+}
+
+/* 워크스페이스 줄 — 마우스를 올리면 ⋯ 이 나타난다(오른쪽 클릭과 같은 메뉴) */
+.user-menu__space-row {
+  position: relative;
+}
+
+.user-menu__more {
+  position: absolute;
+  top: 50%;
+  right: 34px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.user-menu__space-row:hover .user-menu__more,
+.user-menu__space-row:has(.user-menu__space--active) .user-menu__more,
+.user-menu__more[aria-expanded='true'],
+.user-menu__more:focus-visible {
+  opacity: 1;
+}
+
+.user-menu__more:hover {
+  background: var(--wash-2);
+  color: var(--text-main);
+}
+
+.user-menu__add {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.user-menu__input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-sand);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.user-menu__input:focus {
+  border-color: var(--accent-orange-muted);
+  box-shadow: 0 0 0 3px var(--accent-soft-flat);
+}
+
+.user-menu__form {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px 12px 8px;
+}
+
+.user-menu__form .user-menu__input {
+  flex: none;
+}
+
+.user-menu__form-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.user-menu__form-error {
+  color: var(--danger);
+  font-size: 11.5px;
+}
+
+/* 오른쪽 클릭 메뉴 — 누른 줄 높이에서 패널 바깥 왼쪽에 붙는다. 패널 안에 뜨면 아래 항목을 가린다. */
+.user-menu__context {
+  position: absolute;
+  right: calc(100% + 6px);
+  z-index: 70;
+  width: 176px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-canvas);
+  box-shadow: 0 12px 32px rgba(178, 112, 84, 0.16);
+  animation: menu-in 0.12s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.user-menu__context .user-menu__item {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+/* ── 설정 · 워크스페이스 페이지 ── */
+.settings-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 18px;
+}
+
+.settings-chip {
+  padding: 6px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.settings-chip:hover {
+  color: var(--text-main);
+}
+
+.settings-chip--on {
+  border-color: var(--accent-orange-muted);
+  background: var(--accent-soft-flat);
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.settings-input {
+  width: 220px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--bg-canvas);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.settings-input:focus {
+  border-color: var(--accent-orange-muted);
+  box-shadow: 0 0 0 3px var(--accent-soft-flat);
+}
+
+.settings-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 저장 버튼이 없는 이름 칸의 상태 — 바뀌면 짧게 떠올라 알린다 */
+.settings-saved {
+  min-width: 56px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  transition: color 0.2s;
+}
+
+.settings-saved[data-state='saved'] {
+  color: var(--accent-orange);
+  font-weight: 600;
+  animation: settings-saved-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes settings-saved-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+.settings-reveal {
+  animation: menu-in 0.16s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.settings-input:disabled {
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.settings-button {
+  padding: 6px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--bg-canvas);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.settings-button:hover:not(:disabled) {
+  border-color: var(--accent-orange-muted);
+}
+
+.settings-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settings-button--primary {
+  border-color: transparent;
+  background: var(--text-main);
+  color: var(--bg-canvas);
+  font-weight: 600;
+  transition: opacity 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.settings-button--primary:hover:not(:disabled) {
+  border-color: transparent;
+  opacity: 0.88;
+  box-shadow: 0 4px 14px var(--shadow-warm);
+}
+
+/* 아래에 입력 칸이 펼쳐진 버튼 */
+.settings-button--on {
+  border-color: var(--accent-orange-muted);
+  box-shadow: 0 0 0 3px var(--accent-soft-flat);
+}
+
+.settings-button--danger {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger);
+}
+
+.settings-invite {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-invite code {
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--wash-1);
+  color: var(--text-main);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  user-select: all;
+}
+
+.settings-error {
+  margin-top: 14px;
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+.settings-footnote {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
 
 /* ═══════════════ 설정 작업 공간 (프로필 메뉴 → 설정) ═══════════════ */
 /*
@@ -357,6 +699,15 @@ body {
   border: 1px solid var(--border-subtle);
   background: var(--bg-canvas);
   color: var(--text-muted);
+}
+
+.settings-nav__search {
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.settings-nav__search:focus-within {
+  border-color: var(--accent-orange-muted);
+  box-shadow: 0 0 0 3px var(--accent-soft-flat);
 }
 
 .settings-nav__search input {
@@ -1085,7 +1436,7 @@ body {
 .home-error {
   text-align: center;
   font-size: 13px;
-  color: #b8452b;
+  color: var(--danger);
 }
 
 .home-data-state {
@@ -1101,18 +1452,72 @@ body {
 }
 
 .home-data-state--error {
-  color: #b8452b;
+  color: var(--danger);
+}
+
+/* 빈·오류 상태의 다음 행동. 글자 링크로 두면 눈에 띄지 않아 버튼 모양으로 둔다. */
+.data-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.data-state__actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.data-state__error {
+  margin-top: 8px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.atlas-data-state__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .home-data-state button,
-.atlas-data-state button {
-  margin-left: 10px;
-  border: 0;
-  background: transparent;
-  color: var(--accent-orange);
+.atlas-data-state button,
+.atlas-stage__empty button {
+  padding: 7px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--bg-canvas);
+  color: var(--text-main);
   font: inherit;
-  font-weight: 700;
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.home-data-state button:hover,
+.atlas-data-state button:hover,
+.atlas-stage__empty button:hover {
+  border-color: var(--accent-orange-muted);
+  background: var(--accent-soft-flat);
+  color: var(--accent-orange);
+}
+
+.home-data-state button.data-state__primary,
+.atlas-data-state button.data-state__primary,
+.atlas-stage__empty button.data-state__primary {
+  border-color: transparent;
+  background: var(--text-main);
+  color: var(--bg-canvas);
+}
+
+.home-data-state button.data-state__primary:hover,
+.atlas-data-state button.data-state__primary:hover,
+.atlas-stage__empty button.data-state__primary:hover {
+  opacity: 0.88;
+  box-shadow: 0 4px 14px var(--shadow-warm);
 }
 
 .search-shell__submit:disabled {
@@ -1239,7 +1644,7 @@ body {
   max-width: 420px;
   font-size: 13px;
   line-height: 1.7;
-  color: #b8452b;
+  color: var(--danger);
 }
 
 @media (max-width: 520px) {
@@ -1394,7 +1799,7 @@ body {
 }
 
 .shortcut__remove:hover {
-  color: #b8452b;
+  color: var(--danger);
   border-color: var(--accent-orange-muted);
 }
 
@@ -1464,7 +1869,7 @@ body {
 
 .shortcut-form__error {
   font-size: 12.5px;
-  color: #b8452b;
+  color: var(--danger);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1478,7 +1883,7 @@ body {
   margin-top: 10px;
   text-align: center;
   font-size: 12.5px;
-  color: #b8452b;
+  color: var(--danger);
 }
 
 /* ═══════════════ Ask AI 대화 ═══════════════ */
@@ -1647,7 +2052,7 @@ body {
 
 .ask-tab-candidate-error {
   margin-top: 8px !important;
-  color: #b8452b !important;
+  color: var(--danger) !important;
   font-size: 12px !important;
 }
 
@@ -1664,7 +2069,7 @@ body {
   padding: 10px 12px;
   border-radius: 10px;
   background: rgba(184, 69, 43, 0.07);
-  color: #b8452b;
+  color: var(--danger);
   font-size: 12.5px;
 }
 
@@ -2415,6 +2820,41 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .composer-section,
   .main-content {
+    animation: none;
+  }
+}
+
+/* ═══════════════ 누를 수 있는 것의 공통 반응 (대표 화면 규칙 2026-10-22) ═══════════════
+ * 포커스 — 컴포넌트가 따로 그린 표시가 없으면 이 링을 쓴다. 상태 의사 클래스까지 :where 안에 넣어
+ * 특이도를 0으로 둬야 각 컴포넌트의 포커스 규칙(outline: none 등)이 언제나 이긴다.
+ * 누름 — `scale` 속성을 쓴다. `transform` 을 덮어쓰지 않고 합쳐지므로 translate 로 자리를 잡은
+ * 버튼(… 버튼 등)도 제자리에서 눌린다.
+ */
+:where(:is(button, a[href], [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], [role='option'], summary, select, input, textarea):focus-visible) {
+  outline: 2px solid var(--accent-orange-muted);
+  outline-offset: 2px;
+}
+
+:where(:is(button, [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], a[href]):not(:disabled):active) {
+  scale: 0.97;
+}
+
+/* 카드처럼 큰 면은 덜 눌려야 흔들려 보이지 않는다 */
+:where(.timeline-item:active, .atlas-gallery__card:active) {
+  scale: 0.99;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 움직임 대신 밝기로 눌림을 남긴다 */
+  :where(:is(button, [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio'], a[href]):not(:disabled):active) {
+    scale: none;
+    filter: brightness(0.94);
+  }
+
+  .user-menu__panel[data-state='closed'],
+  .user-menu__context[data-state='closed'],
+  .settings-saved[data-state='saved'],
+  .settings-reveal {
     animation: none;
   }
 }

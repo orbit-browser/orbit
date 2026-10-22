@@ -49,7 +49,7 @@ export function CollectionOptInNotice({
       <p className="text-sm font-semibold text-orbit-text">탐색 기록을 자동으로 모아볼까요?</p>
       <p className="text-xs leading-relaxed text-orbit-muted">
         방문한 페이지를 시간순으로 기록해 나중에 다시 찾을 수 있게 해줘요. 은행·로그인 등 민감한
-        도메인은 자동으로 제외돼요.
+        페이지는 본문을 저장하지 않고 방문(제목·주소)만 남겨요.
       </p>
       <button
         type="button"

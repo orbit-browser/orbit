@@ -1,8 +1,12 @@
+import { useState } from 'react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { apiBaseUrl } from '../../../../lib/api';
 import type { OrbitSettings, OrbitTheme } from '../../../../lib/settings';
-import type { ServerSettings } from '../../../../lib/types';
+import type { ServerSettings, Workspace } from '../../../../lib/types';
+import { useAuth } from '../../../../lib/useAuth';
+import { useActiveWorkspace } from '../../../../lib/useWorkspaces';
+import { useWorkspaceMembers, useWorkspaceMutations } from '../../../sidepanel/hooks/useWorkspaces';
 import type { SettingsPageId } from './settings-nav';
 
 /*
@@ -137,6 +141,377 @@ interface PageProps {
   account: string | null;
   onSignOut: () => void;
   onNavigate: (page: SettingsPageId) => void;
+  /** 워크스페이스 페이지가 처음 보여 줄 워크스페이스. undefined 면 지금 보고 있는 곳, null 이면 내 Orbit. */
+  workspaceId?: string | null;
+}
+
+/** 개인 워크스페이스의 보이는 이름 — 비워 두면 "내 Orbit". */
+export const personalName = (settings: OrbitSettings) => settings.personalWorkspaceName?.trim() || '내 Orbit';
+
+/** 입력을 마치면(엔터·포커스 이동) 저장하는 이름 칸. 빈 값이면 원래 이름으로 돌아간다. */
+function NameField({
+  value,
+  placeholder,
+  onSave,
+  disabled = false,
+  status = null,
+}: {
+  value: string;
+  placeholder: string;
+  onSave: (name: string) => void;
+  disabled?: boolean;
+  /** 저장 버튼이 없는 칸이라 저장됐는지를 옆에 보여 준다. */
+  status?: 'saving' | 'saved' | null;
+}) {
+  const [draft, setDraft] = useState(value);
+  const commit = () => {
+    const next = draft.trim();
+    if (next !== value) onSave(next);
+  };
+  return (
+    <span className="settings-name">
+    <input
+      className="settings-input"
+      value={draft}
+      placeholder={placeholder}
+      maxLength={60}
+      disabled={disabled}
+      aria-label="워크스페이스 이름"
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+        if (event.key === 'Escape') setDraft(value);
+      }}
+    />
+      <span className="settings-saved" role="status" data-state={status ?? 'idle'}>
+        {status === 'saving' ? '저장 중…' : status === 'saved' ? '저장됨' : '엔터로 저장'}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * 워크스페이스 설정 — 내 Orbit 은 이름만, 팀은 이름·초대·멤버·나가기(삭제)를 다룬다.
+ * 이름 바꾸기·초대·내보내기·삭제는 소유자만 한다(서버 규칙과 같다). 멤버는 보기와 나가기만.
+ */
+function WorkspacePage({ settings, patch, workspaceId }: PageProps) {
+  const { workspaces, scopeId } = useActiveWorkspace();
+  const [personalSaved, setPersonalSaved] = useState(false);
+  // 칩을 고르기 전에는 지금 범위를 따른다. 저장된 범위는 마운트 뒤에 비동기로 읽히므로 초기값으로 굳히면
+  // 늘 내 Orbit 으로 열린다.
+  const [picked, setPicked] = useState<string | null | undefined>(workspaceId);
+  const targetId = picked === undefined ? scopeId : picked;
+  const team = targetId ? workspaces.find((workspace) => workspace.id === targetId) ?? null : null;
+
+  return (
+    <>
+      <PageHeader
+        title="워크스페이스"
+        description="내 Orbit과 팀 워크스페이스의 이름, 초대, 멤버를 관리합니다."
+      />
+
+      <div className="settings-chips" role="tablist" aria-label="설정할 워크스페이스">
+        {[{ id: null as string | null, name: personalName(settings) }, ...workspaces].map((space) => (
+          <button
+            key={space.id ?? 'me'}
+            type="button"
+            role="tab"
+            aria-selected={space.id === (team?.id ?? null)}
+            className={`settings-chip${space.id === (team?.id ?? null) ? ' settings-chip--on' : ''}`}
+            onClick={() => setPicked(space.id)}
+          >
+            {space.name}
+          </button>
+        ))}
+      </div>
+
+      {team ? (
+        <TeamSettings
+          key={team.id}
+          team={team}
+          // 지금 범위를 개인으로 돌리는 일은 공용 훅이 한다(useWorkspaceMutations).
+          onGone={() => setPicked(null)}
+        />
+      ) : (
+        <Section title="내 Orbit">
+          <Row label="이름" description="나만 보는 개인 기록의 이름입니다. 비워 두면 “내 Orbit”으로 보입니다.">
+            <NameField
+              key={settings.personalWorkspaceName ?? ''}
+              value={settings.personalWorkspaceName ?? ''}
+              placeholder="내 Orbit"
+              status={personalSaved ? 'saved' : null}
+              onSave={(name) => {
+                patch({ personalWorkspaceName: name || null });
+                setPersonalSaved(true);
+              }}
+            />
+          </Row>
+          <Row label="공개 범위">
+            <Value>나만 봅니다</Value>
+          </Row>
+        </Section>
+      )}
+
+      {!team && <StartTeam onReady={(id) => setPicked(id)} />}
+    </>
+  );
+}
+
+/**
+ * 내 Orbit 페이지의 다음 행동 — 팀을 만들거나 초대 코드로 들어간다. 프로필 메뉴의 같은 동작과
+ * 같은 공용 훅을 쓰고, 성공하면 그 팀으로 옮겨 가 설정을 이어서 보여 준다.
+ */
+function StartTeam({ onReady }: { onReady: (workspaceId: string) => void }) {
+  const { select } = useActiveWorkspace();
+  const { create, join } = useWorkspaceMutations();
+  const [form, setForm] = useState<'create' | 'join' | null>(null);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const pending = create.isPending || join.isPending;
+
+  const submit = () => {
+    const value = draft.trim();
+    if (!value) {
+      setError(form === 'create' ? '이름을 입력해 주세요.' : '초대 코드를 입력해 주세요.');
+      return;
+    }
+    setError(null);
+    const onSuccess = (workspace: Workspace) => {
+      select(workspace.id);
+      onReady(workspace.id);
+    };
+    if (form === 'create') {
+      create.mutate(value, { onSuccess, onError: () => setError('만들지 못했어요. 잠시 뒤 다시 시도해 주세요.') });
+    } else {
+      join.mutate(value, { onSuccess, onError: () => setError('코드가 맞지 않거나 만료됐어요.') });
+    }
+  };
+
+  const open = (next: 'create' | 'join') => {
+    setForm(next);
+    setDraft('');
+    setError(null);
+  };
+
+  return (
+    <Section title="팀과 함께 쓰기">
+      <Row label="팀 워크스페이스" description="세션을 팀에 공유하고 함께 찾아봅니다. 내 Orbit의 기록은 공유하기 전까지 나만 봅니다.">
+        <span className="settings-invite">
+          <button
+            type="button"
+            className={`settings-button settings-button--primary${form === 'create' ? ' settings-button--on' : ''}`}
+            aria-expanded={form === 'create'}
+            onClick={() => open('create')}
+          >
+            새 팀 워크스페이스 만들기
+          </button>
+          <button
+            type="button"
+            className={`settings-button${form === 'join' ? ' settings-button--on' : ''}`}
+            aria-expanded={form === 'join'}
+            onClick={() => open('join')}
+          >
+            초대 코드로 참여
+          </button>
+        </span>
+      </Row>
+      {form && (
+        <Row label={form === 'create' ? '새 팀 이름' : '초대 코드'} nested>
+          <span className="settings-name settings-reveal">
+            <input
+              className="settings-input"
+              value={draft}
+              placeholder={form === 'create' ? '예: 졸업 프로젝트 팀' : '받은 코드를 붙여 넣으세요'}
+              maxLength={form === 'create' ? 60 : 64}
+              autoFocus
+              disabled={pending}
+              aria-label={form === 'create' ? '새 팀 이름' : '초대 코드'}
+              aria-invalid={error ? true : undefined}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') submit();
+                if (event.key === 'Escape') setForm(null);
+              }}
+            />
+            <button type="button" className="settings-button settings-button--primary" disabled={pending} onClick={submit}>
+              {pending ? (form === 'create' ? '만드는 중…' : '참여하는 중…') : form === 'create' ? '만들기' : '참여'}
+            </button>
+          </span>
+        </Row>
+      )}
+      {error && (
+        <p className="settings-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Section>
+  );
+}
+
+function TeamSettings({ team, onGone }: { team: Workspace; onGone: () => void }) {
+  const { session } = useAuth();
+  const me = session?.user.id ?? '';
+  const owner = team.role === 'owner';
+  const members = useWorkspaceMembers(team.id);
+  const mutations = useWorkspaceMutations();
+  const [invite, setInvite] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  /** 두 번 눌러야 실행되는 위험한 동작 — 어떤 것을 확인 중인지 */
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const failed = [mutations.rename, mutations.issueInvite, mutations.removeMember, mutations.remove].find(
+    (mutation) => mutation.isError,
+  );
+
+  return (
+    <>
+      <Section title="기본 정보">
+        <Row label="이름" description={owner ? undefined : '이름은 소유자만 바꿀 수 있습니다.'}>
+          <NameField
+            key={team.name}
+            value={team.name}
+            placeholder="내 Orbit"
+            disabled={!owner || mutations.rename.isPending}
+            status={mutations.rename.isPending ? 'saving' : mutations.rename.isSuccess ? 'saved' : null}
+            onSave={(name) => {
+              if (name) mutations.rename.mutate({ workspaceId: team.id, name });
+            }}
+          />
+        </Row>
+        <Row label="내 역할">
+          <Value>{owner ? '소유자' : '멤버'}</Value>
+        </Row>
+      </Section>
+
+      <Section title="초대">
+        {owner ? (
+          <Row
+            label="초대 코드"
+            description={
+              confirming === 'reissue'
+                ? '이전 코드는 더 이상 쓸 수 없어요. 이미 보낸 코드로는 참여할 수 없습니다.'
+                : '코드를 받은 사람은 프로필 메뉴의 “초대 코드로 참여”에서 이 팀에 들어옵니다. 새로 만들면 이전 코드는 더 이상 쓸 수 없어요.'
+            }
+          >
+            <span className="settings-invite">
+              {invite && (
+                <>
+                  <code>{invite.code}</code>
+                  <button
+                    type="button"
+                    className="settings-button"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(invite.code).then(() => setCopied(true));
+                    }}
+                  >
+                    {copied ? '복사됨' : '복사'}
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                className={`settings-button ${invite ? '' : 'settings-button--primary'}${confirming === 'reissue' ? ' settings-button--danger' : ''}`}
+                disabled={mutations.issueInvite.isPending}
+                onClick={() => {
+                  // 이미 코드를 보냈을 수 있으니 새로 만들 때는 한 번 더 확인한다(이전 코드가 바로 무효가 된다).
+                  if (invite && confirming !== 'reissue') {
+                    setConfirming('reissue');
+                    return;
+                  }
+                  setConfirming(null);
+                  mutations.issueInvite.mutate(team.id, {
+                    onSuccess: (code) => {
+                      setInvite(code);
+                      setCopied(false);
+                    },
+                  });
+                }}
+              >
+                {mutations.issueInvite.isPending
+                  ? '만드는 중…'
+                  : confirming === 'reissue'
+                    ? '한 번 더 누르면 새 코드를 만듭니다'
+                    : invite
+                      ? '새 코드 만들기'
+                      : '초대 코드 만들기'}
+              </button>
+            </span>
+          </Row>
+        ) : (
+          <Row label="초대 코드" description="초대는 소유자만 할 수 있습니다." />
+        )}
+        {invite && (
+          <Row label="만료" nested>
+            <Value>{new Date(invite.expiresAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })}</Value>
+          </Row>
+        )}
+      </Section>
+
+      <Section title={`멤버 ${members.data ? members.data.length : team.memberCount}명`}>
+        {members.isPending && <Row label="멤버를 불러오는 중…" />}
+        {members.isError && <Row label="멤버를 불러오지 못했어요." description="잠시 뒤 다시 열어 주세요." />}
+        {members.data?.map((member) => {
+          const key = `kick-${member.userId}`;
+          return (
+            <Row
+              key={member.userId}
+              label={`${member.name ?? '이름 없음'}${member.userId === me ? ' (나)' : ''}`}
+              description={[member.role === 'owner' ? '소유자' : '멤버', member.email].filter(Boolean).join(' · ')}
+            >
+              {owner && member.userId !== me && (
+                <button
+                  type="button"
+                  className={`settings-button${confirming === key ? ' settings-button--danger' : ''}`}
+                  disabled={mutations.removeMember.isPending}
+                  onClick={() => {
+                    if (confirming !== key) {
+                      setConfirming(key);
+                      return;
+                    }
+                    setConfirming(null);
+                    mutations.removeMember.mutate({ workspaceId: team.id, userId: member.userId });
+                  }}
+                >
+                  {confirming === key ? '한 번 더 누르면 내보냅니다' : '내보내기'}
+                </button>
+              )}
+            </Row>
+          );
+        })}
+      </Section>
+
+      {failed && <p className="settings-error" role="alert">요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.</p>}
+
+      <button
+        type="button"
+        className="settings-danger-button"
+        disabled={mutations.remove.isPending || mutations.removeMember.isPending}
+        onClick={() => {
+          const key = owner ? 'delete' : 'leave';
+          if (confirming !== key) {
+            setConfirming(key);
+            return;
+          }
+          setConfirming(null);
+          if (owner) mutations.remove.mutate(team.id, { onSuccess: onGone });
+          else mutations.removeMember.mutate({ workspaceId: team.id, userId: me }, { onSuccess: onGone });
+        }}
+      >
+        {confirming === (owner ? 'delete' : 'leave')
+          ? owner
+            ? '한 번 더 누르면 워크스페이스를 삭제합니다'
+            : '한 번 더 누르면 워크스페이스에서 나갑니다'
+          : owner
+            ? '워크스페이스 삭제'
+            : '워크스페이스 나가기'}
+      </button>
+      <p className="settings-footnote">
+        {owner
+          ? '삭제하면 팀과 공유 관계만 사라집니다. 공유됐던 세션은 각자의 내 Orbit에 그대로 남습니다.'
+          : '나가면 내가 공유한 세션의 공유가 풀립니다. 내 세션은 내 Orbit에 그대로 남습니다.'}
+      </p>
+    </>
+  );
 }
 
 function connectionState(health: PageProps['health']) {
@@ -222,7 +597,7 @@ function CollectionPage({ settings, patch }: PageProps) {
             onChange={(contentCapture) => patch({ contentCapture })}
           />
         </Row>
-        <Row label="민감 도메인 제외" description="은행, 로그인 및 기타 민감한 페이지를 자동으로 제외합니다.">
+        <Row label="민감 도메인 제외" description="은행·로그인 등 민감한 페이지는 본문을 저장하지 않습니다. 방문(제목·주소)은 기록됩니다.">
           <Switch
             label="민감 도메인 제외"
             checked={settings.excludeSensitive}
@@ -357,7 +732,7 @@ function PrivacyPage({ settings, onNavigate }: PageProps) {
       <div className="settings-callout">
         <p>
           Orbit은 사용자의 브라우저 데이터를 다룹니다. 탐색 기록 수집은 기본적으로 꺼져 있고,
-          켠 뒤에도 민감 도메인은 제외됩니다. 수집한 내용은 사용자의 계정에만 연결됩니다.
+          켠 뒤에도 민감한 페이지는 본문 없이 방문(제목·주소)만 남습니다. 수집한 내용은 사용자의 계정에만 연결됩니다.
         </p>
       </div>
 
@@ -481,6 +856,7 @@ function AboutPage() {
 }
 
 export const SETTINGS_PAGES: Record<SettingsPageId, (props: PageProps) => React.ReactElement> = {
+  workspace: WorkspacePage,
   general: GeneralPage,
   collection: CollectionPage,
   session: SessionPage,

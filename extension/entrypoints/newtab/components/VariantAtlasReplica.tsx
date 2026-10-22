@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '../styles/atlas.css';
 import { AtlasHeader } from './atlas/AtlasHeader';
 import { AtlasNavigator } from './atlas/AtlasNavigator';
@@ -9,14 +9,13 @@ import {
   buildFolderScene,
   buildNavRows,
   buildSessionScene,
-  filterBySharer,
-  sessionSharers,
   sortSessions,
   stepNavRow,
   type NavRow,
 } from './atlas/data';
 import { useAtlasData } from '../hooks/useAtlasData';
 import { useActiveWorkspace } from '../../../lib/useWorkspaces';
+import { EmptyStateActions } from './sections/EmptyStateActions';
 import { readAtlasTarget } from '../lib/navigation';
 import { getNavState, useSharedNavState } from '../lib/nav-state';
 
@@ -25,22 +24,12 @@ const TRAY_INSET = 250;
 
 export function VariantAtlasReplica() {
   // 팀을 보고 있으면 그 팀에 공유된 세션을 읽기 전용으로 그린다(폴더 없음).
-  const { workspaces, scopeId, select: selectScope } = useActiveWorkspace();
+  const { scopeId, active: activeTeam } = useActiveWorkspace();
   const readOnly = !!scopeId;
   const atlasQuery = useAtlasData(scopeId);
-  const [sharerFilter, setSharerFilter] = useState<string | null>(null);
-  const sharers = useMemo(() => sessionSharers(atlasQuery.data?.sessions ?? []), [atlasQuery.data]);
-  // 고른 사람이 더는 목록에 없으면(범위를 바꿨거나 공유가 풀림) 필터를 풀어 빈 화면을 막는다.
-  const activeSharer = sharers.some((sharer) => sharer.userId === sharerFilter) ? sharerFilter : null;
-  const sessions = useMemo(
-    () => filterBySharer(atlasQuery.data?.sessions ?? [], activeSharer),
-    [atlasQuery.data, activeSharer],
-  );
+  const sessions = useMemo(() => atlasQuery.data?.sessions ?? [], [atlasQuery.data]);
   const folders = atlasQuery.data?.folders ?? [];
-  const unfiled = useMemo(
-    () => filterBySharer(atlasQuery.data?.unfiled ?? [], activeSharer),
-    [atlasQuery.data, activeSharer],
-  );
+  const unfiled = useMemo(() => atlasQuery.data?.unfiled ?? [], [atlasQuery.data]);
   const { nav, patch, toggleIn, expandIn } = useSharedNavState();
   const searchRef = useRef<HTMLInputElement>(null);
   const initializedRef = useRef(false);
@@ -252,6 +241,53 @@ export function VariantAtlasReplica() {
     [activeSession, selectSession, sessions],
   );
 
+  /**
+   * 세션 그룹 — 네비게이터 순서대로 폴더(세션이 있는 것만), 그다음 정리 안 된 세션.
+   * 막대는 지금 그룹의 세션만 쌓고, ↑↓ 는 그룹 안에서만, Shift+↑↓ 는 그룹 사이를 오간다
+   * (대표 2026-10-20 "그룹 내부 이동과 아닌 것들의 이동이 분리되었으면").
+   */
+  const sessionGroups = useMemo(
+    () => [
+      ...sortedFolders
+        .filter((folder) => folder.sessions.length > 0)
+        .map((folder) => ({ id: folder.id, name: folder.name, sessions: folder.sessions })),
+      // 팀에는 폴더가 없어 공유된 세션 전부가 한 목록이다 — 누가 공유했는지는 그룹이 아니라 이름으로 보인다.
+      ...(sortedUnfiled.length > 0
+        ? [{ id: 'unfiled', name: readOnly ? '공유된 세션' : '정리 안 된 세션', sessions: sortedUnfiled }]
+        : []),
+    ],
+    [readOnly, sortedFolders, sortedUnfiled],
+  );
+  const groupIndex = activeSession
+    ? sessionGroups.findIndex((group) => group.sessions.some((session) => session.id === activeSession.id))
+    : -1;
+  const currentGroup = groupIndex >= 0 ? sessionGroups[groupIndex] : null;
+  /** 갤러리가 위아래 어느 쪽으로 미끄러질지 정하는 전체 순서 */
+  const sessionOrder = useMemo(
+    () => sessionGroups.flatMap((group) => group.sessions.map((session) => session.id)),
+    [sessionGroups],
+  );
+
+  /** 그룹 안에서 위·아래 세션으로. 끝이면 멈춘다. */
+  const stepSession = useCallback(
+    (direction: 1 | -1) => {
+      if (!currentGroup || !activeSession) return;
+      const index = currentGroup.sessions.findIndex((session) => session.id === activeSession.id);
+      const next = currentGroup.sessions[index + direction];
+      if (next) selectSession(next.id);
+    },
+    [currentGroup, activeSession, selectSession],
+  );
+
+  /** 이전·다음 그룹의 첫 세션으로. */
+  const stepGroup = useCallback(
+    (direction: 1 | -1) => {
+      const target = sessionGroups[groupIndex + direction];
+      if (groupIndex >= 0 && target) selectSession(target.sessions[0].id);
+    },
+    [sessionGroups, groupIndex, selectSession],
+  );
+
   /*
    * ↑↓ 는 네비게이터 세로 이동, ←→ 는 캔버스가 궤도 안 페이지 이동에 쓴다.
    * 그 밖에 검색 열기와 선택 해제를 여기서 다룬다.
@@ -274,7 +310,11 @@ export function VariantAtlasReplica() {
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
         if (event.metaKey || event.ctrlKey || event.altKey) return;
         event.preventDefault();
-        stepVertically(event.key === 'ArrowDown' ? 1 : -1);
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        // 세션을 보고 있으면 그 묶음 안에서만, 폴더 전체를 보고 있으면 네비게이터 순서대로.
+        if (currentGroup && event.shiftKey) stepGroup(direction);
+        else if (currentGroup) stepSession(direction);
+        else stepVertically(direction);
         return;
       }
 
@@ -285,26 +325,14 @@ export function VariantAtlasReplica() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedPageId, patch, stepVertically]);
+  }, [selectedPageId, patch, stepVertically, currentGroup, stepSession, stepGroup]);
 
   return (
     <div
       className={cx('atlas-page', !nav.open && 'atlas-page--nav-closed')}
       style={{ '--atlas-nav-w': `${nav.open ? nav.width : 0}px` } as React.CSSProperties}
     >
-      <AtlasHeader
-        navOpen={nav.open}
-        onToggleNav={toggleNav}
-        workspaces={workspaces}
-        scopeId={scopeId}
-        onScopeChange={(workspaceId) => {
-          setSharerFilter(null);
-          selectScope(workspaceId);
-        }}
-        sharers={sharers}
-        sharerFilter={activeSharer}
-        onSharerFilterChange={setSharerFilter}
-      />
+      <AtlasHeader navOpen={nav.open} onToggleNav={toggleNav} />
 
       <AtlasNavigator
         folders={sortedFolders}
@@ -340,8 +368,19 @@ export function VariantAtlasReplica() {
           <div className="atlas-data-state" role="status">탐색 기록을 불러오는 중...</div>
         ) : atlasQuery.isError ? (
           <div className="atlas-data-state" role="alert">
-            <span>백엔드에서 탐색 기록을 불러오지 못했어요.</span>
-            <button type="button" onClick={() => void atlasQuery.refetch()}>다시 시도</button>
+            <div className="atlas-data-state__body">
+              <span>백엔드에서 탐색 기록을 불러오지 못했어요.</span>
+              <div className="data-state__actions">
+                <button
+                  type="button"
+                  className="data-state__primary"
+                  disabled={atlasQuery.isFetching}
+                  onClick={() => void atlasQuery.refetch()}
+                >
+                  {atlasQuery.isFetching ? '다시 불러오는 중…' : '다시 시도'}
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           <AtlasCanvas
@@ -352,6 +391,28 @@ export function VariantAtlasReplica() {
             onSelectTrack={openTrack}
             onClearSelection={() => patch({ selectedPageId: null, selectedSessionId: null })}
             bottomInset={activeSession ? TRAY_INSET : 40}
+            emptyMessage={
+              sessions.length === 0
+                ? readOnly
+                  ? '이 워크스페이스에 공유된 세션이 아직 없어요. 내 세션을 공유하거나 팀원을 초대해 보세요.'
+                  : '아직 저장된 탐색 세션이 없어요. 사이드패널에서 수집을 켜거나 탭을 저장해 보세요.'
+                : undefined
+            }
+            emptyActions={sessions.length === 0 ? <EmptyStateActions team={activeTeam} /> : undefined}
+            railGroup={
+              currentGroup
+                ? {
+                    name: currentGroup.name,
+                    sessions: currentGroup.sessions,
+                    prev: sessionGroups[groupIndex - 1]?.name ?? null,
+                    next: sessionGroups[groupIndex + 1]?.name ?? null,
+                  }
+                : null
+            }
+            sessionOrder={sessionOrder}
+            sharerName={readOnly ? activeSession?.sharedBy?.name ?? null : null}
+            onSelectSession={selectSession}
+            onStepGroup={stepGroup}
           />
         )}
 
@@ -374,6 +435,7 @@ export function VariantAtlasReplica() {
         onSelectPage={(pageId) => patch({ selectedPageId: pageId })}
         onSelectSession={openTrack}
         readOnly={readOnly}
+        empty={atlasQuery.isSuccess && sessions.length === 0}
       />
     </div>
   );

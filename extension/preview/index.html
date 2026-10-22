@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orbit 미리보기</title>
+    <style>
+      :root { color-scheme: light dark; --bar: #f4f1ec; --line: #ddd6cc; --text: #2b2723; --muted: #6f675e; }
+      @media (prefers-color-scheme: dark) { :root { --bar: #1d1b19; --line: #34302c; --text: #ece7e1; --muted: #a39b91; } }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bar); color: var(--text); font: 13px/1.4 system-ui, sans-serif; }
+      body { display: flex; flex-direction: column; }
+      header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+      header strong { font-weight: 600; }
+      header .muted { color: var(--muted); }
+      header .spacer { flex: 1; }
+      header button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+      header button:hover { background: color-mix(in srgb, var(--line) 40%, transparent); }
+      main { flex: 1; display: flex; min-height: 0; }
+      iframe { border: 0; height: 100%; display: block; background: transparent; }
+      #newtab { flex: 1; min-width: 0; }
+      #sidepanel { width: 380px; border-left: 1px solid var(--line); }
+      body.no-panel #sidepanel { display: none; }
+      #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: 70vw; padding: 8px 14px; border-radius: 10px;
+        background: var(--text); color: var(--bar); opacity: 0; transition: opacity .2s; pointer-events: none; }
+      #toast.show { opacity: .95; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Orbit 미리보기</strong>
+      <span id="variant" class="muted"></span>
+      <span class="muted">· 합성 데이터, 서버에 아무것도 보내지 않아요</span>
+      <span class="spacer"></span>
+      <button id="toggle-panel" type="button">사이드패널 숨기기</button>
+      <button id="reset" type="button">데이터 처음으로</button>
+    </header>
+    <main>
+      <iframe id="newtab" title="새 탭"></iframe>
+      <iframe id="sidepanel" title="사이드패널"></iframe>
+    </main>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="./shell.ts"></script>
+  </body>
+</html>

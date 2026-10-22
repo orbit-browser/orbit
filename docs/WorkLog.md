@@ -3879,3 +3879,43 @@ CTO가 diff를 읽고 시험을 직접 돌린 뒤 `feat/team-workspace`에 합�
 - 통합 중 충돌: 4b8b0a2의 `benchmarks/exhibition-2026/run_benchmark.py` 변경은 이 갈래에 파일이 없어 뺐다.
 - 주의: 임베딩 텍스트가 바뀌어 기존 세션 벡터와 새 세션 벡터의 텍스트 구성이 다르다. 기존 데이터를 맞추려면
   `python -m app.services.embedding_sync --user-id <id> --yes`(유료)가 필요하다 — 대표 데이터에는 아직 돌리지 않았다.
+
+## 2026-10-20 — 새 탭·사이드패널 미리보기와 디자인 방향 시안
+
+- 미리보기 서버(`extension/preview/`, `pnpm preview:ui`): 확장을 설치하지 않고 실제 새 탭·사이드패널 컴포넌트를 일반
+  웹 페이지로 띄운다. `chrome.*` 대역(저장소·메시지를 iframe 사이에 공유), 백엔드 대역(합성 데이터, 팀 권한 규칙:
+  비멤버 404·owner 전용 403·owner 탈퇴 409·팀원에게 폴더 숨김), 파비콘 중계, 주소 옵션(`route`·`theme`·`scope`·`panel`),
+  팀 설정·공유 시트 단독 페이지(`team.html`). 확장 빌드에는 들어가지 않는다.
+- 오류: 첫 실행에서 `vite` 실행 파일을 못 찾음 — 이 갈래의 `node_modules`에는 직접 의존성만 있다(다른 체크아웃은 저장소
+  밖 상위 폴더의 `node_modules`로 우연히 풀리고 있었다). 잠금 파일에 이미 있는 `vite@8.0.16`·`@vitejs/plugin-react@6.0.2`를
+  개발 의존성으로 직접 참조했다(새 패키지 없음).
+- 오류: 사이드패널에 Tailwind 스타일이 없음 — 서버 루트가 `preview/`라 Tailwind 자동 탐색이 사이드패널 컴포넌트를 훑지 않았다.
+  루트를 `extension/`으로 옮겼다. 새 파일은 서버를 다시 띄워야 클래스가 생긴다(README에 적음).
+- 디자인: 배치 중심 추천안(A·B·C)을 실제 화면으로 구현하던 중 대표가 "베이스라인과 차별점이 없고 배치는 더 나빠졌다"며
+  반려했다. CTO가 변형 커뮤니티 작품 29개를 직접 보고 경향을 정리해 조작 가능한 방향 시안 세 가지
+  (`preview/mockups/` — ①기록 보관소 ②탐색 표본 ③관측 장비)를 만들었다. 반려된 초안은 `feat/design-variant-a/b/c`에
+  wip 커밋으로만 남겼다.
+- 검증: `pnpm compile` 통과, 미리보기·시안을 헤드리스 크롬 1440×900으로 찍어 렌더링 확인. 시안은 시험 대상이 아니다
+  (합성 데이터 위의 시각 확인용).
+
+
+## 2026-10-22 — 새 탭 워크스페이스 화면을 팀 워크스페이스 갈래에 합침
+
+- 통합: `feat/team-workspace`(e32cae6) 위에 `feat/newtab-orbit-refine`(72e21c1, 18커밋)을 merge했다(rebase 아님,
+  갈래 `feat/team-workspace-merge`). 코드 충돌은 없었고 `docs/DecisionLog.md`·`docs/WorkLog.md`만 같은 자리에
+  항목을 더해 부딪쳤다 — 양쪽 항목을 모두 남겼다. `extension/lib/settings.ts`는 자동 병합(1135c90의 이전 설정
+  전달 + 새 탭의 `personalWorkspaceName`).
+- Ask 초기화 확인: 새 탭 프로필 메뉴의 전환·만들기·참여·나가기는 모두 `useActiveWorkspace().select` →
+  `updateSettings({ activeWorkspaceId })`를 거친다. 1135c90이 모듈 수준에서 이 설정 변경을 구독해 Ask 대화를
+  비우므로 새 탭에서도 지켜진다(`ask-account-scope.test.ts`의 개인→팀·팀→팀·팀→개인 사례가 같은 경로).
+  미리보기에서 홈 Ask 답변 뒤 팀으로 바꾸면 대화가 비워지는 것을 확인했다.
+- 권한 확인: 새 탭 메뉴는 사이드패널과 같은 `lib/api.ts` 함수(`/workspaces/*`)만 쓰고 새 엔드포인트가 없다.
+  비멤버 404·owner 전용 403·owner 탈퇴 409는 기존 시험이 덮는다. 나간 사람·내보낸 사람이 바로 팀 목록과
+  팀 읽기·쓰기 10개 경로에서 404를 받는지 시험을 더했다(`test_left_or_kicked_member_loses_team_reads_immediately`,
+  멤버십 삭제를 빼면 2건 모두 실패). 어긋남은 없었다.
+- 검증: backend `python -m pytest -p no:asyncio` 665 passed, extension `pnpm test` 230 passed(첫 실행에서
+  백엔드 전체 시험과 동시에 돌린 1건 실패, 이후 단독 8회 모두 통과), `pnpm compile`·`pnpm build` 통과.
+  미리보기(`pnpm preview:ui --port 5210`)를 헤드리스 크롬으로 조작해 만들기·이름 변경·초대 코드·잘못된 코드
+  참여·참여·전환·나가기를 캡처했다.
+- 남은 것: 새 탭 홈 Ask는 팀 화면에서도 개인 기록으로 답한다(사이드패널 Ask는 팀 범위). 새 탭 설정의
+  워크스페이스 페이지가 지금 팀을 미리 고르지 않고 "내 Orbit"으로 열린다. 둘 다 이번 범위(합치기)에서 고치지 않았다.

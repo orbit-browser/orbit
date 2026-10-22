@@ -75,3 +75,18 @@ export function readAtlasTarget(): AtlasTarget {
     pageId: params.get('page') ?? undefined,
   };
 }
+
+/**
+ * 설정 창을 연다. 설정 창은 프로필 메뉴(UserMenu)가 갖고 있어서, 빈 상태처럼 메뉴 밖에서 여는
+ * 자리는 이 이벤트로 부탁한다. 홈과 아틀라스 모두 머리에 UserMenu 가 하나 있다.
+ */
+export const OPEN_SETTINGS_EVENT = 'orbit:open-settings';
+
+export interface OpenSettingsDetail {
+  page: 'workspace' | 'general';
+  workspaceId?: string | null;
+}
+
+export function openSettings(detail: OpenSettingsDetail) {
+  window.dispatchEvent(new CustomEvent<OpenSettingsDetail>(OPEN_SETTINGS_EVENT, { detail }));
+}
