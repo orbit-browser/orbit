@@ -1,12 +1,12 @@
 // 탭 화면 미리보기 찍기 — 페이지가 화면에 뜰 때 페이지당 한 번(다시 오면 10분 뒤 갱신).
-// 크롬은 창에 보이는 탭만 찍을 수 있다(`tabs.captureVisibleTab`, `<all_urls>` 호스트 권한 필요).
+// 크롬은 창에 보이는 탭만 찍을 수 있다(`tabs.captureVisibleTab`, `<all_urls>` 호스트 권한 필요 — 켤 때 받는 선택 권한).
 // 찍지 않는 곳: 민감 사이트, 로그인·결제 화면, 웹메일·메신저·검색 결과, 시크릿 창, 수집 동의가 없거나 옛 버전인 계정, 내부 페이지.
 // 찍는 일이 브라우징을 막아서는 안 되므로 실패는 모두 삼킨다(fail-open, 저장만 건너뛴다).
 
 import { getSession } from './auth';
 import { getSettings, hasCollectionConsent } from './settings';
 import { isTeamBlockedUrl } from './sensitive-domains';
-import { putSnapshot, snapshotCapturedAt } from './tab-snapshots';
+import { hasSnapshotPermission, putSnapshot, snapshotCapturedAt } from './tab-snapshots';
 
 /** 같은 페이지는 이 간격 안에 다시 찍지 않는다. */
 export const SAME_PAGE_INTERVAL_MS = 10 * 60 * 1000;
@@ -63,6 +63,8 @@ async function shrinkToJpeg(dataUrl: string): Promise<string> {
 export async function captureVisibleTab(windowId: number): Promise<boolean> {
   const settings = await getSettings();
   if (!settings.tabSnapshotsEnabled) return false;
+  // 권한은 사용자가 크롬 설정에서 따로 거둘 수도 있다.
+  if (!(await hasSnapshotPermission())) return false;
   const session = await getSession();
   if (!session) return false;
   const accountId = session.user.id;

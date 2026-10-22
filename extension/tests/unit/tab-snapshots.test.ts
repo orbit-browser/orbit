@@ -3,7 +3,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
 import config from '../../wxt.config';
-import { CONSENT_VERSION } from '../../lib/settings';
+import { CONSENT_VERSION, DEFAULT_SETTINGS, getSettings } from '../../lib/settings';
+import { signOut } from '../../lib/auth';
+import { fetchTabSnapshots } from '../../lib/useTabSnapshots';
 import {
   canSnapshotUrl,
   captureVisibleTab,
@@ -14,6 +16,8 @@ import {
 import {
   canShowSnapshots,
   clearSnapshots,
+  disableTabSnapshots,
+  enableTabSnapshots,
   loadSnapshots,
   pruneOtherAccountSnapshots,
   putSnapshot,
@@ -36,6 +40,27 @@ function tab(overrides: Partial<chrome.tabs.Tab> = {}): chrome.tabs.Tab {
 }
 
 let activeTabs: chrome.tabs.Tab[] = [];
+/** 크롬 선택 권한(<all_urls>) 대역 */
+let permissionGranted = true;
+let permissionCalls: string[] = [];
+function installPermissions(answer = true) {
+  (chrome as unknown as { permissions: unknown }).permissions = {
+    contains: vi.fn(async (p: chrome.permissions.Permissions) => {
+      permissionCalls.push(`contains ${p.origins}`);
+      return permissionGranted;
+    }),
+    request: vi.fn(async (p: chrome.permissions.Permissions) => {
+      permissionCalls.push(`request ${p.origins}`);
+      permissionGranted = answer;
+      return answer;
+    }),
+    remove: vi.fn(async (p: chrome.permissions.Permissions) => {
+      permissionCalls.push(`remove ${p.origins}`);
+      permissionGranted = false;
+      return true;
+    }),
+  };
+}
 let captureCalls = 0;
 
 async function signIn(consent: number | boolean = CONSENT_VERSION, settings: Record<string, unknown> = {}) {
@@ -46,7 +71,7 @@ async function signIn(consent: number | boolean = CONSENT_VERSION, settings: Rec
       user: { id: USER, email: 'a@example.com', name: 'a', picture: null },
     },
     'orbit:collectionConsent': { [USER]: consent },
-    'orbit:settings': { collectionEnabled: consent === CONSENT_VERSION, ...settings },
+    'orbit:settings': { collectionEnabled: consent === CONSENT_VERSION, tabSnapshotsEnabled: true, ...settings },
   });
 }
 
@@ -69,6 +94,9 @@ beforeEach(async () => {
   await clearSnapshots('user-b');
   activeTabs = [tab()];
   captureCalls = 0;
+  permissionGranted = true;
+  permissionCalls = [];
+  installPermissions();
   installTabs();
   vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1600, height: 1000, close: () => undefined })));
   vi.stubGlobal(
@@ -275,10 +303,74 @@ describe('보이는 곳의 범위', () => {
   });
 });
 
-it('manifest 는 자동 캡처에 필요한 <all_urls> 호스트 권한을 갖는다(activeTab 은 클릭 순간만이라 못 쓴다)', () => {
-  const manifest = config.manifest as { host_permissions?: string[]; permissions?: string[] };
-  expect(manifest.host_permissions).toContain('<all_urls>');
+it('manifest: <all_urls> 는 설치 권한이 아니라 선택 권한이다(보안 검토 M1)', () => {
+  const manifest = config.manifest as {
+    host_permissions?: string[];
+    optional_host_permissions?: string[];
+    permissions?: string[];
+  };
+  expect(manifest.host_permissions).not.toContain('<all_urls>');
+  expect(manifest.optional_host_permissions).toEqual(['<all_urls>']);
   expect(manifest.permissions).not.toContain('activeTab');
+});
+
+describe('켜기·끄기와 권한 (보안 검토 M1·M2)', () => {
+  it('기본은 꺼져 있다', () => {
+    expect(DEFAULT_SETTINGS.tabSnapshotsEnabled).toBe(false);
+  });
+
+  it('설정이 켜져 있어도 권한이 없으면(크롬에서 거둠) 찍지 않는다', async () => {
+    await signIn();
+    permissionGranted = false;
+    expect(await captureVisibleTab(WINDOW)).toBe(false);
+    expect(captureCalls).toBe(0);
+  });
+
+  it('켤 때 권한을 묻고, 거절하면 켜지 않는다', async () => {
+    await signIn(CONSENT_VERSION, { tabSnapshotsEnabled: false });
+    installPermissions(false);
+    permissionGranted = false;
+    expect(await enableTabSnapshots()).toBe(false);
+    expect(permissionCalls).toEqual(['request <all_urls>']);
+    expect((await getSettings()).tabSnapshotsEnabled).toBe(false);
+  });
+
+  it('권한을 받으면 켜지고 찍는다, 끄면 권한을 돌려주고 찍지 않는다', async () => {
+    await signIn(CONSENT_VERSION, { tabSnapshotsEnabled: false });
+    permissionGranted = false;
+    expect(await enableTabSnapshots()).toBe(true);
+    expect((await getSettings()).tabSnapshotsEnabled).toBe(true);
+    expect(await captureVisibleTab(WINDOW)).toBe(true);
+
+    await disableTabSnapshots();
+    expect((await getSettings()).tabSnapshotsEnabled).toBe(false);
+    expect(permissionCalls).toContain('remove <all_urls>');
+    resetCaptureThrottle();
+    activeTabs = [tab({ url: 'https://example.com/after-off' })];
+    expect(await captureVisibleTab(WINDOW)).toBe(false);
+  });
+
+  it('끄면 이미 찍은 사진도 화면에 내주지 않는다(지우지는 않는다)', async () => {
+    await signIn();
+    await putSnapshot(USER, PAGE, 'data:a');
+    expect(await fetchTabSnapshots([PAGE])).toEqual({ [PAGE]: 'data:a' });
+    await disableTabSnapshots();
+    expect(await fetchTabSnapshots([PAGE])).toEqual({});
+    expect(await saved()).toBe('data:a');
+  });
+
+  it('명시적 로그아웃은 그 계정 사진만 바로 지운다', async () => {
+    await signIn();
+    await putSnapshot(USER, PAGE, 'data:a');
+    await putSnapshot('user-b', PAGE, 'data:b');
+    (chrome as unknown as { identity: unknown }).identity = {
+      getAuthToken: vi.fn((_opts: unknown, cb: (r: unknown) => void) => cb(undefined)),
+      removeCachedAuthToken: vi.fn(async () => undefined),
+    };
+    await signOut();
+    expect(await saved()).toBeUndefined();
+    expect(await saved(PAGE, 'user-b')).toBe('data:b');
+  });
 });
 
 function urls(n: number) {

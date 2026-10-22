@@ -9,7 +9,7 @@ import { useActiveWorkspace } from '../../../../lib/useWorkspaces';
 import { useWorkspaceMembers, useWorkspaceMutations } from '../../../sidepanel/hooks/useWorkspaces';
 import type { SettingsPageId } from './settings-nav';
 import { TeamCollectSettings } from '../team/TeamCollectSettings';
-import { clearSnapshots } from '../../../../lib/tab-snapshots';
+import { clearSnapshots, disableTabSnapshots, enableTabSnapshots } from '../../../../lib/tab-snapshots';
 import { TAB_SNAPSHOTS_QUERY_KEY } from '../../../../lib/useTabSnapshots';
 
 /*
@@ -743,8 +743,8 @@ function AiPage({ settings, patch }: PageProps) {
 
 type ClearState = { kind: 'idle' } | { kind: 'clearing' } | { kind: 'done'; count: number } | { kind: 'error' };
 
-/** 이 기기에 저장된 지금 계정의 탭 화면 미리보기를 지운다. 결과(지운 수·실패)를 옆에 보여 준다. */
-function ClearSnapshotsButton() {
+/** 지금 계정의 탭 화면 미리보기를 지운다. 결과(지운 수·실패)를 상태로 돌려준다. */
+function useClearSnapshots() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const [state, setState] = useState<ClearState>({ kind: 'idle' });
@@ -759,30 +759,83 @@ function ClearSnapshotsButton() {
       setState({ kind: 'error' });
     }
   };
+  return { state, clear, disabled: !session || state.kind === 'clearing' };
+}
+
+function ClearResult({ state }: { state: ClearState }) {
   return (
-    <span className="settings-name">
-      <button
-        type="button"
-        className="settings-button"
-        disabled={!session || state.kind === 'clearing'}
-        onClick={() => void clear()}
-      >
-        {state.kind === 'clearing' ? '지우는 중…' : '지우기'}
-      </button>
-      <span className="settings-saved" role="status" data-state={state.kind === 'done' ? 'saved' : 'idle'}>
-        {state.kind === 'done'
-          ? state.count > 0
-            ? `${state.count}개 지움`
-            : '지울 것 없음'
-          : state.kind === 'error'
-            ? '지우지 못했어요'
-            : ''}
-      </span>
+    <span className="settings-saved" role="status" data-state={state.kind === 'done' ? 'saved' : 'idle'}>
+      {state.kind === 'done'
+        ? state.count > 0
+          ? `${state.count}개 지움`
+          : '지울 것 없음'
+        : state.kind === 'error'
+          ? '지우지 못했어요'
+          : ''}
     </span>
   );
 }
 
-function PrivacyPage({ settings, patch, onNavigate }: PageProps) {
+/** 보안 검토 M2: 실제보다 좁게 읽히지 않게, 켜기 전에 이 문장을 보여 주고 켤 때 크롬 권한을 함께 묻는다. */
+export const SNAPSHOT_NOTICE =
+  '화면 사진은 기기 안에만 저장돼요. 메일·메신저·검색 결과·민감 사이트는 찍지 않지만, 목록에 없는 사이트의 화면은 찍힐 수 있어요.';
+
+/**
+ * 탭 화면 미리보기 켜기·끄기와 지우기. 켜면 크롬이 모든 사이트 접근 권한(선택 권한)을 묻고, 받았을 때만 켠다.
+ * 끄면 권한을 돌려주고 사진 표시를 멈춘 뒤 저장된 사진도 지울지 묻는다.
+ */
+function TabSnapshotSection({ enabled }: { enabled: boolean }) {
+  const { state, clear, disabled } = useClearSnapshots();
+  const [note, setNote] = useState<'denied' | 'ask-clear' | null>(null);
+  const toggle = (next: boolean) => {
+    if (next) {
+      // 권한 요청은 클릭 처리기 안에서 곧바로 불러야 크롬이 받아 준다.
+      void enableTabSnapshots().then((granted) => setNote(granted ? null : 'denied'));
+    } else {
+      void disableTabSnapshots().then(() => setNote('ask-clear'));
+    }
+  };
+  return (
+    <Section title="탭 화면 미리보기">
+      <Row
+        label="탭 화면 미리보기 저장"
+        description={`페이지 카드에 쓸 화면을 찍어 둡니다. ${SNAPSHOT_NOTICE} 켜면 크롬이 사이트 접근 권한을 물어요.`}
+      >
+        <Switch label="탭 화면 미리보기 저장" checked={enabled} onChange={toggle} />
+      </Row>
+      {note === 'denied' && (
+        <Row nested label="권한을 받지 못해 켜지 않았어요" description="다시 켜면 크롬이 한 번 더 물어요." />
+      )}
+      {note === 'ask-clear' && (
+        <Row nested label="저장된 미리보기도 지울까요?" description="꺼 둔 동안에는 저장된 사진도 보이지 않아요.">
+          <span className="settings-name">
+            <button
+              type="button"
+              className="settings-button settings-button--danger"
+              disabled={disabled}
+              onClick={() => void clear().then(() => setNote(null))}
+            >
+              지우기
+            </button>
+            <button type="button" className="settings-button" onClick={() => setNote(null)}>
+              남겨 두기
+            </button>
+          </span>
+        </Row>
+      )}
+      <Row label="저장된 미리보기 지우기" description="지금 계정이 이 기기에 저장한 화면을 모두 지웁니다.">
+        <span className="settings-name">
+          <button type="button" className="settings-button" disabled={disabled} onClick={() => void clear()}>
+            {state.kind === 'clearing' ? '지우는 중…' : '지우기'}
+          </button>
+          <ClearResult state={state} />
+        </span>
+      </Row>
+    </Section>
+  );
+}
+
+function PrivacyPage({ settings, onNavigate }: PageProps) {
   return (
     <>
       <PageHeader
@@ -816,21 +869,7 @@ function PrivacyPage({ settings, patch, onNavigate }: PageProps) {
         </Row>
       </Section>
 
-      <Section title="탭 화면 미리보기">
-        <Row
-          label="탭 화면 미리보기 저장"
-          description="페이지 카드에 쓸 화면을 찍어 둡니다. 기기 안에만 저장돼요. 메일·메신저·검색 결과·로그인·결제·민감 사이트와 시크릿 창은 찍지 않아요."
-        >
-          <Switch
-            label="탭 화면 미리보기 저장"
-            checked={settings.tabSnapshotsEnabled}
-            onChange={(tabSnapshotsEnabled) => patch({ tabSnapshotsEnabled })}
-          />
-        </Row>
-        <Row label="저장된 미리보기 지우기" description="지금 계정이 이 기기에 저장한 화면을 모두 지웁니다.">
-          <ClearSnapshotsButton />
-        </Row>
-      </Section>
+      <TabSnapshotSection enabled={settings.tabSnapshotsEnabled} />
 
       <button
         type="button"

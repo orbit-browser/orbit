@@ -28,7 +28,10 @@ export interface OrbitSettings {
   activeWorkspaceId: string | null;
   /** 개인 워크스페이스 이름. 비우면 "내 Orbit" 으로 보인다(서버에 두지 않는 내 화면 이름). */
   personalWorkspaceName: string | null;
-  /** 탭 화면 미리보기를 기기에 저장한다(`lib/tab-capture.ts`). 서버로는 보내지 않는다. */
+  /**
+   * 탭 화면 미리보기를 기기에 저장한다(`lib/tab-capture.ts`). 서버로는 보내지 않는다. 기본은 끔 — 켤 때
+   * 안내와 함께 `<all_urls>` 선택 권한을 받는다(`enableTabSnapshots`).
+   */
   tabSnapshotsEnabled: boolean;
 }
 
@@ -44,7 +47,7 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
   rerankEnabled: false,
   activeWorkspaceId: null,
   personalWorkspaceName: null,
-  tabSnapshotsEnabled: true,
+  tabSnapshotsEnabled: false,
 };
 
 const STORAGE_KEY = 'orbit:settings';

@@ -3,6 +3,7 @@
 // 이벤트 DB 와 따로 둔다 — 사진은 크고 수명 규칙이 달라서 이벤트 DB 버전을 올릴 이유가 없다.
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { updateSettings } from './settings';
 import type { MemberBrief } from './types';
 
 export interface TabSnapshot {
@@ -20,7 +21,7 @@ interface SnapshotDB extends DBSchema {
   snapshots: {
     key: string;
     value: TabSnapshot;
-    indexes: { 'by-account': string };
+    indexes: { 'by-account': string; 'by-capturedAt': number };
   };
 }
 
@@ -35,9 +36,11 @@ let dbPromise: Promise<IDBPDatabase<SnapshotDB>> | null = null;
 
 function getSnapshotDB(): Promise<IDBPDatabase<SnapshotDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<SnapshotDB>(DB_NAME, 1, {
-      upgrade(db) {
-        db.createObjectStore(STORE, { keyPath: 'id' }).createIndex('by-account', 'accountId');
+    dbPromise = openDB<SnapshotDB>(DB_NAME, 2, {
+      upgrade(db, oldVersion, _newVersion, tx) {
+        if (oldVersion < 1) db.createObjectStore(STORE, { keyPath: 'id' }).createIndex('by-account', 'accountId');
+        // 상한 정리가 오래된 것부터 커서로 훑도록(전체를 메모리에 올리지 않게).
+        if (oldVersion < 2) tx.objectStore(STORE).createIndex('by-capturedAt', 'capturedAt');
       },
     });
   }
@@ -77,14 +80,19 @@ export async function putSnapshot(
   const db = await getSnapshotDB();
   const tx = db.transaction(STORE, 'readwrite');
   await tx.store.put({ id: rowId(accountId, key), accountId, url: key, dataUrl, capturedAt });
-  const rows = (await tx.store.getAll()).sort((a, b) => a.capturedAt - b.capturedAt);
-  let count = rows.length;
-  let bytes = rows.reduce((sum, row) => sum + row.dataUrl.length, 0);
-  for (const row of rows) {
-    if (count <= SNAPSHOT_MAX_COUNT && bytes <= SNAPSHOT_MAX_BYTES) break;
-    await tx.store.delete(row.id);
-    count -= 1;
-    bytes -= row.dataUrl.length;
+  // 최신부터 한 장씩 훑어 상한 안에 드는 만큼 남기고, 넘친 뒤의 (더 오래된) 것은 모두 지운다.
+  let count = 0;
+  let bytes = 0;
+  let cursor = await tx.store.index('by-capturedAt').openCursor(null, 'prev');
+  while (cursor) {
+    const size = cursor.value.dataUrl.length;
+    if (count < SNAPSHOT_MAX_COUNT && bytes + size <= SNAPSHOT_MAX_BYTES) {
+      count += 1;
+      bytes += size;
+    } else {
+      await cursor.delete();
+    }
+    cursor = await cursor.continue();
   }
   await tx.done;
 }
@@ -118,10 +126,13 @@ export async function pruneOtherAccountSnapshots(currentAccountId: string | null
   const db = await getSnapshotDB();
   const tx = db.transaction(STORE, 'readwrite');
   let deleted = 0;
-  for (const row of await tx.store.getAll()) {
-    if (row.accountId === currentAccountId || row.capturedAt > cutoff) continue;
-    await tx.store.delete(row.id);
-    deleted += 1;
+  let cursor = await tx.store.index('by-capturedAt').openCursor(IDBKeyRange.upperBound(cutoff));
+  while (cursor) {
+    if (cursor.value.accountId !== currentAccountId) {
+      await cursor.delete();
+      deleted += 1;
+    }
+    cursor = await cursor.continue();
   }
   await tx.done;
   return deleted;
@@ -139,4 +150,34 @@ export function canShowSnapshots(
 ): boolean {
   if (!teamScope) return true;
   return myUserId !== null && sharedBy?.userId === myUserId;
+}
+
+/**
+ * 화면을 찍으려면 `<all_urls>` 가 필요하다. 설치 때 받지 않고(optional_host_permissions) 사용자가 미리보기를
+ * 켤 때만 받고, 끌 때 돌려준다(보안 검토 M1, CTO 2026-10-23).
+ */
+export const SNAPSHOT_PERMISSION: chrome.permissions.Permissions = { origins: ['<all_urls>'] };
+
+export async function hasSnapshotPermission(): Promise<boolean> {
+  try {
+    return await chrome.permissions.contains(SNAPSHOT_PERMISSION);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 미리보기 켜기. 권한 요청은 사용자 조작 안에서만 되므로 클릭 처리기에서 곧바로 부른다(앞에 다른 await 없음).
+ * 권한을 받았을 때만 켜고 true 를 돌려준다.
+ */
+export async function enableTabSnapshots(): Promise<boolean> {
+  const granted = await chrome.permissions.request(SNAPSHOT_PERMISSION).catch(() => false);
+  if (granted) await updateSettings({ tabSnapshotsEnabled: true });
+  return granted;
+}
+
+/** 미리보기 끄기. 설정을 먼저 끄고(찍기·표시가 멈춘다) 권한을 돌려준다. 사진은 지우지 않는다(화면이 묻는다). */
+export async function disableTabSnapshots(): Promise<void> {
+  await updateSettings({ tabSnapshotsEnabled: false });
+  await chrome.permissions.remove(SNAPSHOT_PERMISSION).catch(() => false);
 }
