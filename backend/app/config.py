@@ -6,6 +6,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # uvicorn 실행 위치에 무관하게 backend/.env 를 로드한다
 _ENV_FILE = Path(__file__).parent.parent / ".env"
 
+# 확장 ID는 wxt.config.ts 의 manifest key 로 고정돼 모든 기기에서 같다.
+DEFAULT_CORS_ORIGIN = "chrome-extension://aghgamoeifieijjckhpfkmhiibacnhml"
+
+
+def parse_cors_origins(raw: str) -> list[str]:
+    """쉼표 목록을 출처 목록으로. 비었거나 `*`만 있으면 확장 출처 하나로 돌아간다.
+
+    운영 env에서 값을 실수로 비우거나 `*`를 넣어도 모든 웹페이지에 열리지 않게 한다.
+    """
+    origins = [o.strip() for o in raw.split(",") if o.strip() and o.strip() != "*"]
+    return origins or [DEFAULT_CORS_ORIGIN]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
@@ -42,6 +54,10 @@ class Settings(BaseSettings):
     # 자체 JWT 서명 키. 비어 있으면 인증이 동작하지 않는다(부팅 시 경고).
     jwt_secret: str = ""
     jwt_expire_days: int = Field(default=30, ge=1)
+
+    # CORS 허용 출처(쉼표 구분). 인증은 Authorization 헤더라 credentials 는 쓰지 않는다.
+    # 로컬 웹 미리보기가 필요하면 backend/.env 에 http://localhost:5173 처럼 더한다.
+    cors_allow_origins: str = DEFAULT_CORS_ORIGIN
 
     # ── 추천 세션 ──────────────────────────────────────────────────────
     # 추천 캐시 수명. 새 탭을 열면 캐시를 즉시 주고, 이 시간이 지났으면 응답 후

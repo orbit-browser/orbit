@@ -220,6 +220,7 @@ EXAONE은 FriendliAI dedicated endpoint로 호출하므로 `EXAONE_MODEL` 에 en
 로 자기 endpoint ID를 확인해 바꿉니다.
 
 `GOOGLE_CLIENT_ID` 와 `JWT_SECRET` 은 아래 구글 로그인 설정에서 함께 채웁니다.
+`CORS_ALLOW_ORIGINS` 는 비워 두면 고정 확장 ID 출처만 허용합니다(`*` 는 받지 않습니다).
 루트 `.env.example` 은 확장이 쓰는 `VITE_API_BASE_URL` 만 담고 있어 백엔드용이 아닙니다.
 
 키가 비면 다음과 같이 동작합니다.

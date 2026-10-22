@@ -28,7 +28,7 @@ from .api.sync import router as sync_router
 from .api.tab_actions import router as tab_actions_router
 from .api.team_collect import router as team_collect_router
 from .api.workspaces import router as workspaces_router
-from .config import settings
+from .config import parse_cors_origins, settings
 from .db.session import init_db
 from .db.vector import backfill_user_ids, init_collection
 from .services.embedding_sync import backfill_owner_payload
@@ -60,7 +60,7 @@ app = FastAPI(title="Orbit API", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=parse_cors_origins(settings.cors_allow_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )

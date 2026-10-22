@@ -57,7 +57,9 @@ async def verify_access_token(access_token: str) -> GoogleIdentity:
         raise GoogleAuthError("access token이 비어 있습니다")
     if not settings.google_client_id:
         # 설정 누락을 인증 성공으로 넘기면 누구나 로그인할 수 있게 된다.
-        raise GoogleAuthError("서버에 google_client_id가 설정되지 않았습니다")
+        # 이 문구는 401 본문으로 나가므로 내부 설정 이름은 서버 로그에만 남긴다.
+        logger.error("[auth] GOOGLE_CLIENT_ID is not configured; rejecting all logins")
+        raise GoogleAuthError("서버 로그인 설정이 완료되지 않았습니다")
 
     info = await _fetch_json(_TOKENINFO_URL, params={"access_token": access_token})
 

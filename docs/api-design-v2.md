@@ -57,6 +57,7 @@
 - `filtered`: 시스템 URL/3초 미만 리다이렉트 등 인제스트 필터가 거부한 개수(§ target-architecture.md §6).
 - `duplicates`: `id` 충돌로 `ON CONFLICT DO NOTHING` 처리된 개수(멱등 재전송 확인용).
 - `normalized_url`/`domain`/`search_query`는 서버가 인제스트 시점에 계산하며 요청에는 포함하지 않는다.
+- 길이 초과는 422로 거르지 않고 잘라서 받는다. 확장은 실패한 배치를 통째로 재시도하므로, 이벤트 하나 때문에 큐 전체가 막히지 않게 하려는 것이다. 상한은 `content_excerpt` 16,000자(확장 `MAX_CONTENT_EXCERPT_LENGTH`와 같음), `title` 500자, `url`·`referrer_url` 32,768자, `event_type`·`source` 20자, `device_id` 64자, `previous_event_id` 36자다(뒤의 넷은 DB 열 너비).
 
 ## 2. `GET /events/pending-count`
 

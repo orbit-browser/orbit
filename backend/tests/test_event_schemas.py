@@ -85,3 +85,38 @@ def test_event_ingest_result_fields():
 def test_pending_count_response_defaults_last_completed_to_none():
     response = PendingCountResponse(pending=5)
     assert response.last_completed_sync_at is None
+
+
+# ── 필드 길이 (공용 서버 입력 경계) ─────────────────────────────
+# 확장은 실패한 배치를 통째로 재시도한다. 길이 초과를 422로 거르면 이벤트 하나가 큐 전체를 막고,
+# VARCHAR를 넘겨 DB에 넣으면 500으로 같은 일이 난다. 그래서 자르고 받는다.
+
+
+def test_short_identifier_fields_are_cut_to_db_column_width():
+    event = ExplorationEventIn(
+        **_event(event_type="v" * 50, source="s" * 50, device_id="d" * 100, previous_event_id="p" * 80)
+    )
+    assert event.event_type == "v" * 20
+    assert event.source == "s" * 20
+    assert event.device_id == "d" * 64
+    assert event.previous_event_id == "p" * 36
+
+
+def test_batch_device_id_is_cut_to_db_column_width():
+    batch = EventBatchRequest(device_id="d" * 100, events=[_event()])
+    assert batch.device_id == "d" * 64
+
+
+def test_urls_are_capped_without_rejecting_the_batch():
+    long_url = "https://example.com/?" + "q" * 40000
+    event = ExplorationEventIn(**_event(url=long_url, referrer_url=long_url))
+    assert len(event.url) == 32768
+    assert len(event.referrer_url) == 32768
+    assert event.url.startswith("https://example.com/?")
+
+
+def test_normal_values_are_untouched():
+    event = ExplorationEventIn(**_event(device_id="dev-1", previous_event_id=VALID_UUID))
+    assert event.url == "https://example.com/path"
+    assert event.device_id == "dev-1"
+    assert event.previous_event_id == VALID_UUID
