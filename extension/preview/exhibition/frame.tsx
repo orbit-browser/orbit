@@ -2,10 +2,8 @@
  * 현수막이 함께 쓰는 틀 — 크기, 머리글·바닥글, 안전 여백, 브라우저 카드.
  * 단위는 현수막의 mm 다(1px = 1mm). 화면에서는 줄이고, 인쇄에서는 1mm 로 키운다(exhibition.css).
  */
-import type { CSSProperties, ReactNode } from 'react';
-import type { ExhibitPage } from './content';
-import { siteOf } from './content';
-import { DemoPageView, SiteMark } from './pages';
+import { useState, type CSSProperties, type ReactNode } from 'react';
+import { faviconFor, shotFor, type ExhibitPage } from './content';
 
 export const BANNER = {
   height: 2380,
@@ -76,14 +74,13 @@ interface BrowserCardProps {
   style?: CSSProperties;
 }
 
-/** 브라우저 창 한 장 — 탭(사이트 표시·제목), 주소창(도메인), 가상 페이지. 글자 크기가 카드 폭을 따라간다. */
+/** 크롬 창 한 장 — 탭(파비콘·제목), 주소창(도메인), 페이지 화면. 글자 크기가 카드 폭을 따라간다. */
 export function BrowserCard({ page, width, height, className, style }: BrowserCardProps) {
-  const site = siteOf(page);
   return (
     <div className={`ex-browser${className ? ` ${className}` : ''}`} style={{ width, height, fontSize: width / 30, ...style }}>
       <div className="ex-browser__tabs">
         <span className="ex-browser__tab">
-          <SiteMark site={site} />
+          <Favicon url={page.url} domain={page.domain} />
           <span>{page.title}</span>
         </span>
       </div>
@@ -92,8 +89,30 @@ export function BrowserCard({ page, width, height, className, style }: BrowserCa
         <span className="ex-browser__omni">{page.domain}</span>
       </div>
       <div className="ex-browser__page">
-        <DemoPageView page={page} width={width} />
+        <PageShot url={page.url} />
       </div>
+    </div>
+  );
+}
+
+/** 파비콘. 못 구하면 도메인 첫 글자 — 아틀라스 PageFavicon 과 같은 규칙이다. */
+export function Favicon({ url, domain }: { url: string; domain: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <span className="ex-fav ex-fav--letter">{domain.replace(/^www\./i, '').charAt(0).toUpperCase()}</span>;
+  return <img className="ex-fav" src={faviconFor(url)} alt="" draggable={false} onError={() => setFailed(true)} />;
+}
+
+/** 페이지 화면(공개 웹페이지 캡처). 못 찍었거나 뺀 화면은 아틀라스의 회색 칸처럼 페이지 모양만 옅게. */
+export function PageShot({ url }: { url: string }) {
+  const shot = shotFor(url);
+  if (shot) return <img src={shot} alt="" draggable={false} />;
+  return (
+    <div className="ex-placeholder" aria-hidden>
+      <i style={{ width: '38%' }} />
+      <i style={{ width: '82%', height: '14%' }} />
+      <i style={{ width: '64%' }} />
+      <i style={{ width: '72%' }} />
+      <i style={{ width: '46%' }} />
     </div>
   );
 }

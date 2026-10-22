@@ -2,15 +2,23 @@
  * 오른쪽 벽 — TEAM. 위는 팀 워크스페이스, 아래는 심사위원을 위한 측정 방법.
  *
  * 화면 조각은 실제 UI 를 옮겼다: 사이드패널 설정 · 팀(TeamSettingsSection), 공유 시트(ShareSessionDialog),
- * 팀 범위 아틀라스의 "공유된 세션" 막대와 공유한 사람 이름표. 사람은 Orbit 말장난 별칭이다(demo.ts).
+ * 팀 범위 아틀라스의 "공유된 세션" 막대와 공유한 사람 이름표. 사람은 Orbit 말장난 별칭이다(DEMO_TEAM).
  * 측정 방법은 저장소의 평가 하네스(backend/eval)와 설정(backend/app/config.py)에서 확인한 것만 쓴다.
  * 결선 벤치마크의 조건은 metrics.json 의 method 에서 온다(측정 전 TBD).
  */
-import { DEMO_TEAM } from './demo';
-import { sessionById, siteOf } from './content';
-import { BannerFrame } from './frame';
+import { sessionById, shotFor } from './content';
+import { BannerFrame, Favicon, PageShot } from './frame';
 import { METRICS } from './metrics';
-import { DemoPageView, SiteMark } from './pages';
+
+/** 팀 화면 시연 — 사람 이름 대신 Orbit 말장난 별칭을 쓴다(실존 인물로 읽히지 않게). */
+const DEMO_TEAM = {
+  members: ['오르빗', '위성', '궤도'],
+  teams: [
+    { name: '졸업 프로젝트 팀', role: '소유자', size: 3, hue: '#727bcb' },
+    { name: '여행 동아리', role: '팀원', size: 2, hue: '#3aa09a' },
+  ],
+  invite: 'ORBT-7K2Q',
+};
 
 const POINTS = [
   // ShareSessionDialog — 세션마다 공유/해제, 공유 뒤 추가되는 페이지도 보인다
@@ -157,11 +165,13 @@ function TeamList() {
 
 /** 팀 범위 아틀라스 — 공유된 세션 막대와 공유한 사람 이름이 붙은 카드 */
 function TeamAtlas() {
-  const db = sessionById('s-fastapi');
+  const session = sessionById('s-mv3');
   // 한 세션은 한 사람이 공유한다 — 그 세션의 카드에는 모두 같은 이름이 붙는다(아틀라스와 같다)
   const sharer = DEMO_TEAM.members[1];
+  // 화면이 있는 페이지를 앞에 — 못 찍었거나 뺀 페이지(빈 Stack Overflow)는 회색 칸이 된다
+  const cards = [...session.pages].sort((a, b) => Number(!shotFor(a.url)) - Number(!shotFor(b.url))).slice(0, 3);
   return (
-    <div className="ex-layer ex-ui ex-ui--atlas" style={{ ['--hue' as string]: db.hue }}>
+    <div className="ex-layer ex-ui ex-ui--atlas" style={{ ['--hue' as string]: session.hue }}>
       <div className="ex-ui__row">
         <span className="ex-ui__scope">
           <i style={{ background: DEMO_TEAM.teams[0].hue }} />
@@ -170,23 +180,23 @@ function TeamAtlas() {
         <span className="ex-ui__muted">공유된 세션 · 세션 4개</span>
       </div>
       <div className="ex-ui__rail">
-        <b>{db.title}</b>
+        <b>{session.title}</b>
         <small>{sharer}</small>
         <span className="ex-ui__dots">
-          {db.pages.map((page, index) => (
+          {session.pages.map((page, index) => (
             <i key={page.id} className={index === 1 ? 'is-on' : undefined} />
           ))}
         </span>
       </div>
       <div className="ex-ui__cards">
-        {db.pages.slice(0, 3).map((page) => (
+        {cards.map((page) => (
           <div key={page.id} className="ex-ui__card">
             <div className="ex-ui__shot">
-              <DemoPageView page={page} width={214} />
+              <PageShot url={page.url} />
             </div>
             <span className="ex-ui__who">{sharer}</span>
             <span className="ex-ui__site">
-              <SiteMark site={siteOf(page)} />
+              <Favicon url={page.url} domain={page.domain} />
               {page.domain}
             </span>
           </div>

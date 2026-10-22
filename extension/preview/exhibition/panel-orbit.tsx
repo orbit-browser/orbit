@@ -5,9 +5,8 @@
  * 뒤 오른쪽 사이드패널 타임라인. 왼쪽 네비게이터도 시험했으나 막대와 겹쳐 읽기를 해쳐 뺐다. 데이터는 합성 시연 데이터다.
  */
 import type { RefObject } from 'react';
-import { GALLERY_SESSION_IDS, SESSIONS, sessionById, siteOf, type ExhibitSession } from './content';
-import { BannerFrame } from './frame';
-import { SiteMark } from './pages';
+import { GALLERY_SESSION_IDS, SESSIONS, sessionById, type ExhibitSession } from './content';
+import { BannerFrame, Favicon } from './frame';
 import { SessionGallery } from './gallery';
 
 interface OrbitBannerProps {
@@ -76,7 +75,7 @@ export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, intera
       <p className="ex-fineprint ex-orbit__fineprint">
         그림: 새 탭 아틀라스의 막대·세션 갤러리와 사이드패널 타임라인
         <br />
-        세션과 방문은 시연용 가상 데이터, 카드 속 페이지는 지어낸 가상 사이트(.example)
+        세션과 방문은 시연용 합성 데이터, 카드 속 화면은 공개 웹페이지 캡처(2026-10-20·22)
       </p>
     </BannerFrame>
   );
@@ -186,7 +185,7 @@ function Timeline({ session, pageIndex }: { session: ExhibitSession; pageIndex: 
       {[...session.pages].reverse().map((page) => (
         <div key={page.id} className={`ex-timeline__row${page.id === session.pages[pageIndex]?.id ? ' is-on' : ''}`}>
           <span className="ex-timeline__time">{page.time}</span>
-          <SiteMark site={siteOf(page)} />
+          <Favicon url={page.url} domain={page.domain} />
           <span className="ex-timeline__title">{page.title}</span>
           <span className="ex-timeline__dur">{page.minutes}분</span>
         </div>

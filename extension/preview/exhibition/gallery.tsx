@@ -8,12 +8,10 @@
  */
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { alignOffset, normalizeRotation, ringDelta } from '../../entrypoints/newtab/components/atlas/data';
-import { siteOf, type ExhibitSession } from './content';
-import { DemoPageView, SiteMark } from './pages';
+import type { ExhibitSession } from './content';
+import { Favicon, PageShot } from './frame';
 
 /** 현수막 단위(1 = 1mm). 값을 바꾸면 화면과 인쇄가 함께 바뀐다. 카드 크기는 exhibition.css(.ex-gcard) */
-/** 카드 폭(mm) — exhibition.css 의 .ex-gcard 와 같아야 한다 */
-const GALLERY_CARD_WIDTH = 330;
 
 export const GALLERY = {
   spacing: 250,
@@ -217,12 +215,12 @@ export function SessionGallery({ session, selected, onSelect, interactive, scale
             aria-label={`${index + 1}. ${page.title}`}
           >
             <div className="ex-gcard__bar">
-              <SiteMark site={siteOf(page)} />
+              <Favicon url={page.url} domain={page.domain} />
               <span className="ex-gcard__domain">{page.domain}</span>
               <span className="ex-gcard__time">{page.time}</span>
             </div>
             <div className="ex-gcard__shot">
-              <DemoPageView page={page} width={GALLERY_CARD_WIDTH} />
+              <PageShot url={page.url} />
             </div>
             <div className="ex-gcard__meta">
               <div className="ex-gcard__title">

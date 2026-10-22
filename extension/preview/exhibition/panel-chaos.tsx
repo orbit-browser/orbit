@@ -6,24 +6,53 @@
  * 제주 세션의 페이지는 2번 갤러리와 같은 높이(1,080mm)에서 가지런해지며 오른쪽으로 나간다 — 2번에서 다시 만난다.
  * 카드끼리 3D 로 꿰뚫지 않게 preserve-3d 대신 깊이 순 z-index 로 쌓는다.
  */
-import { pageById } from './content';
+import { pageByUrl } from './content';
 import { BannerFrame, BrowserCard } from './frame';
 
 const CAMERA = { perspective: 2400, x: 720, y: 1080 };
 const LIGHT = normalize([-0.45, -0.65, 0.62]);
 
-/** 흩어지는 페이지(가상 사이트) — 앞에 둘수록 가까운 겹(크게)에 놓인다. 그림이 많은 페이지를 앞에, 글 문서는 가운데에. */
+/**
+ * 흩어지는 페이지 — 앞에 둘수록 가까운 겹(크게)에 놓인다. 사진·색이 많은 페이지를 앞에, 어두운 문서는 가운데에.
+ * 화면을 뺀 페이지(content.ts EXCLUDED_SHOTS)는 회색 칸이 되므로 여기 넣지 않는다.
+ */
 const CLOUD = [
-  // 앞 겹 — 그림과 색
-  'osaka-rank', 'shoes-shop', 'gpu-compare', 'osaka-map', 'slides-gallery', 'buds-shop', 'osaka-blog', 'shoes-blog', 'gpu-deal', 'buds-review',
+  // 앞 겹 — 사진과 색
+  'https://blog.naver.com/osaka_eat/2231',
+  'https://www.musinsa.com/category/103004',
+  'https://www.google.com/maps/place/Dotonbori',
+  'https://prod.danawa.com/list/?cate=112753',
+  'https://velog.io/@react/react19',
+  'https://brunch.co.kr/@techtalk/42',
+  'https://www.compuzone.co.kr/search/search.htm?SearchProductKey=5070',
+  'https://blog.naver.com/runner/2231',
   // 가운데 — 글 문서
-  'react-docs', 'db-docs', 'db-async', 'react-cache', 'db-qa', 'gpu-review', 'react-blog', 'db-issue', 'slides-talk',
-  // 뒤 겹 — 안내 글
-  'lease-guide', 'lease-insure', 'speak-guide', 'speak-blog',
+  'https://react.dev/reference/react/useOptimistic',
+  'https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html',
+  'https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle',
+  'https://github.com/sqlalchemy/sqlalchemy/discussions/9312',
+  'https://blog.naver.com/gadget/2231',
+  'https://exam.toeic.co.kr/receipt/examSchList.php',
+  'https://www.khug.or.kr/hug/web/ig/dr/igdr000001.jsp',
+  'https://github.com/qdrant/qdrant/discussions/2416',
+  // 뒤 겹 — 어두운 문서와 작은 것
+  'https://qdrant.tech/documentation/concepts/filtering/',
+  'https://github.com/GoogleChrome/chrome-extensions-samples',
+  'https://qdrant.tech/documentation/concepts/indexing/',
+  'https://developer.chrome.com/docs/extensions/reference/api/alarms',
+  'https://velog.io/@vector/qdrant-filter',
+  'https://blog.naver.com/toss_im3/2231',
 ];
 
-/** 오른쪽 끝으로 빠져나가는 제주 세션 — 2번 갤러리와 같은 높이(≈1,080mm). */
-const EXIT = ['jeju-cafe', 'jeju-weather', 'jeju-blog', 'jeju-stay', 'jeju-car', 'jeju-flight'];
+/** 오른쪽 끝으로 빠져나가는 제주 세션 — ORBIT 갤러리와 같은 높이(≈1,080mm). */
+const EXIT = [
+  'https://www.diningcode.com/list.dc?query=애월카페',
+  'https://www.weather.go.kr/w/index.do',
+  'https://blog.naver.com/jejutrip/223101',
+  'https://www.yanolja.com/search/서귀포',
+  'https://carmore.kr/home/',
+  'https://flight.naver.com/flights/domestic/GMP-CJU',
+];
 
 /** 카드를 흩뿌리는 칸(보이는 자리, mm) — 제목 아래부터 아래 글 위까지 */
 const AREA = { left: -40, right: 1000, top: 700, bottom: 1790 };
@@ -33,8 +62,7 @@ const LANE = { from: 400, y: 1080, half: 160 };
 const laneHalf = (x: number) => LANE.half - 70 * Math.min(1, Math.max(0, (x - LANE.from) / 600));
 
 interface Spec {
-  /** 가상 페이지 id(demo.ts) */
-  id: string;
+  url: string;
   /** 보이는 가운데(현수막 mm) */
   ax: number;
   ay: number;
@@ -89,11 +117,11 @@ function layout(): Spec[] {
     const down = (ay - AREA.top) / (AREA.bottom - AREA.top);
     return { ax, ay, across, nearness: Math.min(1, Math.max(0, 0.55 * (1 - across) + 0.45 * down + jitter(0.28))) };
   }).sort((a, b) => b.nearness - a.nearness);
-  const cloud = CLOUD.map((id, index): Spec => {
+  const cloud = CLOUD.map((url, index): Spec => {
     const { ax, ay, across, nearness } = spots[index];
     const wild = 0.45 + 0.55 * nearness;
     return {
-      id,
+      url,
       ax,
       ay,
       aw: (92 + 290 * nearness ** 1.5) * (0.85 + random() * 0.3),
@@ -105,11 +133,11 @@ function layout(): Spec[] {
     };
   });
   // 흐트러진 것에서 가지런한 것으로 — 끝으로 갈수록 덜 뒤집히고, 작아지고, 2번 갤러리 왼쪽 카드처럼 돌아선다
-  const exit = EXIT.map((id, index): Spec => {
+  const exit = EXIT.map((url, index): Spec => {
     const t = index / (EXIT.length - 1);
     const settle = 1 - t;
     return {
-      id,
+      url,
       ax: LANE.from + 80 + (1060 - LANE.from - 80) * t ** 0.85,
       ay: LANE.y - 46 * Math.sin(Math.PI * t) + jitter(20) * settle,
       aw: 235 - 115 * t,
@@ -167,7 +195,7 @@ export function ChaosBanner() {
     <BannerFrame step={1} number="01" label="현수막 — 01 CHAOS">
       <div className="ex-chaos__scene" style={{ perspective: `${CAMERA.perspective}px`, perspectiveOrigin: `${CAMERA.x}px ${CAMERA.y}px` }} aria-hidden>
         {CARDS.map((spec, order) => {
-          const page = pageById(spec.id);
+          const page = pageByUrl(spec.url);
           if (!page) return null;
           // 보이는 자리·폭에서 3D 자리·폭으로 — 원근이 줄인 만큼 되돌린다.
           const k = (CAMERA.perspective - spec.z) / CAMERA.perspective;
@@ -182,7 +210,7 @@ export function ChaosBanner() {
           const lift = clamp((spec.z + 1800) / 2400, 0, 1);
           return (
             <div
-              key={spec.id}
+              key={spec.url}
               className="ex-chaos-card"
               style={{
                 left: x - width / 2,
@@ -237,7 +265,7 @@ export function ChaosBanner() {
       </section>
 
       <p className="ex-fineprint ex-chaos__fineprint">
-        카드 속 페이지는 모두 지어낸 가상 사이트(.example)다 · 세션과 방문: 시연용 가상 데이터
+        카드 속 화면: 공개 웹페이지를 로그인 없이 캡처(2026-10-20·22) · 탭 제목과 방문: 시연용 합성 데이터
       </p>
     </BannerFrame>
   );

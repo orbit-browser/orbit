@@ -5,9 +5,8 @@
  * 사이드패널 타임라인(TimelineItem), 새 탭 "이어서 탐색하기" 카드(ExploreCard), 새 탭 검색창(OrbitHero).
  * 원칙 여섯 줄은 코드에서 확인한 것만 쓴다(각 줄 옆 주석).
  */
-import { sessionById, siteOf } from './content';
-import { BannerFrame } from './frame';
-import { SiteMark } from './pages';
+import { sessionById } from './content';
+import { BannerFrame, Favicon } from './frame';
 
 const STEPS = [
   {
@@ -115,7 +114,7 @@ function TimelineMini() {
       {jeju.pages.slice(0, 4).map((page) => (
         <div key={page.id} className="ex-timeline__row">
           <span className="ex-timeline__time">{page.time}</span>
-          <SiteMark site={siteOf(page)} />
+          <Favicon url={page.url} domain={page.domain} />
           <span className="ex-timeline__title">{page.title}</span>
           <span className="ex-timeline__dur">{page.minutes}분</span>
         </div>

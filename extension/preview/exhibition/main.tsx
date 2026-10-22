@@ -7,7 +7,7 @@
 import { StrictMode, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BOOTH, PANELS, WALLS, type PanelDef } from './booth';
-import { GALLERY_SESSION_IDS } from './content';
+import { GALLERY_SESSION_IDS, loadShots } from './content';
 import { EdgeBanner } from './panel-edge';
 import { ChaosBanner } from './panel-chaos';
 import { OrbitBanner } from './panel-orbit';
@@ -277,5 +277,6 @@ async function markReady() {
   document.documentElement.dataset.ready = '1';
 }
 
+await loadShots();
 createRoot(document.getElementById('root')!).render(<StrictMode>{params.get('print') === '1' ? <PrintSheet /> : <Viewer />}</StrictMode>);
 requestAnimationFrame(() => setTimeout(markReady, 0));

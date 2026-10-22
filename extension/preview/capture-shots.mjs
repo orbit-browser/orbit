@@ -26,6 +26,8 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
  */
 const ALTERNATE = {
   'https://flight.naver.com/flights/domestic/GMP-CJU': 'https://flight.naver.com/',
+  // 첫 화면은 할인 팝업과 홍보 배너가 덮는다 — 같은 사이트의 단기렌트 검색 화면(제주국제공항)으로 찍는다
+  'https://carmore.kr/home/': 'https://carmore.kr/home/rent?rt=1',
   'https://blog.naver.com/jejutrip/223101': 'https://section.blog.naver.com/Search/Post.naver?keyword=제주%203박%204일%20동선',
   'https://github.com/qdrant/qdrant/discussions/2416': 'https://github.com/qdrant/qdrant',
   'https://stackoverflow.com/questions/72921178': 'https://stackoverflow.com/questions/tagged/fastapi',
@@ -66,9 +68,10 @@ const capture = (url, file) =>
       [
         '--headless=new', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--no-first-run',
         '--no-default-browser-check', '--disable-extensions', `--user-data-dir=${profile}`,
-        // 카드가 세로(200×260)라 세로로 긴 화면을 반 해상도로 찍는다.
+        // 카드가 세로(200×260)라 세로로 긴 화면을 반 해상도로 찍는다. 전시 현수막처럼 크게 인쇄할 때는
+        // SHOT_SCALE=1.5 로 더 촘촘하게 찍는다(preview/exhibition/README.md).
         // 네트워크가 끝나지 않는 사이트도 있어 12초가 지나면 그때 화면을 찍는다.
-        '--window-size=1000,1300', '--force-device-scale-factor=0.5', '--timeout=12000',
+        '--window-size=1000,1300', `--force-device-scale-factor=${process.env.SHOT_SCALE ?? '0.5'}`, '--timeout=12000',
         `--user-agent=${UA}`, `--screenshot=${file}`, url,
       ],
       { timeout: 40_000 },

@@ -6,6 +6,7 @@
 
 ```sh
 cd extension
+SHOT_SCALE=1.5 node preview/capture-shots.mjs   # 카드 속 페이지 화면(처음 한 번, git 제외)
 pnpm preview:ui --port 5203
 # http://127.0.0.1:5203/preview/exhibition/
 ```
@@ -68,8 +69,13 @@ node preview/exhibition/export.mjs --no-png
 
 ## 승인된 자산과 QR
 
-- 타사 사이트 캡처·사진·로고를 쓰지 않는다. `demo.ts`와 `pages.tsx`의 가상 페이지,
-  `.example` 주소와 코드로 그린 그림만 사용한다. `capture-shots.mjs`는 현수막에 필요 없다.
+- 카드 속 페이지 화면은 공개 웹페이지 캡처다(대표 2026-10-22 — 앞선 "타사 화면 제외"를 대신한다).
+  `SHOT_SCALE=1.5 node preview/capture-shots.mjs`가 새 임시 프로필(로그인·쿠키 없음)의 헤드리스 크롬으로
+  `fixtures.ts`의 주소를 찍는다. 결과 `preview/shots/`는 git에 올리지 않으며, 화면이 없으면 회색 자리표시로 나온다.
+- 사람 얼굴이 크게, 광고(후원사 광고 포함), 동의·할인 팝업, 남의 작품, 홍보 배너가 찍힌 화면은
+  `content.ts`의 `EXCLUDED_SHOTS`로 뺀다. CHAOS 목록(`panel-chaos.tsx`)에는 뺀 화면을 넣지 않는다.
+  첫 화면이 팝업으로 덮이는 사이트는 `capture-shots.mjs`의 `ALTERNATE`로 같은 사이트의 다른 화면을 찍는다.
+- 다시 찍으면 화면이 바뀔 수 있다(광고·팝업). 출력 전에 PNG로 카드를 눈으로 확인하고, 인쇄에 들어간 사이트 목록을 남긴다.
 - Orbit 마크는 제품의 `public/orbit-mark.png`를 쓴다. 팀 이름은 Orbit, 팀원 이름은 넣지 않는다.
 - 행사 로고는 대표의 마지막 지시에 따라 제외한다. 나중에 추가할 경우 `frame.tsx`에서 공통 배치를 검토한다.
 - QR은 7번 띠에 **100 × 100mm** 빈 칸이다. 대표가 만든 QR 스티커를 붙이며 임의 주소·가짜 QR을 넣지 않는다.
