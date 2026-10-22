@@ -132,7 +132,7 @@ Auto Session의 핵심 위험은 "의도 분석 품질 — 오할당이 좋은 �
 
 `sync_batches` 테이블(`docs/data-model-v2.md` §2)이 이미 기록하는 `prompt_version`/`model`/`event_count`/`started_at`~`completed_at`(소요시간)/`error_message`를 그대로 운영 지표의 원천으로 쓴다.
 
-- **평균 동기화 시간**: `AVG(completed_at - started_at) WHERE status='completed'` — 전역 최소 간격 리미터(0.5초 = 최대 2 RPS) 하 배치 소요(계획서 예상 2~5분)가 실제로 어느 정도인지 확인. A.X 게이트웨이 자체 한도는 A.X-K1 시절 안내값이 3 RPS였고, 2026-10-23 A.X-K2 측정은 6 RPS까지 429가 없었다.
+- **평균 동기화 시간**: `AVG(completed_at - started_at) WHERE status='completed'` — 전역 최소 간격 리미터(0.5초 = 최대 2 RPS) 하 배치 소요(계획서 예상 2~5분)가 실제로 어느 정도인지 확인. A.X 게이트웨이 자체 한도는 A.X-K1 시절 안내값이 3 RPS였고, 2026-10-23 A.X-K2 측정은 짧은 요청·단계당 10초로 6 RPS까지 429가 없었다.
 - **배치당 비용 추적**: `event_count`와 `model`을 조합해 배치당 LLM 호출 횟수·모델 사용량을 추정.
 - **실패율**: `status='failed'` 배치 비율과 `error_message` 패턴 분석.
 - **LangSmith 연동은 선택**(계획서 "LangSmith는 선택(자체 sync_batches 기록으로 대체)") — 이번 MVP는 LangSmith 없이 `sync_batches` 자체 기록만으로 운영 지표를 충당하고, 필요 시 이후 LangSmith를 추가 연동하는 방식으로 남겨둔다.

@@ -20,7 +20,7 @@ _TIMEOUT = 25.0  # LLM 응답 최대 대기 시간 (초)
 
 # 스냅샷 경로와 배치 파이프라인이 공유하는 전역 최소 호출 간격 리미터(docs/target-architecture.md §5).
 # asyncio.Lock으로 감싸 동시 호출도 직렬화한다. 0.5초는 A.X-K1 시절 안내값 3 RPS에 맞춘 값이다.
-# 2026-10-23 A.X-K2 실측은 짧은 요청 6 RPS까지 429가 없었다(eval/probe_rate_limit.py). 간격 조정은 배치 지연 측정 뒤 정한다.
+# 2026-10-23 A.X-K2 실측은 짧은 요청·단계당 10초로 6 RPS까지 429가 없었다(eval/probe_rate_limit.py). 간격 조정은 배치 지연 측정 뒤 정한다.
 _MIN_CALL_INTERVAL = 0.5  # 초
 _rate_lock = asyncio.Lock()
 _last_call_at: float = 0.0
