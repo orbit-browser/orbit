@@ -24,6 +24,8 @@ import { domainFromUrl, type NewEventInput } from './types';
 interface TabState {
   openEventId: string | null;
   lastUrl: string | null;
+  /** 이 상태를 만든 계정. 다른 계정의 상태는 이어 붙이지 않는다(`ownTabState`). */
+  accountId: string;
 }
 
 interface ActiveSegment {
@@ -59,6 +61,14 @@ function enqueueMutation(label: string, task: () => Promise<void>): void {
 async function getTabStates(): Promise<Record<number, TabState>> {
   const stored = await chrome.storage.session.get(TAB_STATE_KEY);
   return (stored[TAB_STATE_KEY] as Record<number, TabState> | undefined) ?? {};
+}
+
+/**
+ * 그 계정이 만든 탭 상태만 돌려준다. 계정 전환 정리(`handleAccountChange`)는 줄을 서서 돌기 때문에,
+ * 교체 직후 그보다 먼저 선 방문이 이전 계정의 URL을 referrer로 달고 새 계정에 올라가는 틈이 있다.
+ */
+function ownTabState(state: TabState | undefined, accountId: string): TabState | undefined {
+  return state?.accountId === accountId ? state : undefined;
 }
 
 async function setTabState(tabId: number, state: TabState | null): Promise<void> {
@@ -144,7 +154,7 @@ async function handleCommitted(
   const windowId = tab?.windowId ?? chrome.windows.WINDOW_ID_NONE;
 
   const states = await getTabStates();
-  const prevState = states[tabId];
+  const prevState = ownTabState(states[tabId], session.user.id);
   const isRedirect =
     details.transitionQualifiers.includes('server_redirect') ||
     details.transitionQualifiers.includes('client_redirect');
@@ -154,7 +164,11 @@ async function handleCommitted(
       () => false,
     );
     if (replaced) {
-      await setTabState(tabId, { openEventId: prevState.openEventId, lastUrl: details.url });
+      await setTabState(tabId, {
+        openEventId: prevState.openEventId,
+        lastUrl: details.url,
+        accountId: session.user.id,
+      });
       return;
     }
   }
@@ -193,7 +207,7 @@ async function handleCommitted(
     return;
   }
 
-  await setTabState(tabId, { openEventId: eventId, lastUrl: details.url });
+  await setTabState(tabId, { openEventId: eventId, lastUrl: details.url, accountId: session.user.id });
 
   if (await isActiveTab(tabId, windowId)) {
     await openActiveSegment(tabId, windowId, eventId);
@@ -233,7 +247,7 @@ async function commitSpaNavigation(tabId: number, url: string): Promise<void> {
   if (!(await hasCollectionConsent(session.user.id))) return;
 
   const states = await getTabStates();
-  const prevState = states[tabId];
+  const prevState = ownTabState(states[tabId], session.user.id);
   if (prevState?.lastUrl === url) return; // 같은 URL 중복 제거
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -273,7 +287,7 @@ async function commitSpaNavigation(tabId: number, url: string): Promise<void> {
     return;
   }
 
-  await setTabState(tabId, { openEventId: eventId, lastUrl: url });
+  await setTabState(tabId, { openEventId: eventId, lastUrl: url, accountId: session.user.id });
 
   if (await isActiveTab(tabId, windowId)) {
     await openActiveSegment(tabId, windowId, eventId);

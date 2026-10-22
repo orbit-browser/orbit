@@ -13,12 +13,14 @@ import {
   listByStatus,
   markSynced,
   prune,
+  pruneOtherAccounts,
   releaseToPending,
   replaceEventUrl,
   resetStaleSyncing,
   setPendingChangeListener,
 } from '../../lib/events/queue';
 import { MAX_CONTENT_EXCERPT_LENGTH } from '../../lib/events/types';
+import { getDB, EVENTS_STORE } from '../../lib/events/db';
 import { clearEvents, makeInput, signInTestUser } from '../helpers';
 
 const MINUTE_MS = 60_000;
@@ -266,5 +268,26 @@ describe('getSyncStatus / pendingChangeListener', () => {
     expect(status.pendingCount).toBe(2);
     expect(status.todayCount).toBe(2);
     expect(seen.at(-1)).toBe(2);
+  });
+});
+
+describe('pruneOtherAccounts', () => {
+  it('지금 계정이 아닌 계정의 7일 지난 이벤트만 지운다', async () => {
+    const DAY = 24 * HOUR_MS;
+    const old = new Date(Date.now() - 8 * DAY).toISOString();
+    const recent = new Date(Date.now() - 6 * DAY).toISOString();
+    const bOld = await addPendingEvent({ accountId: 'user-b' });
+    const bRecent = await addPendingEvent({ accountId: 'user-b' });
+    const mineOld = await addPendingEvent({ accountId: 'u1' });
+    const db = await getDB();
+    await db.put(EVENTS_STORE, { ...bOld, createdAt: old });
+    await db.put(EVENTS_STORE, { ...bRecent, createdAt: recent });
+    await db.put(EVENTS_STORE, { ...mineOld, createdAt: old });
+
+    expect(await pruneOtherAccounts('u1', 7 * DAY)).toBe(1);
+
+    expect(await getEvent(bOld.eventId)).toBeUndefined();
+    expect(await getEvent(bRecent.eventId)).toBeDefined();
+    expect(await getEvent(mineOld.eventId)).toBeDefined();
   });
 });

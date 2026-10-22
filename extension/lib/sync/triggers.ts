@@ -15,6 +15,7 @@ import {
   evictIfOver,
   getSyncStatus,
   prune,
+  pruneOtherAccounts,
   resetStaleSyncing,
   setPendingChangeListener,
   updateSyncStatus,
@@ -26,6 +27,7 @@ const SYNC_ALARM_NAME = 'orbit-sync';
 const IDLE_DRAIN_ALARM_NAME = 'orbit-idle-drain';
 const STALE_SYNCING_THRESHOLD_MS = 5 * 60 * 1000;
 const QUEUE_LIMIT = 5000;
+const OTHER_ACCOUNT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function syncAlarmForSettings(settings: OrbitSettings): Promise<void> {
   if (settings.autoSyncEnabled) {
@@ -143,6 +145,11 @@ async function runStartupMaintenance(): Promise<void> {
     await prune();
   } catch (err) {
     console.error('[Orbit] prune 실패', err);
+  }
+  try {
+    await pruneOtherAccounts((await getSession())?.user.id ?? null, OTHER_ACCOUNT_RETENTION_MS);
+  } catch (err) {
+    console.error('[Orbit] pruneOtherAccounts 실패', err);
   }
   try {
     await evictIfOver(QUEUE_LIMIT);

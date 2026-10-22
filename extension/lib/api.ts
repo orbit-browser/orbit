@@ -332,9 +332,12 @@ async function handleUnauthorized(): Promise<never> {
   throw new AuthRequiredError('세션이 만료되었어요. 다시 로그인해 주세요.');
 }
 
-/** 고정 토큰(이전 계정)이 거절됐다고 지금 로그인한 계정의 세션을 지우지 않는다. */
+/**
+ * 고정 토큰이 이전 계정 것이면 거절돼도 지금 로그인한 계정의 세션을 지우지 않는다.
+ * 지금 계정의 토큰이 거절된 것이면 다른 요청처럼 세션을 비워 로그인 화면으로 보낸다.
+ */
 async function rejectUnauthorized(pinnedToken?: string): Promise<never> {
-  if (pinnedToken) throw new AuthRequiredError();
+  if (pinnedToken && pinnedToken !== (await getToken())) throw new AuthRequiredError();
   return handleUnauthorized();
 }
 

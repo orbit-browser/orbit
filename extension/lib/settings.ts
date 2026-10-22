@@ -47,9 +47,17 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
 const STORAGE_KEY = 'orbit:settings';
 const CONSENT_KEY = 'orbit:collectionConsent';
 
-/** 수집 동의 화면과 설정에 함께 쓰는 외부 AI 전송 범위 안내(backend event_filter.ai_safe_* 기준). */
+/**
+ * 수집 동의 화면과 설정에 함께 쓰는 외부 AI 전송 범위 안내. 실제로 보내는 것보다 적게 읽히면 안 된다.
+ * 근거(backend): 제목·검색어·본문 발췌는 요약·세션화·임베딩·Ask로 간다. 주소는 `ai_safe_url/path`가
+ * 쿼리와 비밀 같은 조각을 지운 형태다. 민감 URL은 받을 때 본문을 지우고 주소는 도메인만 남지만 제목은 간다.
+ * 제공자는 config.py 기준(임베딩 Upstage, LLM A.X-K1·대체 EXAONE). 바뀌면 이 문구도 바꾼다.
+ */
 export const AI_DISCLOSURE =
-  '세션 정리와 검색을 위해 페이지 제목·주소·본문 일부가 AI 서비스(Upstage·SKT A.X 등)로 전송돼요. 민감한 사이트는 본문을 빼고 주소도 도메인만 보내요.';
+  '세션 정리와 검색을 위해 페이지 제목·주소·검색어·본문 일부가 AI 서비스(Upstage·SKT A.X·LG EXAONE)로 전송돼요. 민감한 사이트는 제목과 도메인만 보내요.';
+/** 같은 뜻, "~합니다" 말투의 새 탭 설정 화면용. */
+export const AI_DISCLOSURE_FORMAL =
+  '세션 정리와 검색을 위해 페이지 제목·주소·검색어·본문 일부가 AI 서비스(Upstage·SKT A.X·LG EXAONE)로 전송됩니다. 민감한 사이트는 제목과 도메인만 보냅니다.';
 
 /** 계정 id → 수집 동의. 동의한 사람과 수집되는 사람이 같아야 하므로 브라우저가 아니라 계정에 묶는다. */
 export type CollectionConsent = Record<string, boolean>;

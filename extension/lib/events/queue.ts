@@ -289,6 +289,30 @@ export async function resetStaleSyncing(olderThanMs: number): Promise<number> {
   return resetCount;
 }
 
+/**
+ * 지금 로그인한 계정이 아닌 계정의 이벤트 중 `maxAgeMs`보다 오래된 것을 지운다(보존 상한, CTO 결정
+ * 2026-10-22: 7일). 그 계정이 돌아오지 않는 공용 PC에서 본문 발췌가 디스크에 무기한 남지 않게 한다.
+ * 로그아웃 상태(null)면 모든 계정이 대상이다. 지운 미전송 이벤트 수를 돌려준다.
+ */
+export async function pruneOtherAccounts(
+  currentAccountId: string | null,
+  maxAgeMs: number,
+): Promise<number> {
+  const db = await getDB();
+  const cutoff = Date.now() - maxAgeMs;
+  const tx = db.transaction(EVENTS_STORE, 'readwrite');
+  let deleted = 0;
+  for (const event of await tx.store.getAll()) {
+    if (event.accountId === currentAccountId) continue;
+    if (new Date(event.createdAt).getTime() > cutoff) continue;
+    await tx.store.delete(event.eventId);
+    if (event.status !== 'synced') deleted += 1;
+  }
+  await tx.done;
+  if (deleted) await writeSyncStatusSummary();
+  return deleted;
+}
+
 /** synced 이벤트 중 48시간 지난 것을 삭제한다. */
 export async function prune(): Promise<number> {
   const db = await getDB();

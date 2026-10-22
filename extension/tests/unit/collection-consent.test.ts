@@ -127,3 +127,27 @@ describe('계정별 수집 동의', () => {
     expect((await getSettings()).collectionEnabled).toBe(true);
   });
 });
+
+describe('계정 교체 순간의 탭 상태', () => {
+  it('정리보다 먼저 온 새 계정의 방문은 이전 계정의 탭 상태를 referrer로 잇지 않는다', async () => {
+    await chrome.storage.local.set({
+      'orbit:collectionConsent': { [C]: true },
+      'orbit:settings': { collectionEnabled: true },
+    });
+    await signInAs(C);
+    // 계정 전환 정리(handleAccountChange)가 아직 돌지 않아 B의 탭 상태가 남아 있는 순간
+    await chrome.storage.session.set({
+      'orbit:tabState': { 0: { openEventId: 'b-open', lastUrl: 'https://b-private.example/doc', accountId: B } },
+    });
+    const idle = { setDetectionInterval: () => {}, onStateChanged: { addListener: () => {} } };
+    vi.spyOn(fakeBrowser, 'idle', 'get').mockReturnValue(idle as never);
+    initCollector();
+
+    await visit('https://c.example/');
+    await vi.waitFor(async () => expect(await allEvents()).toHaveLength(1));
+    const [event] = await allEvents();
+    expect(event.accountId).toBe(C);
+    expect(event.referrerUrl).toBeNull();
+    expect(event.previousEventId).toBeNull();
+  });
+});
