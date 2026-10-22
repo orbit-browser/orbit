@@ -10,6 +10,7 @@ import {
   folderTopDomains,
   folderTotals,
   formatMinutes,
+  sharerLabel,
   largestSession,
   mostRevisitedPage,
   representativePage,
@@ -105,9 +106,7 @@ export function AtlasDetail({
     level === 'page'
       ? `${page!.domain} · ${page!.minutes}분 체류`
       : level === 'session'
-      ? `${session!.date} · ${formatMinutes(session!.minutes)}${
-          session!.sharedBy ? ` · ${session!.sharedBy.name ?? '팀원'} 님이 공유` : ''
-        }`
+      ? [session!.date, formatMinutes(session!.minutes), sharerLabel(session!)].filter(Boolean).join(' · ')
       : level === 'folder'
       ? `폴더 · 세션 ${totals!.sessionCount}개`
       : '세션을 선택해 주세요';

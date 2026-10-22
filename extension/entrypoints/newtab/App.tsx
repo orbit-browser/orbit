@@ -21,7 +21,7 @@ export default function App() {
   const [composerMode, setComposerMode] = useState<'search' | 'ai'>('search');
   const [restoreError, setRestoreError] = useState<string | null>(null);
   // 프로필 메뉴에서 고른 워크스페이스(내 Orbit / 팀 Orbit)를 홈도 따라간다.
-  const { scopeId, active: activeTeam } = useActiveWorkspace();
+  const { scopeId, active: activeTeam } = useActiveWorkspace({ pollTeams: true });
   const atlasQuery = useAtlasData(scopeId);
   const sessions = atlasQuery.data?.sessions ?? [];
   const folders = atlasQuery.data?.folders ?? [];

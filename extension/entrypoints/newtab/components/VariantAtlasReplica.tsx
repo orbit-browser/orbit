@@ -24,7 +24,7 @@ const TRAY_INSET = 250;
 
 export function VariantAtlasReplica() {
   // 팀을 보고 있으면 그 팀에 공유된 세션을 읽기 전용으로 그린다(폴더 없음).
-  const { scopeId, active: activeTeam } = useActiveWorkspace();
+  const { scopeId, active: activeTeam } = useActiveWorkspace({ pollTeams: true });
   const readOnly = !!scopeId;
   const atlasQuery = useAtlasData(scopeId);
   const sessions = useMemo(() => atlasQuery.data?.sessions ?? [], [atlasQuery.data]);

@@ -252,6 +252,11 @@ function sessionStatus(date: Date, now: Date): SessionNode['status'] {
   return 'archived';
 }
 
+/** 팀 세션이면 "누가 공유했는지" 한 줄. 아틀라스 상세와 홈 카드가 같은 말을 쓴다. */
+export function sharerLabel(session: Pick<SessionNode, 'sharedBy'>): string | null {
+  return session.sharedBy ? `${session.sharedBy.name ?? '팀원'} 님이 공유` : null;
+}
+
 export function toSessionNode(
   session: Session | WorkspaceSession,
   events: SessionTimelineEvent[],

@@ -5,8 +5,9 @@ export function Toast() {
   const dismissToast = useUIStore((s) => s.dismissToast);
   if (!toast) return null;
   return (
-    <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2">
-      <div className="flex items-center gap-3 rounded-lg bg-orbit-text/90 px-3 py-2 text-xs text-white shadow-orbit-overlay">
+    <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2" role="status">
+      {/* key 로 새 안내마다 등장 애니메이션을 다시 건다 */}
+      <div key={toast.message} className="animate-bouncy flex items-center gap-3 rounded-lg bg-orbit-text/90 px-3 py-2 text-xs text-white shadow-orbit-overlay">
         <span>{toast.message}</span>
         {toast.action && (
           <button

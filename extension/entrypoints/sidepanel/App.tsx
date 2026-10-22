@@ -13,7 +13,7 @@ import { AskView } from './views/AskView';
 import { SessionDetailView } from './views/SessionDetailView';
 import { SettingsView } from './views/SettingsView';
 import { useOnboarding } from '../../lib/useOnboarding';
-import { useActiveWorkspace } from '../../lib/useWorkspaces';
+import { onTeamAccessLost, useActiveWorkspace } from '../../lib/useWorkspaces';
 
 function CurrentView() {
   const view = useUIStore((s) => s.activeView);
@@ -34,6 +34,7 @@ function CurrentView() {
 function SignedInPanel() {
   const activeView = useUIStore((s) => s.activeView);
   const setView = useUIStore((s) => s.setView);
+  const showToast = useUIStore((s) => s.showToast);
   const showAsk = isAskDockView(activeView);
   const { state, loading } = useOnboarding();
   const { scopeId } = useActiveWorkspace();
@@ -42,6 +43,11 @@ function SignedInPanel() {
   useEffect(() => {
     if (scopeId && activeView === 'timeline') setView('sessions');
   }, [scopeId, activeView, setView]);
+
+  useEffect(
+    () => onTeamAccessLost((name) => showToast(`${name} 팀에 더 이상 접근할 수 없어요. 내 Orbit으로 돌아왔어요.`)),
+    [showToast],
+  );
 
   if (loading) return <div className="h-full w-full bg-orbit-bg" />;
   if (state.status !== 'complete') return <OnboardingPrototype initialStep={state.step} />;
