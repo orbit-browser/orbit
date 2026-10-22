@@ -695,17 +695,25 @@ def test_merge_split_topic_keeps_llm_sibling_split():
     assert [a.event_indices for a in merged] == [[0, 2, 4], [1, 3, 5]]
 
 
-def test_merge_split_topic_folds_single_event_fragment_into_preceding_session():
-    # S1 dev s1p01: 파리를 에펠탑[0,1]과 루브르[2]로 쪼갰다. 조각은 바로 앞 이벤트의 세션으로 돌린다.
-    merged = sync_pipeline._merge_split_topic([_create([0, 1]), _create([2]), _create([3, 4, 5])])
+def test_merge_split_topic_merges_two_event_split():
+    # R1 n04 KT 원문: 한 요리 주제를 "김치찌개 레시피"[0,1]와 "한국 전통 음식"[3,4]으로 나눴다.
+    merged = sync_pipeline._merge_split_topic(
+        [_create([0, 1]), sync_pipeline.Assignment([2], "discard"), _create([3, 4])]
+    )
 
-    assert [a.event_indices for a in merged] == [[0, 1, 2], [3, 4, 5]]
+    assert [(a.action, a.event_indices) for a in merged] == [("create", [0, 1, 3, 4]), ("discard", [2])]
+
+
+def test_merge_split_topic_folds_single_event_fragment_into_preceding_session():
+    merged = sync_pipeline._merge_split_topic([_create([0, 1, 2]), _create([3]), _create([4, 5, 6])])
+
+    assert [a.event_indices for a in merged] == [[0, 1, 2, 3], [4, 5, 6]]
 
 
 def test_merge_split_topic_folds_leading_fragment_into_following_session():
-    merged = sync_pipeline._merge_split_topic([_create([0]), _create([1, 2]), _create([3, 4])])
+    merged = sync_pipeline._merge_split_topic([_create([0]), _create([1, 2, 3]), _create([4, 5, 6])])
 
-    assert [a.event_indices for a in merged] == [[0, 1, 2], [3, 4]]
+    assert [a.event_indices for a in merged] == [[0, 1, 2, 3], [4, 5, 6]]
 
 
 def test_merge_split_topic_merges_all_fragments_when_no_multi_event_session():
@@ -723,3 +731,34 @@ def test_merge_split_topic_still_folds_creates_into_single_append():
     )
 
     assert [(a.action, a.target, a.event_indices) for a in merged] == [("append", "s1", [0, 1, 2, 3])]
+
+
+def test_merge_split_topic_does_not_keep_create_demoted_from_unknown_append(monkeypatch):
+    # KT 원문(R1 s01_jeju_single)과 같은 모양: create 하나와, 그 create 제목을 target으로 한 append. 후보 밖 append는
+    # create로 강등되지만 LLM이 같은 주제라고 표시한 것이므로 별도 세션으로 남으면 안 된다(QA 2026-10-23).
+    from app.services import intent_analyzer
+
+    raw = (
+        '{"assignments": ['
+        '{"event_indices": [0, 1, 2], "action": "create", "title": "제주 여행 계획"},'
+        '{"event_indices": [3, 4, 5], "action": "append", "target": "제주 여행 계획"}]}'
+    )
+
+    async def fake(*_a, **_kw):
+        return raw, "kt/midm"
+
+    monkeypatch.setattr(intent_analyzer, "chat_completion_intent", fake)
+    events = [{"title": f"t{i}", "domain": "d", "active_duration_ms": 60000} for i in range(6)]
+
+    assignments = asyncio.run(intent_analyzer.analyze(events, []))
+    merged = sync_pipeline._merge_split_topic(assignments)
+
+    assert [(a.action, a.event_indices) for a in merged] == [("create", [0, 1, 2, 3, 4, 5])]
+
+
+def test_merge_split_topic_folds_interleaved_fragment_into_session_of_preceding_event():
+    # 섞인 순서에서 조각이 두 번째 대상 뒤에 오면 그 대상(바로 앞 이벤트의 세션)에 붙는다. 대상을 알 근거가
+    # 시간 순서밖에 없어서 생기는 한계를 고정해 둔다.
+    merged = sync_pipeline._merge_split_topic([_create([0, 2, 4]), _create([1, 3, 5]), _create([6])])
+
+    assert [a.event_indices for a in merged] == [[0, 2, 4], [1, 3, 5, 6]]
