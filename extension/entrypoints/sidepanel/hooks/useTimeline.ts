@@ -7,6 +7,7 @@ import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteEvent as deleteLocalEvent, listByStatus } from '../../../lib/events/queue';
 import { deleteServerEvent, fetchEventsByDate } from '../../../lib/api';
+import { getSession } from '../../../lib/auth';
 import type { TodayEvent } from '../../../lib/types';
 import { useSyncStatusInvalidation } from './useSyncStatus';
 
@@ -52,11 +53,14 @@ function dateLabelOf(iso: string): string {
   return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
-async function loadTimelineEntries(): Promise<TimelineEntry[]> {
+/** 로컬 큐는 브라우저에 하나라서 지금 로그인한 계정의 방문만 고른다. */
+export async function loadTimelineEntries(): Promise<TimelineEntry[]> {
+  const accountId = (await getSession())?.user.id;
+  if (!accountId) return [];
   const [open, pending, synced] = await Promise.all([
-    listByStatus('open'),
-    listByStatus('pending'),
-    listByStatus('synced'),
+    listByStatus('open', accountId),
+    listByStatus('pending', accountId),
+    listByStatus('synced', accountId),
   ]);
 
   const unsynced: TimelineEntry[] = [...open, ...pending].map((e) => ({

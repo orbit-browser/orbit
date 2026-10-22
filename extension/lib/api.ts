@@ -310,8 +310,12 @@ function mapMergeSuggestion(b: BackendMergeSuggestion): MergeSuggestion {
  * 저장된 세션 토큰을 Authorization 헤더로 얹는다.
  * 토큰이 없으면 호출 자체를 하지 않는다 — 어차피 401이고, 실패 사유가 더 분명하다.
  */
-async function authorized(init?: RequestInit): Promise<RequestInit> {
-  const token = await getToken();
+/**
+ * `token`을 주면 저장소를 읽지 않고 그 토큰을 쓴다. 이벤트 전송은 이벤트를 고른 순간의 계정
+ * 토큰에 묶어야 한다 — 요청 직전에 다시 읽으면 그 사이 로그인한 다른 계정으로 올라갈 수 있다.
+ */
+async function authorized(init?: RequestInit, pinnedToken?: string): Promise<RequestInit> {
+  const token = pinnedToken ?? (await getToken());
   if (!token) throw new AuthRequiredError();
   return {
     ...init,
@@ -328,6 +332,15 @@ async function handleUnauthorized(): Promise<never> {
   throw new AuthRequiredError('세션이 만료되었어요. 다시 로그인해 주세요.');
 }
 
+/**
+ * 고정 토큰이 이전 계정 것이면 거절돼도 지금 로그인한 계정의 세션을 지우지 않는다.
+ * 지금 계정의 토큰이 거절된 것이면 다른 요청처럼 세션을 비워 로그인 화면으로 보낸다.
+ */
+async function rejectUnauthorized(pinnedToken?: string): Promise<never> {
+  if (pinnedToken && pinnedToken !== (await getToken())) throw new AuthRequiredError();
+  return handleUnauthorized();
+}
+
 /** 서버가 2xx 가 아닌 응답을 줬다. 상태와 경로를 남겨 팀 접근 상실(403/404) 같은 경우를 가려낸다. */
 export class ApiError extends Error {
   constructor(
@@ -340,9 +353,9 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, await authorized(init));
-  if (res.status === 401) await handleUnauthorized();
+async function request<T>(path: string, init?: RequestInit, pinnedToken?: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, await authorized(init, pinnedToken));
+  if (res.status === 401) await rejectUnauthorized(pinnedToken);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new ApiError(`[Orbit API] ${init?.method ?? 'GET'} ${path} ${res.status}: ${body}`, res.status, path);
@@ -641,15 +654,21 @@ export interface EventBatchResponse {
   pending_total: number;
 }
 
+/** `token`은 이벤트 주인 계정의 토큰이다(`authorized` 주석). */
 export async function postEventBatch(
   deviceId: string,
   events: WireEvent[],
+  token: string,
 ): Promise<EventBatchResponse> {
-  return request<EventBatchResponse>('/events', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ device_id: deviceId, events }),
-  });
+  return request<EventBatchResponse>(
+    '/events',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: deviceId, events }),
+    },
+    token,
+  );
 }
 
 export type ServerSyncTrigger = 'manual' | 'periodic' | 'event_count' | 'idle';
@@ -658,16 +677,22 @@ export type ServerSyncTrigger = 'manual' | 'periodic' | 'event_count' | 'idle';
  * 서버 배치 세션화 트리거. 202(시작)/200(pending 없음)은 성공,
  * 409(이미 실행 중)도 정상 흐름이므로 예외로 취급하지 않는다.
  */
-export async function triggerServerSync(triggerType: ServerSyncTrigger): Promise<void> {
+export async function triggerServerSync(
+  triggerType: ServerSyncTrigger,
+  token: string,
+): Promise<void> {
   const res = await fetch(
     `${BASE}/sync`,
-    await authorized({
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trigger_type: triggerType }),
-    }),
+    await authorized(
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trigger_type: triggerType }),
+      },
+      token,
+    ),
   );
-  if (res.status === 401) await handleUnauthorized();
+  if (res.status === 401) await rejectUnauthorized(token);
   if (!res.ok && res.status !== 409) {
     throw new Error(`[Orbit API] POST /sync ${res.status}`);
   }

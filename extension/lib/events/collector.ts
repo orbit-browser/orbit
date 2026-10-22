@@ -4,13 +4,15 @@
 // 수집 실패가 브라우징을 막아서는 안 되므로(fail-open), 모든 큐 호출은 try/catch로 감싼다.
 // 계약 근거: docs/target-architecture.md §1, §3, docs/implementation-roadmap.md M2-7~9
 
-import { getSettings } from '../settings';
+import { getSession, onSessionChange } from '../auth';
+import { getSettings, hasCollectionConsent } from '../settings';
 import { isSensitiveUrl } from '../sensitive-domains';
 import type { PageContent } from '../types';
 import {
   addDwell,
   addEvent,
   attachContent,
+  finalizeAllOpen,
   finalizeOpenEvent,
   getEvent,
   listByStatus,
@@ -22,6 +24,8 @@ import { domainFromUrl, type NewEventInput } from './types';
 interface TabState {
   openEventId: string | null;
   lastUrl: string | null;
+  /** 이 상태를 만든 계정. 다른 계정의 상태는 이어 붙이지 않는다(`ownTabState`). */
+  accountId: string;
 }
 
 interface ActiveSegment {
@@ -57,6 +61,14 @@ function enqueueMutation(label: string, task: () => Promise<void>): void {
 async function getTabStates(): Promise<Record<number, TabState>> {
   const stored = await chrome.storage.session.get(TAB_STATE_KEY);
   return (stored[TAB_STATE_KEY] as Record<number, TabState> | undefined) ?? {};
+}
+
+/**
+ * 그 계정이 만든 탭 상태만 돌려준다. 계정 전환 정리(`handleAccountChange`)는 줄을 서서 돌기 때문에,
+ * 교체 직후 그보다 먼저 선 방문이 이전 계정의 URL을 referrer로 달고 새 계정에 올라가는 틈이 있다.
+ */
+function ownTabState(state: TabState | undefined, accountId: string): TabState | undefined {
+  return state?.accountId === accountId ? state : undefined;
 }
 
 async function setTabState(tabId: number, state: TabState | null): Promise<void> {
@@ -131,13 +143,18 @@ async function handleCommitted(
 
   const settings = await getSettings();
   if (!settings.collectionEnabled) return;
+  // 로그아웃 상태의 방문은 주인을 정할 수 없어 수집하지 않는다(LoginGate 와 같은 원칙).
+  const session = await getSession();
+  if (!session) return;
+  // 스위치(collectionEnabled)는 계정 전환 직후 잠깐 이전 계정 값일 수 있어, 이 계정의 동의를 직접 본다.
+  if (!(await hasCollectionConsent(session.user.id))) return;
 
   const tabId = details.tabId;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   const windowId = tab?.windowId ?? chrome.windows.WINDOW_ID_NONE;
 
   const states = await getTabStates();
-  const prevState = states[tabId];
+  const prevState = ownTabState(states[tabId], session.user.id);
   const isRedirect =
     details.transitionQualifiers.includes('server_redirect') ||
     details.transitionQualifiers.includes('client_redirect');
@@ -147,7 +164,11 @@ async function handleCommitted(
       () => false,
     );
     if (replaced) {
-      await setTabState(tabId, { openEventId: prevState.openEventId, lastUrl: details.url });
+      await setTabState(tabId, {
+        openEventId: prevState.openEventId,
+        lastUrl: details.url,
+        accountId: session.user.id,
+      });
       return;
     }
   }
@@ -176,6 +197,7 @@ async function handleCommitted(
     previousEventId: prevState?.openEventId ?? null,
     activeDurationMs: 0,
     contentExcerpt: null,
+    accountId: session.user.id,
   };
 
   try {
@@ -185,7 +207,7 @@ async function handleCommitted(
     return;
   }
 
-  await setTabState(tabId, { openEventId: eventId, lastUrl: details.url });
+  await setTabState(tabId, { openEventId: eventId, lastUrl: details.url, accountId: session.user.id });
 
   if (await isActiveTab(tabId, windowId)) {
     await openActiveSegment(tabId, windowId, eventId);
@@ -220,8 +242,12 @@ async function requestSpaContent(tabId: number, eventId: string): Promise<void> 
 }
 
 async function commitSpaNavigation(tabId: number, url: string): Promise<void> {
+  const session = await getSession();
+  if (!session) return;
+  if (!(await hasCollectionConsent(session.user.id))) return;
+
   const states = await getTabStates();
-  const prevState = states[tabId];
+  const prevState = ownTabState(states[tabId], session.user.id);
   if (prevState?.lastUrl === url) return; // 같은 URL 중복 제거
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -251,6 +277,7 @@ async function commitSpaNavigation(tabId: number, url: string): Promise<void> {
     previousEventId: prevState?.openEventId ?? null,
     activeDurationMs: 0,
     contentExcerpt: null,
+    accountId: session.user.id,
   };
 
   try {
@@ -260,7 +287,7 @@ async function commitSpaNavigation(tabId: number, url: string): Promise<void> {
     return;
   }
 
-  await setTabState(tabId, { openEventId: eventId, lastUrl: url });
+  await setTabState(tabId, { openEventId: eventId, lastUrl: url, accountId: session.user.id });
 
   if (await isActiveTab(tabId, windowId)) {
     await openActiveSegment(tabId, windowId, eventId);
@@ -426,6 +453,22 @@ export async function handlePageContentReady(
   }
 }
 
+// ── 계정 전환 ───────────────────────────────────────────────────────
+
+/**
+ * 로그아웃·계정 교체 때 이전 계정의 열린 방문을 그 계정 것으로 마감하고 탭 상태를 비운다.
+ * 탭 상태를 남기면 다음 계정의 첫 방문이 이전 계정의 URL을 referrer_url로 달고 올라간다.
+ */
+export async function handleAccountChange(): Promise<void> {
+  await closeActiveSegment();
+  try {
+    await finalizeAllOpen();
+  } catch (err) {
+    console.error('[Orbit] 계정 전환 finalize 실패', err);
+  }
+  await chrome.storage.session.remove(TAB_STATE_KEY);
+}
+
 // ── 등록 ────────────────────────────────────────────────────────────
 
 /**
@@ -476,5 +519,10 @@ export function initCollector(): void {
 
   chrome.tabs.onRemoved.addListener((tabId) => {
     enqueueMutation('onRemoved', () => handleTabRemoved(tabId));
+  });
+
+  onSessionChange((session, previous) => {
+    if (session?.user.id === previous?.user.id) return;
+    enqueueMutation('계정 전환', handleAccountChange);
   });
 }

@@ -20,6 +20,8 @@ export function makeInput(overrides: Partial<NewEventInput> = {}): NewEventInput
     previousEventId: null,
     activeDurationMs: 0,
     contentExcerpt: null,
+    // signInTestUser 의 계정 — 로그인한 계정 것만 보이고 전송된다.
+    accountId: 'u1',
     ...overrides,
   };
 }

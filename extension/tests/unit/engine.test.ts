@@ -10,7 +10,7 @@ import {
   setPendingChangeListener,
 } from '../../lib/events/queue';
 import { requestDrain, RETRY_ALARM_NAME } from '../../lib/sync/engine';
-import { clearEvents, makeInput } from '../helpers';
+import { clearEvents, makeInput, signInTestUser } from '../helpers';
 
 vi.mock('../../lib/api', () => ({
   postEventBatch: vi.fn().mockResolvedValue({ accepted: 0, duplicates: 0, filtered: 0, pending_total: 0 }),
@@ -24,6 +24,8 @@ beforeEach(async () => {
   fakeBrowser.reset();
   setPendingChangeListener(null);
   await clearEvents();
+  // 큐 요약·전송은 로그인한 계정(makeInput 기본 'u1') 것만 다룬다.
+  await signInTestUser();
   mockPost.mockClear().mockResolvedValue({ accepted: 0, duplicates: 0, filtered: 0, pending_total: 0 });
   mockServerSync.mockClear().mockResolvedValue(undefined);
 });
@@ -58,7 +60,7 @@ describe('drain 성공 경로', () => {
 
     await waitUntil(async () => {
       expect(await listByStatus('synced')).toHaveLength(2);
-      expect(mockServerSync).toHaveBeenCalledWith('manual');
+      expect(mockServerSync).toHaveBeenCalledWith('manual', 'test-token');
     });
     expect(mockPost).toHaveBeenCalledTimes(1);
     const [, wireEvents] = mockPost.mock.calls[0];
@@ -82,7 +84,7 @@ describe('drain 성공 경로', () => {
     expect(mockPost).toHaveBeenCalledTimes(2);
     expect(mockPost.mock.calls[0][1]).toHaveLength(50);
     expect(mockPost.mock.calls[1][1]).toHaveLength(10);
-    expect(mockServerSync).toHaveBeenCalledWith('periodic');
+    expect(mockServerSync).toHaveBeenCalledWith('periodic', 'test-token');
   });
 
   it('트리거 사유를 서버 trigger 타입으로 매핑한다 (threshold→event_count)', async () => {
@@ -91,7 +93,7 @@ describe('drain 성공 경로', () => {
     requestDrain('threshold');
 
     await waitUntil(() => {
-      expect(mockServerSync).toHaveBeenCalledWith('event_count');
+      expect(mockServerSync).toHaveBeenCalledWith('event_count', 'test-token');
     });
   });
 
@@ -107,7 +109,7 @@ describe('drain 성공 경로', () => {
     requestDrain('manual');
 
     await waitUntil(() => {
-      expect(mockServerSync).toHaveBeenCalledWith('manual');
+      expect(mockServerSync).toHaveBeenCalledWith('manual', 'test-token');
     });
     expect(mockPost).not.toHaveBeenCalled();
   });

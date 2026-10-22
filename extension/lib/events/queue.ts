@@ -2,6 +2,7 @@
 // orbit:syncStatus 요약(사이드패널 구독용)을 관리한다.
 // 계약 근거: docs/target-architecture.md §2.1, §3
 
+import { getSession } from '../auth';
 import { getDB, EVENTS_STORE } from './db';
 import type { EventStatus, ExplorationEvent, NewEventInput } from './types';
 import { MAX_CONTENT_EXCERPT_LENGTH } from './types';
@@ -31,7 +32,8 @@ async function writeSyncStatusSummary(
   patch: Partial<Pick<SyncStatusSummary, 'lastSyncAt' | 'lastError'>> = {},
   additionalDropped = 0,
 ): Promise<void> {
-  const { todayCount, pendingCount } = await counts();
+  const accountId = (await getSession())?.user.id ?? null;
+  const { todayCount, pendingCount } = await counts(accountId);
   const stored = await chrome.storage.local.get(SYNC_STATUS_KEY);
   const prev = (stored[SYNC_STATUS_KEY] as Partial<SyncStatusSummary> | undefined) ?? {};
   const next: SyncStatusSummary = {
@@ -65,14 +67,19 @@ export async function getSyncStatus(): Promise<SyncStatusSummary> {
   };
 }
 
-export async function counts(): Promise<{ todayCount: number; pendingCount: number }> {
+/** 현재 계정의 오늘 방문 수와 미전송 수. 로그아웃 상태(null)면 0이다. */
+export async function counts(
+  accountId: string | null,
+): Promise<{ todayCount: number; pendingCount: number }> {
+  if (!accountId) return { todayCount: 0, pendingCount: 0 };
   const db = await getDB();
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
-  const range = IDBKeyRange.lowerBound(startOfToday.toISOString());
+  // ISO 문자열 비교라서 '\uffff'가 그 계정의 모든 시각보다 뒤다.
+  const range = IDBKeyRange.bound([accountId, startOfToday.toISOString()], [accountId, '\uffff']);
   const [todayCount, pendingCount] = await Promise.all([
-    db.countFromIndex(EVENTS_STORE, 'by-visitedAt', range),
-    db.countFromIndex(EVENTS_STORE, 'by-status', 'pending'),
+    db.countFromIndex(EVENTS_STORE, 'by-account-visitedAt', range),
+    db.countFromIndex(EVENTS_STORE, 'by-account-status', [accountId, 'pending']),
   ]);
   return { todayCount, pendingCount };
 }
@@ -168,18 +175,26 @@ export async function finalizeAllOpen(): Promise<void> {
   await writeSyncStatusSummary();
 }
 
-export async function listByStatus(status: EventStatus): Promise<ExplorationEvent[]> {
+/** accountId를 주면 그 계정 것만, 생략하면 모든 계정 것(SW 정리 작업용)을 돌려준다. */
+export async function listByStatus(
+  status: EventStatus,
+  accountId?: string,
+): Promise<ExplorationEvent[]> {
   const db = await getDB();
-  return db.getAllFromIndex(EVENTS_STORE, 'by-status', status);
+  if (accountId === undefined) return db.getAllFromIndex(EVENTS_STORE, 'by-status', status);
+  return db.getAllFromIndex(EVENTS_STORE, 'by-account-status', [accountId, status]);
 }
 
-/** pending → syncing 전환 + nextAttemptAt이 지난 것만 최대 limit개 claim한다(오래된 순). */
-export async function claimPending(limit: number): Promise<ExplorationEvent[]> {
+/**
+ * 그 계정의 pending → syncing 전환 + nextAttemptAt이 지난 것만 최대 limit개 claim한다(오래된 순).
+ * 다른 계정의 이벤트는 건드리지 않는다 — 지금 로그인한 계정의 토큰으로 보내면 남의 계정에 올라간다.
+ */
+export async function claimPending(limit: number, accountId: string): Promise<ExplorationEvent[]> {
   const db = await getDB();
   const now = Date.now();
   const tx = db.transaction(EVENTS_STORE, 'readwrite');
-  const index = tx.store.index('by-status');
-  const candidates = await index.getAll('pending');
+  const index = tx.store.index('by-account-status');
+  const candidates = await index.getAll([accountId, 'pending']);
   const eligible = candidates
     .filter((e) => !e.nextAttemptAt || new Date(e.nextAttemptAt).getTime() <= now)
     .sort((a, b) => a.visitedAt.localeCompare(b.visitedAt))
@@ -272,6 +287,30 @@ export async function resetStaleSyncing(olderThanMs: number): Promise<number> {
   await tx.done;
   if (resetCount) await writeSyncStatusSummary();
   return resetCount;
+}
+
+/**
+ * 지금 로그인한 계정이 아닌 계정의 이벤트 중 `maxAgeMs`보다 오래된 것을 지운다(보존 상한, CTO 결정
+ * 2026-10-22: 7일). 그 계정이 돌아오지 않는 공용 PC에서 본문 발췌가 디스크에 무기한 남지 않게 한다.
+ * 로그아웃 상태(null)면 모든 계정이 대상이다. 지운 미전송 이벤트 수를 돌려준다.
+ */
+export async function pruneOtherAccounts(
+  currentAccountId: string | null,
+  maxAgeMs: number,
+): Promise<number> {
+  const db = await getDB();
+  const cutoff = Date.now() - maxAgeMs;
+  const tx = db.transaction(EVENTS_STORE, 'readwrite');
+  let deleted = 0;
+  for (const event of await tx.store.getAll()) {
+    if (event.accountId === currentAccountId) continue;
+    if (new Date(event.createdAt).getTime() > cutoff) continue;
+    await tx.store.delete(event.eventId);
+    if (event.status !== 'synced') deleted += 1;
+  }
+  await tx.done;
+  if (deleted) await writeSyncStatusSummary();
+  return deleted;
 }
 
 /** synced 이벤트 중 48시간 지난 것을 삭제한다. */

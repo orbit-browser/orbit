@@ -33,6 +33,12 @@ export async function forgetTeam(client: QueryClient, workspaceId: string) {
   client.removeQueries({ predicate: (query) => query.queryKey.includes(workspaceId) });
 }
 
+/** 안내 문구용 팀 이름. 이름이 이미 "팀"으로 끝나면 "Orbit 팀 팀에"처럼 겹치지 않게 그대로 둔다. */
+export function teamLabel(name: string): string {
+  const trimmed = name.trim();
+  return trimmed.endsWith('팀') ? trimmed : `${trimmed} 팀`;
+}
+
 const accessLostListeners = new Set<(teamName: string) => void>();
 
 /** 보던 팀에 접근할 수 없게 돼 개인 범위로 돌아왔을 때 화면이 안내를 띄우도록 알린다. */

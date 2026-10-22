@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { apiBaseUrl } from '../../../../lib/api';
-import type { OrbitSettings, OrbitTheme } from '../../../../lib/settings';
+import { AI_DISCLOSURE_FORMAL, type OrbitSettings, type OrbitTheme } from '../../../../lib/settings';
 import type { ServerSettings, Workspace } from '../../../../lib/types';
 import { useAuth } from '../../../../lib/useAuth';
 import { useActiveWorkspace } from '../../../../lib/useWorkspaces';
@@ -583,7 +583,7 @@ function CollectionPage({ settings, patch }: PageProps) {
       />
 
       <Section title="탐색 기록">
-        <Row label="탐색 기록 수집" description="방문한 페이지와 탐색 흐름을 기록합니다.">
+        <Row label="탐색 기록 수집" description={`방문한 페이지와 탐색 흐름을 기록합니다. 계정마다 따로 켭니다. ${AI_DISCLOSURE_FORMAL}`}>
           <Switch
             label="탐색 기록 수집"
             checked={settings.collectionEnabled}
@@ -732,7 +732,8 @@ function PrivacyPage({ settings, onNavigate }: PageProps) {
       <div className="settings-callout">
         <p>
           Orbit은 사용자의 브라우저 데이터를 다룹니다. 탐색 기록 수집은 기본적으로 꺼져 있고,
-          켠 뒤에도 민감한 페이지는 본문 없이 방문(제목·주소)만 남습니다. 수집한 내용은 사용자의 계정에만 연결됩니다.
+          켠 뒤에도 민감한 페이지는 본문 없이 방문(제목·주소)만 남습니다. 수집한 내용은 사용자의 계정에만 연결되고,
+          수집 동의도 계정마다 따로 받습니다. {AI_DISCLOSURE_FORMAL}
         </p>
       </div>
 

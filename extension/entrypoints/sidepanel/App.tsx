@@ -13,7 +13,7 @@ import { AskView } from './views/AskView';
 import { SessionDetailView } from './views/SessionDetailView';
 import { SettingsView } from './views/SettingsView';
 import { useOnboarding } from '../../lib/useOnboarding';
-import { onTeamAccessLost, useActiveWorkspace } from '../../lib/useWorkspaces';
+import { onTeamAccessLost, teamLabel, useActiveWorkspace } from '../../lib/useWorkspaces';
 
 function CurrentView() {
   const view = useUIStore((s) => s.activeView);
@@ -45,7 +45,7 @@ function SignedInPanel() {
   }, [scopeId, activeView, setView]);
 
   useEffect(
-    () => onTeamAccessLost((name) => showToast(`${name} 팀에 더 이상 접근할 수 없어요. 내 Orbit으로 돌아왔어요.`)),
+    () => onTeamAccessLost((name) => showToast(`${teamLabel(name)}에 더 이상 접근할 수 없어요. 내 Orbit으로 돌아왔어요.`)),
     [showToast],
   );
 

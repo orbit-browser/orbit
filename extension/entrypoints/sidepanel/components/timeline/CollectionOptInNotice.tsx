@@ -1,4 +1,5 @@
 import { Sparkles } from 'lucide-react';
+import { AI_DISCLOSURE } from '../../../../lib/settings';
 import { useSettingsStore } from '../../store/settings';
 import { useUIStore } from '../../store/ui';
 
@@ -7,7 +8,9 @@ import { useUIStore } from '../../store/ui';
  *
  * 상시 카드가 아니라 조건부 화면이다 — 수집이 켜져 있으면 아무것도 그리지 않으므로
  * 평소에는 목록의 세로 공간을 전혀 쓰지 않는다.
- * `compact` 는 기록이 이미 남아 있을 때 목록 위에 얹는 한 줄 형태.
+ * `compact` 는 기록이 이미 남아 있을 때 목록 위에 얹는 짧은 형태.
+ * 수집 동의는 계정별이라 다른 계정이 로그인하면 이 안내가 다시 나온다. 동의하는 자리이므로
+ * 짧은 형태에도 외부 AI 전송 범위(AI_DISCLOSURE)를 빼지 않는다.
  */
 export function CollectionOptInNotice({
   compact = false,
@@ -29,9 +32,10 @@ export function CollectionOptInNotice({
     return (
       <div className="flex items-center gap-2 rounded-lg border border-orbit-primary/30 bg-orbit-primary-soft px-3 py-2">
         <Sparkles size={13} className="shrink-0 text-orbit-primary" />
-        <span className="min-w-0 flex-1 truncate text-[11px] text-orbit-text">
-          수집이 꺼져 있어 새 기록이 쌓이지 않아요
-        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[11px] text-orbit-text">수집이 꺼져 있어 새 기록이 쌓이지 않아요</p>
+          <p className="mt-0.5 text-[10px] leading-snug text-orbit-muted">{AI_DISCLOSURE}</p>
+        </div>
         <button
           type="button"
           onClick={enable}
@@ -51,6 +55,7 @@ export function CollectionOptInNotice({
         방문한 페이지를 시간순으로 기록해 나중에 다시 찾을 수 있게 해줘요. 은행·로그인 등 민감한
         페이지는 본문을 저장하지 않고 방문(제목·주소)만 남겨요.
       </p>
+      <p className="text-xs leading-relaxed text-orbit-muted">{AI_DISCLOSURE}</p>
       <button
         type="button"
         onClick={enable}

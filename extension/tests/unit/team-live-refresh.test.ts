@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fetchWorkspaceSessions } from '../../lib/api';
 import { queryClient, trackWindowFocus } from '../../lib/query-client';
 import { getSettings, subscribeSettings, updateSettings } from '../../lib/settings';
-import { confirmTeamAccess, onTeamAccessLost, workspacesQueryOptions } from '../../lib/useWorkspaces';
+import { confirmTeamAccess, onTeamAccessLost, teamLabel, workspacesQueryOptions } from '../../lib/useWorkspaces';
 import { getAskConversationSnapshot, useAskConversation } from '../../entrypoints/shared/hooks/useAskConversation';
 import { toSessionNode } from '../../entrypoints/newtab/components/atlas/data';
 import { RecentExploration } from '../../entrypoints/newtab/components/sections/RecentExploration';
@@ -190,4 +190,11 @@ it('shows who shared a team session on home cards', () => {
 
   expect(recent).toContain('민지 님이 공유');
   expect(card).toContain('민지 님이 공유');
+});
+
+it('팀 이름이 "팀"으로 끝나면 안내에 "팀"을 한 번만 붙인다', () => {
+  expect(teamLabel('Orbit 팀')).toBe('Orbit 팀');
+  expect(teamLabel('디자인팀')).toBe('디자인팀');
+  expect(teamLabel('Orbit')).toBe('Orbit 팀');
+  expect(teamLabel(' 연구 ')).toBe('연구 팀');
 });

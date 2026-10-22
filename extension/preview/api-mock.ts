@@ -148,6 +148,18 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
   };
 
   if (path === '/health') return json({ status: 'ok' });
+  // 로그아웃 뒤 다른 계정 로그인을 흉내 낸다. localStorage 'orbit-preview:login-as'에 사용자 id를 두면 그 계정으로 들어간다.
+  if (path === '/auth/google' && method === 'POST') {
+    const userId = localStorage.getItem('orbit-preview:login-as') ?? db.me;
+    const user = db.users.find((candidate) => candidate.user_id === userId) ?? db.users[0];
+    return json({
+      access_token: `preview-token-${user.user_id}`,
+      expires_at: '2099-01-01T00:00:00Z',
+      user: { id: user.user_id, email: user.email, name: user.name, picture: user.picture },
+      is_new_user: false,
+      claimed_legacy_rows: 0,
+    });
+  }
   if (path === '/settings') return json({ auto_merge_enabled: false });
   if (path === '/sync' || (path === '/events' && method === 'POST')) return json({ accepted: 0, duplicates: 0 });
   if (path === '/assistant/route') return json({ intent: 'search_memory', confidence: null, margin: null, reason: 'fallback' });

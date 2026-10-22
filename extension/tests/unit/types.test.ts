@@ -17,6 +17,7 @@ function makeEvent(overrides: Partial<ExplorationEvent> = {}): ExplorationEvent 
     activeDurationMs: 1234,
     contentExcerpt: '본문',
     createdAt: '2026-08-05T00:00:00.000Z',
+    accountId: 'u1',
     status: 'pending',
     failureCount: 0,
     nextAttemptAt: null,
