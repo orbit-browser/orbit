@@ -57,7 +57,7 @@
 - `filtered`: 시스템 URL/3초 미만 리다이렉트 등 인제스트 필터가 거부한 개수(§ target-architecture.md §6).
 - `duplicates`: `id` 충돌로 `ON CONFLICT DO NOTHING` 처리된 개수(멱등 재전송 확인용).
 - `normalized_url`/`domain`/`search_query`는 서버가 인제스트 시점에 계산하며 요청에는 포함하지 않는다.
-- 길이 초과는 422로 거르지 않고 잘라서 받는다. 확장은 실패한 배치를 통째로 재시도하므로, 이벤트 하나 때문에 큐 전체가 막히지 않게 하려는 것이다. 상한은 `content_excerpt` 16,000자(확장 `MAX_CONTENT_EXCERPT_LENGTH`와 같음), `title` 500자, `url`·`referrer_url` 32,768자, `event_type`·`source` 20자, `device_id` 64자, `previous_event_id` 36자다(뒤의 넷은 DB 열 너비).
+- 길이 초과는 422로 거르지 않고 잘라서 받는다. 확장은 실패한 배치를 통째로 재시도하므로, 이벤트 하나 때문에 큐 전체가 막히지 않게 하려는 것이다. 상한은 `content_excerpt` 16,000자(확장 `MAX_CONTENT_EXCERPT_LENGTH`와 같음), `title` 500자, `url`·`referrer_url` 32,768자, `event_type`·`source` 20자, `device_id` 64자, `previous_event_id` 36자다(뒤의 넷은 DB 열 너비). 팀 표시 `workspace_id`·`collect_window_id`가 36자를 넘으면 표시만 버리고 이벤트는 개인 기록으로 받는다.
 
 ## 2. `GET /events/pending-count`
 
@@ -455,6 +455,7 @@ LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 �
 | 정책 | 내용 |
 |---|---|
 | `SessionDetail`은 superset | `docs/data-model-v2.md` §4의 신규 컬럼(`origin`, `status`, `event_count`, `keywords` 등)은 `SessionDetail`에 **선택적(optional) 필드**로만 추가한다. 기존 필드는 이름·타입·의미를 바꾸지 않는다 — Extension은 새 필드를 무시하면 그대로 동작한다. |
+| 수동 저장의 민감 본문 | `POST /sessions`, `POST /sessions/cluster`는 민감 URL(`is_sensitive_url`, 자동 수집 인제스트와 같은 규칙) 탭의 `text_content`를 비우고 `excerpt`를 null로 바꿔 저장한다. 클러스터링·요약 입력도 이 결과만 쓰고, 프롬프트의 URL은 `ai_safe_url`을 거친다. URL·제목은 복원에 필요해 남긴다. |
 | `POST /sessions/cluster` 존치 | "지금 열린 탭 스냅샷 저장" 기능으로 그대로 유지한다(`CurrentSessionCard` 경로, `origin='snapshot'`으로 저장). Auto Session이 새 기본 경로가 되어도 이 엔드포인트를 제거하거나 시맨틱을 바꾸지 않는다. |
 | `retry-summary`는 origin 분기 | `POST /sessions/{id}/retry-summary`는 세션의 `origin`에 따라 다른 함수를 호출한다: `origin='snapshot'`이면 기존 `_ai_update`(탭 목록 기반 재요약) 그대로 사용, `origin='events'`이면 신규 `refresh_session_ai`(연결된 `session_events`를 다시 모아 재요약)를 호출한다. 응답 스키마(`SessionDetail`)는 동일하다. |
 | `GET /search` 기본값 유지 | `scope` 파라미터 생략 시 `scope=sessions`로 취급 — 기존 응답 형식(`list[SessionDetail]`)이 그대로 반환된다. |

@@ -38,7 +38,7 @@ _MERGE_ERROR_STATUS = {"not_found": 404, "invalid": 400, "conflict": 409}
 from ..services.embedding_sync import build_embedding_text as _build_embedding_text
 from ..services.embedding_sync import embed_and_upsert as _embed_and_upsert
 from ..services.session_updater import record_version, refresh_session_ai
-from ..services.event_filter import teammate_url
+from ..services.event_filter import is_sensitive_url, teammate_url
 from ..services.workspaces import is_shared_with, shared_workspaces
 from ..services.summarizer import generate_summary, rule_based_title
 
@@ -160,6 +160,17 @@ async def _readable_session(db: AsyncSession, session_id: str, user_id: str) -> 
     raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
 
 
+def _without_sensitive_text(tabs: list[TabItemRequest]) -> list[TabItemRequest]:
+    """민감 URL 탭의 본문을 비운다 — 자동 수집 인제스트(api/events.py)와 같은 is_sensitive_url 규칙.
+
+    URL·제목은 복원에 필요해 남긴다. 저장과 AI 입력(클러스터링·요약) 모두 이 결과만 쓴다.
+    """
+    return [
+        tab.model_copy(update={"text_content": "", "excerpt": None}) if is_sensitive_url(tab.url) else tab
+        for tab in tabs
+    ]
+
+
 @router.post("", response_model=SessionDetail, status_code=201)
 async def create_session(
     body: SaveSessionRequest,
@@ -167,18 +178,19 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> SessionDetail:
+    tabs = _without_sensitive_text(body.tabs)
     # 규칙 기반 타이틀/요약으로 즉시 저장 → 클라이언트에 빠르게 응답
-    title = rule_based_title(body.tabs)
+    title = rule_based_title(tabs)
     summary = SessionSummary(
-        overview=f"{len(body.tabs)}개 탭 세션",
-        highlights=[t.title for t in body.tabs[:3]],
+        overview=f"{len(tabs)}개 탭 세션",
+        highlights=[t.title for t in tabs[:3]],
     )
 
     session = SessionModel(
         title=title,
-        tabs=[t.model_dump() for t in body.tabs],
+        tabs=[t.model_dump() for t in tabs],
         summary=summary.model_dump(),
-        tab_count=len(body.tabs),
+        tab_count=len(tabs),
         user_id=user_id,
     )
     db.add(session)
@@ -186,7 +198,7 @@ async def create_session(
     await db.refresh(session)
 
     # AI 요약 + Qdrant는 응답 후 백그라운드에서 처리
-    background_tasks.add_task(_ai_update, session.id, [t.model_dump() for t in body.tabs])
+    background_tasks.add_task(_ai_update, session.id, [t.model_dump() for t in tabs])
 
     return _to_detail(session)
 
@@ -199,7 +211,7 @@ async def create_sessions_clustered(
     user_id: str = Depends(current_user_id),
 ) -> list[SessionDetail]:
     """탭을 주제별로 클러스터링 후 세션 N개 생성. 클러스터링 실패 시 단일 세션 fallback."""
-    groups = await cluster_tabs(body.tabs)
+    groups = await cluster_tabs(_without_sensitive_text(body.tabs))
 
     session_groups: list[tuple[SessionModel, list[TabItemRequest]]] = []
     for group in groups:

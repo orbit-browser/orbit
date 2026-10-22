@@ -11,11 +11,12 @@ DEFAULT_CORS_ORIGIN = "chrome-extension://aghgamoeifieijjckhpfkmhiibacnhml"
 
 
 def parse_cors_origins(raw: str) -> list[str]:
-    """쉼표 목록을 출처 목록으로. 비었거나 `*`만 있으면 확장 출처 하나로 돌아간다.
+    """쉼표 목록을 출처 목록으로. 비었거나 `*`·`null`만 있으면 확장 출처 하나로 돌아간다.
 
     운영 env에서 값을 실수로 비우거나 `*`를 넣어도 모든 웹페이지에 열리지 않게 한다.
+    `null`은 파일·샌드박스 iframe 이 보내는 출처라 누구나 만들 수 있으므로 허용하지 않는다.
     """
-    origins = [o.strip() for o in raw.split(",") if o.strip() and o.strip() != "*"]
+    origins = [o.strip() for o in raw.split(",") if o.strip() and o.strip().lower() not in ("*", "null")]
     return origins or [DEFAULT_CORS_ORIGIN]
 
 

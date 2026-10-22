@@ -4560,3 +4560,19 @@ CTO가 diff를 읽고 시험을 직접 돌린 뒤 `feat/team-workspace`에 합�
   - 팀 범위 폴더 배선 시험을 보강했다.
   - 확장 333, compile·build 통과. 빌드한 manifest에서 설정을 확인했다.
   - 남은 것: 실제 Chrome 확인, fail-open 대조 시험, 사이드패널·동의 화면 문구, 이전 큐에 남은 시크릿 방문(표시가 없어 가려낼 수 없음).
+
+## 2026-10-23 — 공용 서버 묶음, CORS 설정화, 노트북 서버 운영
+
+- 배포 묶음(`deploy/`, `backend/Dockerfile`, `requirements.lock`, `docs/deploy.md`): 운영 compose(postgres·qdrant·backend·caddy), 비루트·읽기 전용 백엔드, edge/data 망 분리, 접근 로그 없음(검색어·현재 탭 URL이 쿼리로 와서), 본문 5MB 상한, 백업·복구(`pre-restore-*` 안전 백업, age 암호화 사본). 보안 검토 3차로 통합 가능 판정.
+- 리허설(격리 `orbit-rehearsal`, 127.0.0.1:8075): read_only 상태로 기동 → `/health` 200 → 백업 → 삭제 → 복구 → 50행·20개 복원. 메모리는 벡터 1만 개에서 약 630~730MiB라 2GB 서버에 스왑 2GB를 권고.
+  - 결함: 복구 스크립트가 파이프 stdin을 multipart로 올리다 `Too much data for declared Content-Length`. 임시 파일로 받아 올리도록 고침.
+  - 결함: 운영 compose 기본 프로젝트 이름이 `orbit`이면 저장소 루트 개발 compose 볼륨(`orbit_pgdata`)과 겹침. 기본값을 `orbit-prod`로 바꿈.
+- CORS(`fix/cors-config`): `CORS_ALLOW_ORIGINS`(기본 고정 확장 ID). 비었거나 `*`·`null`만 있으면 확장으로 돌아간다. 수정 전 main에서 `https://evil.example` preflight의 ACAO는 `*`였다. `/auth/google` 401 문구에서 설정 이름 제거. 이벤트 필드는 422 대신 잘라서 받는다(확장이 실패 배치를 통째로 재시도해 큐가 막히므로).
+- 후속(`fix/server-followups`):
+  - `null` 출처 거부.
+  - 36자를 넘는 팀 표시는 버리고 이벤트는 받음.
+  - 수동 저장(`POST /sessions`, `/sessions/cluster`)에서 민감 URL 탭의 본문을 서버가 비우고, 저장과 AI 입력 모두 그 결과만 씀. 변이 시험: 비우기를 끄면 2건 모두 실패, 클러스터 경로만 빼면 1건 실패.
+- 노트북 서버(대표 결정 10-23):
+  - 주소 `http://127.0.0.1:8076`, 프로젝트 `orbit-laptop`, 볼륨 `orbit-laptop_*`. 개발 DB·8000과 분리돼 있고 FileVault가 켜져 있다.
+  - 운영 위치는 메인 체크아웃 `orbit/deploy/`(`.env.laptop` 600). 처음에 띄운 worktree에서 옮겼고 볼륨은 그대로다.
+  - 백업 위치 `~/OrbitLaptopBackups`. 확장 빌드는 `~/OrbitLaptopExtension/chrome-mv3`이고, 대표가 크롬 프로필마다 올리고 OAuth 테스트 사용자를 등록한다.

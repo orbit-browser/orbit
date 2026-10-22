@@ -333,7 +333,9 @@ Docker 로그는 기본 json-file 드라이버라 무한히 쌓인다. `/etc/doc
 
 ## 12. 노트북 모드 (클라우드 서버가 오기 전, 대표 결정 10-23)
 
-클라우드 서버가 오기 전까지 대표 노트북의 Docker로 같은 묶음을 띄우고, 여러 구글 계정이 이 서버 하나를 함께 쓴다. **CTO가 "GitHub main 통합본이 로컬 main에 들어갔다"고 알린 뒤, 그 코드로 올린다.** 그 전에는 띄우지 않는다.
+클라우드 서버가 오기 전까지 대표 노트북의 Docker로 같은 묶음을 띄우고, 여러 구글 계정이 이 서버 하나를 함께 쓴다.
+
+**운영 위치(2026-10-23부터):** 메인 체크아웃 `orbit/deploy/`에서 `.env.laptop`(권한 600, git 무시)으로 돈다. 다른 worktree에서 같은 프로젝트 이름으로 올리지 않는다. 같은 볼륨을 두 compose 디렉터리가 번갈아 쓰게 된다. 코드를 바꾼 뒤 다시 올릴 때도 메인 체크아웃에서 `olap up -d --build`를 한다(볼륨 `orbit-laptop_*`는 그대로 쓴다).
 
 대표의 개발 환경과 섞이지 않게 모두 분리했다.
 
@@ -348,7 +350,7 @@ Docker 로그는 기본 json-file 드라이버라 무한히 쌓인다. `/etc/doc
 피하는 포트: 8000·5200·5201·5203. 노트북 모드는 8076(HTTP)과 8476(쓰이지 않는 HTTPS 자리)만 쓴다.
 
 ```bash
-cd <통합본 체크아웃>/deploy
+cd <Orbit>/orbit/deploy      # 메인 체크아웃
 cp .env.laptop.example .env.laptop && chmod 600 .env.laptop    # 비밀값 채우기(3장과 같은 규칙, 개발 .env 와 다른 JWT_SECRET)
 lsof -iTCP:8076 -iTCP:8476 -sTCP:LISTEN                        # 비어 있어야 한다
 alias olap='docker compose -f docker-compose.prod.yml --env-file .env.laptop'

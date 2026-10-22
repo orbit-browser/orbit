@@ -61,3 +61,9 @@ def test_parse_empty_value_falls_back_to_extension_not_wildcard():
 def test_parse_refuses_wildcard():
     assert parse_cors_origins("*") == [_EXTENSION]
     assert parse_cors_origins("*, http://localhost:5173") == ["http://localhost:5173"]
+
+
+def test_parse_refuses_null_origin():
+    # 파일·샌드박스 iframe 의 Origin: null 을 실수로 열지 않는다.
+    assert parse_cors_origins("null") == [_EXTENSION]
+    assert parse_cors_origins(" NULL , http://localhost:5173") == ["http://localhost:5173"]

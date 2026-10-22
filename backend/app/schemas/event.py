@@ -43,8 +43,14 @@ class ExplorationEventIn(BaseModel):
     device_id: str | None = None
     # 팀 수집 표시(docs/team-collect-mode.md §2.2·§5). 클라이언트의 요청일 뿐이며 서버가 창·기기·멤버십·시각·
     # 민감/제외 판정을 통과할 때만 저장한다. 둘 다 있어야 판정한다. window_id(브라우저 창 번호)와 다른 값이다.
-    workspace_id: str | None = Field(default=None, max_length=36)
-    collect_window_id: str | None = Field(default=None, max_length=36)
+    # 36자(UUID)를 넘으면 422로 배치를 거르지 않고 표시만 버린다 — 이벤트는 개인 기록으로 받는다.
+    workspace_id: str | None = None
+    collect_window_id: str | None = None
+
+    @field_validator("workspace_id", "collect_window_id")
+    @classmethod
+    def _drop_oversized_team_mark(cls, value: str | None) -> str | None:
+        return None if isinstance(value, str) and len(value) > 36 else value
 
     @field_validator(*_FIELD_WIDTHS)
     @classmethod

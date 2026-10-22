@@ -120,3 +120,17 @@ def test_normal_values_are_untouched():
     assert event.url == "https://example.com/path"
     assert event.device_id == "dev-1"
     assert event.previous_event_id == VALID_UUID
+
+
+def test_oversized_team_marks_are_dropped_but_event_is_kept():
+    # 팀 표시는 서버가 어차피 판정해 버린다. 422로 배치를 거르면 이벤트 하나가 큐 전체를 막는다.
+    event = ExplorationEventIn(**_event(workspace_id="w" * 37, collect_window_id="c" * 37))
+    assert event.workspace_id is None
+    assert event.collect_window_id is None
+    assert event.url == "https://example.com/path"
+
+
+def test_team_marks_within_width_are_kept():
+    event = ExplorationEventIn(**_event(workspace_id="w" * 36, collect_window_id=VALID_UUID))
+    assert event.workspace_id == "w" * 36
+    assert event.collect_window_id == VALID_UUID
