@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { UseQueryResult } from '@tanstack/react-query';
+import { useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { apiBaseUrl } from '../../../../lib/api';
 import { AI_DISCLOSURE_FORMAL, type OrbitSettings, type OrbitTheme } from '../../../../lib/settings';
@@ -9,6 +9,8 @@ import { useActiveWorkspace } from '../../../../lib/useWorkspaces';
 import { useWorkspaceMembers, useWorkspaceMutations } from '../../../sidepanel/hooks/useWorkspaces';
 import type { SettingsPageId } from './settings-nav';
 import { TeamCollectSettings } from '../team/TeamCollectSettings';
+import { clearSnapshots } from '../../../../lib/tab-snapshots';
+import { TAB_SNAPSHOTS_QUERY_KEY } from '../../../../lib/useTabSnapshots';
 
 /*
  * 설정 페이지의 공용 부품.
@@ -739,7 +741,48 @@ function AiPage({ settings, patch }: PageProps) {
   );
 }
 
-function PrivacyPage({ settings, onNavigate }: PageProps) {
+type ClearState = { kind: 'idle' } | { kind: 'clearing' } | { kind: 'done'; count: number } | { kind: 'error' };
+
+/** 이 기기에 저장된 지금 계정의 탭 화면 미리보기를 지운다. 결과(지운 수·실패)를 옆에 보여 준다. */
+function ClearSnapshotsButton() {
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
+  const [state, setState] = useState<ClearState>({ kind: 'idle' });
+  const clear = async () => {
+    if (!session) return;
+    setState({ kind: 'clearing' });
+    try {
+      const count = await clearSnapshots(session.user.id);
+      queryClient.removeQueries({ queryKey: TAB_SNAPSHOTS_QUERY_KEY });
+      setState({ kind: 'done', count });
+    } catch {
+      setState({ kind: 'error' });
+    }
+  };
+  return (
+    <span className="settings-name">
+      <button
+        type="button"
+        className="settings-button"
+        disabled={!session || state.kind === 'clearing'}
+        onClick={() => void clear()}
+      >
+        {state.kind === 'clearing' ? '지우는 중…' : '지우기'}
+      </button>
+      <span className="settings-saved" role="status" data-state={state.kind === 'done' ? 'saved' : 'idle'}>
+        {state.kind === 'done'
+          ? state.count > 0
+            ? `${state.count}개 지움`
+            : '지울 것 없음'
+          : state.kind === 'error'
+            ? '지우지 못했어요'
+            : ''}
+      </span>
+    </span>
+  );
+}
+
+function PrivacyPage({ settings, patch, onNavigate }: PageProps) {
   return (
     <>
       <PageHeader
@@ -770,6 +813,22 @@ function PrivacyPage({ settings, onNavigate }: PageProps) {
           <Status state={settings.contentCapture ? 'on' : 'off'}>
             {settings.contentCapture ? '켜짐' : '꺼짐'}
           </Status>
+        </Row>
+      </Section>
+
+      <Section title="탭 화면 미리보기">
+        <Row
+          label="탭 화면 미리보기 저장"
+          description="페이지 카드에 쓸 화면을 찍어 둡니다. 기기 안에만 저장돼요. 민감한 사이트·로그인·결제 화면과 시크릿 창은 찍지 않습니다."
+        >
+          <Switch
+            label="탭 화면 미리보기 저장"
+            checked={settings.tabSnapshotsEnabled}
+            onChange={(tabSnapshotsEnabled) => patch({ tabSnapshotsEnabled })}
+          />
+        </Row>
+        <Row label="저장된 미리보기 지우기" description="지금 계정이 이 기기에 저장한 화면을 모두 지웁니다.">
+          <ClearSnapshotsButton />
         </Row>
       </Section>
 

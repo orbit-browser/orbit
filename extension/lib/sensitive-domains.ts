@@ -111,6 +111,29 @@ function underPath(path: string, prefix: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 
+function isLoginHostOrPath(host: string, path: string): boolean {
+  if (LOGIN_HOST_PREFIXES.some((prefix) => host.startsWith(prefix))) return true;
+  return Object.entries(LOGIN_PATHS).some(
+    ([domain, paths]) => hostMatches(host, domain) && paths.some((p) => underPath(path, p)),
+  );
+}
+
+/**
+ * 로그인·결제 화면으로 보이는 주소(민감 경로 `/login`·`/checkout` 등 + 팀 수집의 로그인 호스트·경로).
+ * 탭 화면 미리보기가 쓴다. 판정할 수 없는 주소도 막는다(실패 시 닫힘).
+ */
+export function isLoginOrPaymentUrl(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return true;
+  }
+  const host = decodedForCheck(url.hostname).replace(/\.+$/, '').toLowerCase();
+  const path = decodedForCheck(url.pathname);
+  return SENSITIVE_PATH_PATTERNS.some((re) => re.test(path)) || isLoginHostOrPath(host, path);
+}
+
 /** 서버 `_search_param` 과 같은 검색엔진 결과 페이지(경로는 디코딩 전 값으로 본다). */
 function isSearchResultPage(host: string, rawPath: string): boolean {
   if (/(^|\.)google\./i.test(host) && rawPath === '/search') return true;
@@ -131,10 +154,7 @@ export function isTeamBlockedUrl(rawUrl: string, excludedDomains: readonly strin
   if (!host) return true;
   const path = decodedForCheck(url.pathname);
   if (isSensitiveUrl(rawUrl)) return true;
-  if (LOGIN_HOST_PREFIXES.some((prefix) => host.startsWith(prefix))) return true;
-  for (const [domain, paths] of Object.entries(LOGIN_PATHS)) {
-    if (hostMatches(host, domain) && paths.some((p) => underPath(path, p))) return true;
-  }
+  if (isLoginHostOrPath(host, path)) return true;
   if (TEAM_EXCLUDED_HOSTS.some((domain) => hostMatches(host, domain))) return true;
   for (const [domain, prefix] of Object.entries(TEAM_EXCLUDED_PATHS)) {
     if (hostMatches(host, domain) && underPath(path, prefix)) return true;

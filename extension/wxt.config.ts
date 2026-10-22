@@ -79,7 +79,10 @@ export default defineConfig({
       scopes: ['openid', 'email', 'profile'],
     },
     // TODO: 배포 URL 확정 시 프로덕션 백엔드 도메인 추가
-    host_permissions: ['http://localhost/*', 'http://127.0.0.1/*'],
+    // <all_urls> — 탭 화면 미리보기(tabs.captureVisibleTab)는 activeTab(사용자가 아이콘을 누른 순간만)이나
+    // <all_urls> 로만 찍을 수 있다. 페이지가 뜰 때 저절로 찍으려면 <all_urls> 뿐이다. content script 가 이미
+    // <all_urls> 에 돌아 설치 경고("모든 웹사이트의 데이터 읽기·변경")는 그대로다. 사진은 기기에만 둔다.
+    host_permissions: ['http://localhost/*', 'http://127.0.0.1/*', '<all_urls>'],
     commands: {
       _execute_action: {
         suggested_key: { default: 'Alt+Shift+O' },

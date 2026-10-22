@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { OrbitPoint } from './data';
 import { alignOffset, normalizeRotation, ringDelta } from './data';
+import { snapshotKey } from '../../../../lib/tab-snapshots';
 import { pageShot } from './page-shots';
 
 /**
@@ -13,7 +14,7 @@ import { pageShot } from './page-shots';
  * 궤도처럼 끝없이 돈다 — 페이지마다 카드는 한 장뿐이고(같은 페이지를 이어 붙이지 않는다), 마지막
  * 다음에는 첫 페이지가 같은 방향으로 이어 온다. 고리의 반대편(이음매)을 지나는 카드는 그 자리에서
  * 옅어졌다 다른 쪽에서 나타난다. 페이지가 둘 이하면 고리를 만들 수 없어 끝이 있는 띠다.
- * 사진 대신 페이지 화면을 쓰고, 화면이 없는 페이지는 원본의 빈 사진처럼 회색 칸이다.
+ * 사진 대신 이 기기에서 찍은 페이지 화면을 쓰고, 화면이 없는 페이지는 원본의 빈 사진처럼 회색 칸이다.
  */
 
 /** 카드 한 장이 차지하는 폭(카드 200 + 틈 20) */
@@ -36,6 +37,8 @@ interface AtlasGalleryProps {
   onFrame?: (position: number) => void;
   /** 팀 화면에서 이 세션을 공유한 사람. 카드마다 이름을 붙인다(그 사람이 들어갔던 페이지다). */
   sharerName?: string | null;
+  /** 이 기기에서 찍은 페이지 화면(정규화 URL → 사진). 남의 팀 세션에는 넘기지 않는다. */
+  shots?: Record<string, string>;
 }
 
 export function AtlasGallery({
@@ -44,6 +47,7 @@ export function AtlasGallery({
   onSelectPoint,
   onFrame,
   sharerName = null,
+  shots = {},
 }: AtlasGalleryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -180,7 +184,7 @@ export function AtlasGallery({
     <div className="atlas-gallery" ref={viewportRef}>
       <div className="atlas-gallery__strip">
         {cards.map((point, index) => {
-          const shot = pageShot(point.url);
+          const shot = shots[snapshotKey(point.url) ?? ''] ?? pageShot(point.url);
           return (
             <button
               key={point.id}
