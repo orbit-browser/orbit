@@ -119,7 +119,7 @@ describe('검증된 숫자 — 100%·0건만 앞면에', () => {
     expect(PROVEN).toEqual({
       refusal: { orbit: { hit: 2, total: 2, percent: 100 }, comet: { hit: 1, total: 2, percent: 50 } },
       restorePrecision: { orbit: { hit: 4, total: 4, percent: 100 }, comet: { hit: 3, total: 26, percent: 12 } },
-      teamIsolation: { leaks: 0, paths: 18 },
+      teamIsolation: { leaks: 0, paths: 12, responses: 18 },
     });
   });
 
@@ -141,9 +141,12 @@ describe('검증된 숫자 — 100%·0건만 앞면에', () => {
     const text = html.replace(/<[^>]*>/g, '');
     expect(text).toContain('100%없는 기록은, 없다고 답합니다');
     expect(text).toContain('같은 조건 시험 2번 중 2번');
-    expect(text).toContain('100%다시 연 페이지가 그 작업의 페이지');
+    expect(text).toContain('100%다시 열면, 그 작업의 페이지만');
     expect(text).toContain('Comet은 26개 중 3개(12%)');
     expect(text).toContain('0건공유하지 않은 팀 기록의 노출');
+    expect(text).toContain('화면·API 12가지 경로, 응답 18개에서 0건');
+    expect(text).toContain('목표 9개 중 4개');
+    expect(text).not.toContain('Long-History Accuracy'); // 고친 뒤 골든 질문의 100%는 앞면에 싣지 않는다
     expect(text).not.toMatch(/\d+\s*\/\s*\d+/);
     expect(text).not.toContain('기록에서 찾아낸 비율'); // Orbit 이 100%가 아닌 지표는 앞면에 싣지 않는다
     expect(text).toContain('표본이 작아 전체 정확도를 뜻하지 않음');

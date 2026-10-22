@@ -66,7 +66,8 @@ const PIPELINE = [
 ];
 
 // 전면은 지연·규모에 집중한다. 골든/holdout 품질 전체는 metrics.json과 README에 보존한다.
-const FEATURED_METRICS = METRICS.metrics.filter((metric) => ['A', 'B', 'C'].includes(metric.code));
+// C(1만 세션 골든 정답률)는 골든 질문으로 고친 뒤의 값이고 새 표현 질문에서는 100%가 아니라 앞면에서 뺀다.
+const FEATURED_METRICS = METRICS.metrics.filter((metric) => ['A', 'B'].includes(metric.code));
 
 export function TechBanner() {
   return (
@@ -133,7 +134,7 @@ export function TechBanner() {
         <section className="ex-proven" aria-label="시험으로 확인한 숫자">
           <div className="ex-section-head">
             <h2>Proven in Tests.</h2>
-            <span className="ex-status">직접 시험 · 같은 조건 비교</span>
+            <span className="ex-status">직접 시험</span>
           </div>
           <div className="ex-proven__grid">
             <article className="ex-proven__stat">
@@ -149,7 +150,7 @@ export function TechBanner() {
                 {PROVEN.restorePrecision.orbit.percent}
                 <small>%</small>
               </strong>
-              <h3>다시 연 페이지가 그 작업의 페이지</h3>
+              <h3>다시 열면, 그 작업의 페이지만</h3>
               <p>{keepDots(`열린 ${PROVEN.restorePrecision.orbit.total}개 모두 · Comet은 ${PROVEN.restorePrecision.comet.total}개 중 ${PROVEN.restorePrecision.comet.hit}개(${PROVEN.restorePrecision.comet.percent}%)`)}</p>
             </article>
             <article className="ex-proven__stat">
@@ -158,12 +159,12 @@ export function TechBanner() {
                 <small>건</small>
               </strong>
               <h3>공유하지 않은 팀 기록의 노출</h3>
-              <p>{keepDots(`계정 둘 실제 서버 시험 · ${PROVEN.teamIsolation.paths}개 경로 모두 차단`)}</p>
+              <p>{keepDots(`계정 둘 실제 서버 시험 · 화면·API ${PROVEN.teamIsolation.paths}가지 경로, 응답 ${PROVEN.teamIsolation.responses}개에서 0건`)}</p>
             </article>
           </div>
           <p className="ex-fineprint">
             {keepDots(
-              '직접 시험 · 빈 브라우저에 같은 공개 웹페이지 26개를 방문하고 같은 질문을 한 번씩(Orbit 2026-10-22, Comet 2026-10-20 로그인 상태) · 다시 열기는 찾은 작업의 페이지를 한 번에 열었을 때 그 작업의 페이지 비율 · 팀 시험은 2026-10-22 격리 서버에서 계정 둘로 공유·해제·내보내기 · 표본이 작아 전체 정확도를 뜻하지 않음.',
+              '직접 시험 · 빈 브라우저에 같은 공개 웹페이지 26개를 방문하고 같은 질문을 한 번씩(Orbit 2026-10-22, Comet 2026-10-20 로그인 상태) · 다시 열기는 찾은 작업의 페이지를 한 번에 열었을 때 그 작업의 페이지 비율(Orbit은 목표 9개 중 4개를 열었고 섞인 페이지 0개, Comet은 작업 1개) · 팀 시험은 2026-10-22 격리 서버에서 계정 둘로 공유·해제·내보내기 · 표본이 작아 전체 정확도를 뜻하지 않음.',
             )}
           </p>
         </section>
