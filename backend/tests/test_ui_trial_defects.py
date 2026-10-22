@@ -157,6 +157,24 @@ def test_record_denial_is_replaced(answer):
     assert grounded_answer(answer, []) != answer
 
 
+@pytest.mark.parametrize(
+    "answer",
+    [
+        # model-eval-v1 R9 raw (2026-10-22): unanswerable items; the blind judge marked each refusal_ok.
+        "강아지 슬개골 탈구 수술비에 대한 정보는 제공된 탐색 기록에 없습니다.  \n관련 기록 [1], [2], [3]은 각각 고양이 입양 준비, 불면증과 수면 리듬, 미세먼지와 공기청정기에 관한 내용을 다루고 있으며, 강아지 슬개골 탈구 수술비와 관련된 정보는 포함되어 있지 않습니다.  \n\n따라서, 강아지 슬개골 탈구 수술비는 제공된 자료를 기반으로 확인할 수 없습니다.",
+        "제공된 관련 탐색 기록에는 아이폰 17 사전예약 날짜에 대한 정보가 없습니다.  \n따라서 아이폰 17 사전예약 날짜를 확인할 수 없습니다.  \n\n[1], [2], [3] 세션 모두 메모리 반도체, 전기차 배터리, LLM 및 RAG 기술에 관한 내용을 다루고 있으며, 아이폰 17 사전예약과 관련된 정보는 포함되어 있지 않습니다.  \n\n결론: 관련 기록이 없어 아이폰 17 사전예약 날짜를 확인할 수 없습니다.",
+        "제공된 탐색 기록에는 골프 드라이버 비거리 늘리는 법과 관련된 내용이 없습니다. [1] 세션은 마라톤 대회, [2] 세션은 피클볼, [3] 세션은 생산성 기법(포모도로, GTD)에 관한 기록만 포함되어 있습니다. 따라서 이 질문에 답할 수 있는 관련 탐색 기록이 존재하지 않습니다.",
+        "보스턴 마라톤 참가비에 대한 구체적인 정보는 제공된 탐색 기록에 없습니다. 관련 기록은 [1] 세션의 보스턴 마라톤 위키백과 페이지로, 대회의 역사, 자격 요건, 코스 변경, 한국 선수 활약상 등은 다루고 있지만 참가비 금액은 언급되어 있지 않습니다. 따라서 해당 페이지에서 참가비를 확인할 수 없습니다.",
+        "제공된 탐색 기록에는 고양이 종합백신 접종 시기에 대한 정보가 포함되어 있지 않습니다. [1] 세션의 기록은 고양이의 일반적 특성과 중성화 수술에 관한 내용이며, [2]와 [3] 세션은 각각 수면 리듬과 찌개 요리법에 관한 기록입니다. 따라서 고양이 백신 접종 시기를 확인할 수 있는 관련 페이지가 없습니다.",
+    ],
+    ids=["f02-exaone", "f03-exaone", "f08-ax-k2", "n06-ax-k2", "n08-ax-k2"],
+)
+def test_refusal_of_missing_information_is_preserved(answer):
+    raw = json.loads((Path(__file__).parent / "fixtures/ui_trial_answer.json").read_text())
+    sources = [SessionDetail.model_validate(s) for s in raw["sources"]]
+    assert grounded_answer(answer, sources) == answer
+
+
 def test_gpu_answer_replay_streams_then_replaces_denial(monkeypatch, caplog):
     raw = json.loads((Path(__file__).parent / "fixtures/ui_trial_answer.json").read_text())
 
