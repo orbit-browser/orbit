@@ -18,7 +18,7 @@ import {
 import { getSession, type AuthSession } from './auth';
 import { hasCollectionConsent } from './settings';
 import { getDeviceId } from './device-id';
-import { clearTeamLabels } from './events/queue';
+import { clearTeamLabels, listByStatus } from './events/queue';
 import { isTeamBlockedUrl } from './sensitive-domains';
 import type { Workspace, WithdrawResult } from './types';
 
@@ -92,7 +92,7 @@ export interface CollectUiState {
   withdrawPending?: string[];
 }
 
-type RetryItem =
+export type RetryItem =
   | {
       kind: 'stop';
       accountId: string;
@@ -304,7 +304,7 @@ const SERVER_REASON: Partial<Record<EndKind, CollectStopReason>> = {
 export async function endTeamCollect(
   accountId: string,
   kind: EndKind,
-  options: { token?: string } = {},
+  options: { token?: string; deferServer?: (item: RetryItem) => void } = {},
 ): Promise<ActiveCollect | null> {
   const active = await serialized(async () => {
     const current = await getActiveCollect(accountId);
@@ -337,10 +337,9 @@ export async function endTeamCollect(
   const reason = SERVER_REASON[kind];
   if (active && reason) {
     const deviceId = await getDeviceId();
-    await sendOrQueue(
-      { kind: 'stop', accountId, workspaceId: active.workspaceId, deviceId, reason, windowId: active.windowId },
-      options.token,
-    );
+    const item: RetryItem = { kind: 'stop', accountId, workspaceId: active.workspaceId, deviceId, reason, windowId: active.windowId };
+    if (options.deferServer) options.deferServer(item);
+    else await sendOrQueue(item, options.token);
   }
   return active;
 }
@@ -502,10 +501,38 @@ export async function handleBrowserStartup(): Promise<void> {
 }
 
 /** 계정 전환·로그아웃. 이전 계정의 로컬 창을 먼저 지우고, 이전 계정 토큰으로 서버 창을 끝낸다(§6.5). */
-export async function handleAccountSwitch(previous: AuthSession | null): Promise<void> {
-  if (!previous) return;
-  const usable = new Date(previous.expiresAt).getTime() > Date.now();
-  await endTeamCollect(previous.user.id, 'account_switch', { token: usable ? previous.token : undefined });
+/**
+ * 계정 전환·로그아웃 1단계: 이전 계정의 로컬 창을 지금 지운다(그 순간부터 새 방문은 팀 표시가 없다).
+ * 서버 창 끄기는 돌려주는 항목으로 미룬다 — 이전 계정의 남은 방문을 먼저 보내야 한다. 창이 먼저 끝나면
+ * 늦게 도착한 그 방문이 서버의 "끝나기 직전 5분은 개인" 규칙에 걸려 개인으로 강등된다(§6.5와 다름).
+ */
+export async function handleAccountSwitch(previous: AuthSession | null): Promise<RetryItem | null> {
+  if (!previous) return null;
+  let deferred: RetryItem | null = null;
+  await endTeamCollect(previous.user.id, 'account_switch', { deferServer: (item) => { deferred = item; } });
+  return deferred;
+}
+
+/**
+ * 계정 전환 2단계: 이전 계정 큐 전송이 끝난 뒤 부른다. 그 계정의 방문이 아직 남아 있으면(오프라인·실패)
+ * 끄기를 보내지 않고 재시도 목록에 둔다 — 재시도는 그 계정의 방문이 모두 나간 뒤에야 끄기를 보낸다.
+ * `token` 은 이전 계정 것만 쓴다(없으면 큐에 둔다).
+ */
+export async function finishAccountSwitch(item: RetryItem | null, token?: string): Promise<void> {
+  if (!item) return;
+  if (await hasUnsentEvents(item.accountId)) {
+    await queueRetry(item);
+    return;
+  }
+  await sendOrQueue(item, token);
+}
+
+/** 이 계정의 아직 서버에 닿지 않은 방문이 있는가(open·pending·syncing). */
+async function hasUnsentEvents(accountId: string): Promise<boolean> {
+  for (const status of ['open', 'pending', 'syncing'] as const) {
+    if ((await listByStatus(status, accountId)).length > 0) return true;
+  }
+  return false;
 }
 
 // ── 재시도 ─────────────────────────────────────────────────────────
@@ -602,8 +629,14 @@ async function retryLocked(): Promise<void> {
   const items = (stored[RETRY_KEY] as RetryItem[] | undefined) ?? [];
   const done: RetryItem[] = [];
   let failed = false;
+  // 끄기는 그 계정의 방문이 모두 나간 뒤에만 보낸다(창보다 방문이 늦게 닿으면 개인으로 강등된다).
+  const unsent = await hasUnsentEvents(session.user.id);
   for (const item of items) {
     if (item.accountId !== session.user.id) continue;
+    if (item.kind === 'stop' && unsent) {
+      failed = true;
+      continue;
+    }
     try {
       await sendRetryItem(item, session.token);
       done.push(item);

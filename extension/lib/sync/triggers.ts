@@ -2,7 +2,7 @@
 // SW 시작 시 stale-syncing 리셋 + prune + evict도 이 모듈이 담당한다.
 // 계약 근거: docs/target-architecture.md §4, docs/implementation-roadmap.md M2-10
 
-import { getSession, onSessionChange } from '../auth';
+import { getSession, onSessionChange, type AuthSession } from '../auth';
 import {
   getCollectionConsent,
   hasCurrentConsent,
@@ -22,7 +22,7 @@ import {
   updateSyncStatus,
 } from '../events/queue';
 import { drainPreviousAccount, requestDrain, RETRY_ALARM_NAME } from './engine';
-import { handleAccountSwitch } from '../team-collect';
+import { finishAccountSwitch, handleAccountSwitch } from '../team-collect';
 import { pruneOtherAccountSnapshots } from '../tab-snapshots';
 
 const SYNC_ALARM_NAME = 'orbit-sync';
@@ -84,28 +84,40 @@ export async function applyAccountConsent(migrationOwner?: string): Promise<void
   }
 }
 
+/** 계정이 바뀌었을 때(로그인·로그아웃·교체) 한 번 돈다. 시험이 직접 부를 수 있게 따로 둔다. */
+export function handleAccountChanged(session: AuthSession | null, previous: AuthSession | null): void {
+  if (session?.user.id === previous?.user.id) return;
+  // 이전 계정의 팀 수집 창은 로컬부터 끈다. 서버 창은 그 계정의 남은 방문을 보낸 뒤에 끝낸다
+  // (docs/team-collect-mode.md §6.5 — 이전 계정의 방문은 팀 표시를 단 채 마감).
+  const stopItem = handleAccountSwitch(previous).catch((err) => {
+    console.error('[Orbit] 계정 전환 뒤 팀 수집 끄기 실패', err);
+    return null;
+  });
+  const finish = async (token?: string) =>
+    finishAccountSwitch(await stopItem, token).catch((err) =>
+      console.error('[Orbit] 계정 전환 뒤 팀 수집 서버 창 끄기 실패', err),
+    );
+  applyAccountConsent(previous?.user.id ?? session?.user.id).catch((err) =>
+    console.error('[Orbit] 계정 전환 뒤 수집 동의 적용 실패', err),
+  );
+  updateSyncStatus({ lastSyncAt: null, lastError: null }).catch((err) =>
+    console.error('[Orbit] 계정 전환 뒤 동기화 상태 갱신 실패', err),
+  );
+  // 만료로 지워진 세션은 토큰이 이미 거절되므로 보내 보지 않는다.
+  if (previous && new Date(previous.expiresAt).getTime() > Date.now()) {
+    drainPreviousAccount(previous, () => finish(previous.token));
+  } else {
+    // 쓸 토큰이 없다 — 끄기는 큐에 두고 그 계정이 다시 로그인해 방문을 보낸 뒤 보낸다.
+    void finish();
+  }
+}
+
 /**
  * 로그아웃·계정 교체 때 이전 계정의 남은 이벤트는 그 계정 토큰으로만 보낸다(못 보내면 그 계정
  * 것으로 남아 다음 로그인 때 보낸다). 동기화 요약은 새 계정 기준으로 다시 센다.
  */
 function watchAccountChange(): void {
-  onSessionChange((session, previous) => {
-    if (session?.user.id === previous?.user.id) return;
-    // 이전 계정의 팀 수집 창은 로컬부터 끄고 그 계정 토큰으로 서버 창을 끝낸다(docs/team-collect-mode.md §6.5).
-    handleAccountSwitch(previous).catch((err) =>
-      console.error('[Orbit] 계정 전환 뒤 팀 수집 끄기 실패', err),
-    );
-    applyAccountConsent(previous?.user.id ?? session?.user.id).catch((err) =>
-      console.error('[Orbit] 계정 전환 뒤 수집 동의 적용 실패', err),
-    );
-    updateSyncStatus({ lastSyncAt: null, lastError: null }).catch((err) =>
-      console.error('[Orbit] 계정 전환 뒤 동기화 상태 갱신 실패', err),
-    );
-    // 만료로 지워진 세션은 토큰이 이미 거절되므로 보내 보지 않는다.
-    if (previous && new Date(previous.expiresAt).getTime() > Date.now()) {
-      drainPreviousAccount(previous);
-    }
-  });
+  onSessionChange(handleAccountChanged);
 }
 
 function registerMessageHandlers(): void {

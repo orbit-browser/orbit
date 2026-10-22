@@ -13,7 +13,7 @@ import {
 } from '../events/queue';
 import { toWire } from '../events/types';
 import { getDeviceId } from '../device-id';
-import { handleBatchWindowClosed } from '../team-collect';
+import { handleBatchWindowClosed, retryTeamCollectRequests } from '../team-collect';
 
 const BATCH_SIZE = 50;
 const DRAIN_LOCK_NAME = 'orbit-drain';
@@ -102,6 +102,11 @@ async function drain(reason: DrainReason, owner?: AuthSession): Promise<void> {
 
   // 이벤트 전송만으로는 세션이 만들어지지 않는다 — 서버 배치 세션화를 명시적으로 트리거한다.
   // manual은 보낼 이벤트가 없어도 호출(서버에 이미 쌓인 pending을 사용자가 지금 분석하길 원한 것).
+  // 방문이 모두 나갔으니, 그 뒤로 미뤄 둔 팀 수집 끄기를 지금 보낸다(계정 전환 뒤 다시 로그인한 경우).
+  if (reportStatus && sentAny) {
+    await retryTeamCollectRequests().catch((err) => console.error('[Orbit] team collect retry after drain failed', err));
+  }
+
   if (sentAny || reason === 'manual') {
     try {
       await triggerServerSync(SERVER_TRIGGER_BY_REASON[reason], session.token);
@@ -124,8 +129,15 @@ export function requestDrain(reason: DrainReason): void {
  * 있으면 건너뛰지 않고 기다린다 — 건너뛰면 그 계정이 다시 로그인할 때까지 전송이 미뤄진다.
  * 실패한 이벤트는 그 계정 것으로 남아 다음 로그인 때 보내진다.
  */
-export function drainPreviousAccount(owner: AuthSession): void {
-  runLocked(() => drain('signout', owner), { ifAvailable: false });
+export function drainPreviousAccount(owner: AuthSession, after?: () => Promise<void>): void {
+  // `after` 는 같은 잠금 안에서 전송 뒤에 돈다(계정 전환의 팀 수집 창 끄기 — 방문보다 먼저 닿지 않게).
+  runLocked(async () => {
+    try {
+      await drain('signout', owner);
+    } finally {
+      await after?.();
+    }
+  }, { ifAvailable: false });
 }
 
 function runLocked(task: () => Promise<void>, opts: { ifAvailable: boolean }): void {

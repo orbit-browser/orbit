@@ -6,10 +6,12 @@ import { handlePageContentReady, initCollector } from '../../lib/events/collecto
 import { addEvent, getEvent, listByStatus, setPendingChangeListener } from '../../lib/events/queue';
 import { CONSENT_VERSION } from '../../lib/settings';
 import { requestDrain } from '../../lib/sync/engine';
+import { handleAccountChanged } from '../../lib/sync/triggers';
 import { isTeamBlockedUrl } from '../../lib/sensitive-domains';
 import {
   CollectConsentRequiredError,
   endTeamCollect,
+  finishAccountSwitch,
   getActiveCollect,
   getCollectUi,
   handleAccountSwitch,
@@ -47,6 +49,7 @@ let failWithdraw = false;
 let failStart = false;
 let workspacesBody: unknown[] = [];
 let eventsWindowClosed = false;
+let failEvents = false;
 let sentEvents: Record<string, unknown>[] = [];
 
 function signIn(id = USER, token = 'token-b') {
@@ -118,6 +121,7 @@ function installFetch() {
         return Response.json({ withdrawn_events: 2, sessions: [], window_closed: true });
       }
       if (url.pathname === '/workspaces') return Response.json(workspacesBody);
+      if (url.pathname === '/events' && failEvents) return new Response('down', { status: 503 });
       if (url.pathname === '/events') {
         sentEvents.push(...(JSON.parse(String(init?.body)).events as Record<string, unknown>[]));
         return Response.json({ accepted: 1, duplicates: 0, filtered: 0, pending_total: 1, window_closed: eventsWindowClosed });
@@ -143,6 +147,7 @@ beforeEach(async () => {
   failStart = false;
   workspacesBody = [];
   eventsWindowClosed = false;
+  failEvents = false;
   sentEvents = [];
   installFetch();
 });
@@ -377,12 +382,15 @@ describe('계정 전환 (§6.5)', () => {
   it('이전 계정의 로컬 창을 먼저 지우고 이전 계정 토큰으로 끝낸다', async () => {
     await signIn('user-c', 'token-c');
     await seedActive({}, USER);
-    await handleAccountSwitch({
+    const item = await handleAccountSwitch({
       token: 'token-b',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       user: { id: USER, email: 'b@example.com', name: 'b', picture: null },
     });
     expect(await getActiveCollect(USER)).toBeNull();
+    // 1단계는 서버에 아무것도 보내지 않는다(방문 전송 뒤로 미룬다).
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+    await finishAccountSwitch(item, 'token-b');
     const del = calls.find((c) => c.method === 'DELETE')!;
     expect(del.auth).toBe('Bearer token-b');
     expect(del.path).toContain('reason=account_switch');
@@ -644,11 +652,11 @@ describe('보안 검토 후속 (S1~S3)', () => {
   it('S2 토큰이 만료된 계정 전환: 새 계정 토큰으로 보내지 않고 큐에 둔다, 그 계정이 돌아오면 그 토큰으로 보낸다', async () => {
     await signIn('user-c', 'token-c');
     await seedActive({}, USER);
-    await handleAccountSwitch({
+    await finishAccountSwitch(await handleAccountSwitch({
       token: 'token-b-expired',
       expiresAt: new Date(Date.now() - 60_000).toISOString(),
       user: { id: USER, email: 'b@example.com', name: 'b', picture: null },
-    });
+    }));
     expect(await getActiveCollect(USER)).toBeNull();
     expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
     expect(await retryItems()).toHaveLength(1);
@@ -744,5 +752,60 @@ describe('서버 잠금 순서 — 일시 정지 직후 다른 화면에서 시�
     const order = calls.filter((c) => c.path.startsWith('/workspaces/ws-1/collect')).map((c) => c.method);
     expect(order).toEqual(['DELETE', 'POST']);
     expect((await getActiveCollect(USER))?.windowId).toBe('cw-new');
+  });
+});
+
+describe('계정 전환 순서 — 이전 계정 방문을 보낸 뒤 창 끄기 (§6.5)', () => {
+  const prevB = () => ({
+    token: 'token-b',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    user: { id: USER, email: 'b@example.com', name: 'b', picture: null },
+  });
+  const sessionC = () => ({
+    token: 'token-c',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    user: { id: 'user-c', email: 'c@example.com', name: 'c', picture: null },
+  });
+  async function seedUnsentTeamVisit() {
+    const { finalizeOpenEvent } = await import('../../lib/events/queue');
+    const event = await addEvent(makeInput({ accountId: USER, workspaceId: 'ws-1', collectWindowId: 'cw-1' }));
+    await finalizeOpenEvent(event.eventId, new Date().toISOString());
+    return event.eventId;
+  }
+  const order = () => calls.filter((c) => c.path === '/events' || c.method === 'DELETE').map((c) => `${c.method} ${c.path.split('?')[0]} ${c.auth}`);
+
+  it('온라인: 이전 계정의 팀 방문을 그 토큰으로 먼저 보내고, 그다음 서버 창을 끈다', async () => {
+    await signIn('user-c', 'token-c');
+    await seedActive({}, USER);
+    await seedUnsentTeamVisit();
+    handleAccountChanged(sessionC(), prevB());
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await getActiveCollect(USER)).toBeNull();
+    expect(order()).toEqual(['POST /events Bearer token-b', 'DELETE /workspaces/ws-1/collect Bearer token-b']);
+    expect(sentEvents[0]).toMatchObject({ workspace_id: 'ws-1', collect_window_id: 'cw-1' });
+  });
+
+  it('오프라인: 방문이 남으면 끄기를 보내지 않고 큐에 두며, 다시 로그인해 방문을 보낸 뒤에 끈다', async () => {
+    await signIn('user-c', 'token-c');
+    await seedActive({}, USER);
+    await seedUnsentTeamVisit();
+    failEvents = true;
+    handleAccountChanged(sessionC(), prevB());
+    await new Promise((r) => setTimeout(r, 300));
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+    expect(((await chrome.storage.local.get('orbit:teamCollectRetry'))['orbit:teamCollectRetry'] as unknown[]).length).toBe(1);
+    // B 로 다시 로그인했지만 아직 방문을 못 보냈으면 재시도도 끄기를 보내지 않는다.
+    await signIn(USER, 'token-b2');
+    await retryTeamCollectRequests();
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+    failEvents = false;
+    calls = [];
+    // 실패한 전송의 지수 백오프를 건너뛴다(시험 시간).
+    const { getDB, EVENTS_STORE } = await import('../../lib/events/db');
+    const db = await getDB();
+    for (const e of await db.getAll(EVENTS_STORE)) await db.put(EVENTS_STORE, { ...e, nextAttemptAt: null });
+    requestDrain('threshold');
+    await new Promise((r) => setTimeout(r, 300));
+    expect(order()).toEqual(['POST /events Bearer token-b2', 'DELETE /workspaces/ws-1/collect Bearer token-b2']);
   });
 });
