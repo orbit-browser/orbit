@@ -189,9 +189,9 @@ async def chat_completion_light(
     temperature: float = 0.1,
     max_tokens: int = 500,
 ) -> str:
-    """EXAONE(FriendliAI)으로 단순 분류/변환 태스크 처리. 실패 시 A.X fallback.
+    """탭 묶기 같은 단순 분류/변환 태스크. A.X 우선, 실패 시 EXAONE fallback.
 
-    모델 배정 근거: docs/DecisionLog.md 2026-08-05 (클러스터링=EXAONE, 상호 폴백).
+    모델 배정 근거: docs/DecisionLog.md 2026-10-22 (model-eval-v1 — 모든 LLM 역할 기본 A.X-K2).
     """
     await _throttle()
     messages = [
@@ -199,6 +199,17 @@ async def chat_completion_light(
         {"role": "user", "content": user},
     ]
     try:
+        resp = await _ax_client().chat.completions.create(
+            model=settings.axk1_model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        if not resp.choices:
+            raise ValueError("A.X 응답에 choices가 없습니다")
+        return resp.choices[0].message.content or ""
+    except Exception as exc:
+        logger.warning("A.X 실패 (%s) — EXAONE fallback", exc)
         resp = await _friendli_client().chat.completions.create(
             model=settings.exaone_model,
             messages=messages,
@@ -207,18 +218,7 @@ async def chat_completion_light(
             extra_body=_EXAONE_EXTRA_BODY,
         )
         if not resp.choices:
-            raise ValueError("EXAONE 응답에 choices가 없습니다")
-        return resp.choices[0].message.content or ""
-    except Exception as exc:
-        logger.warning("EXAONE 실패 (%s) — A.X fallback", exc)
-        resp = await _ax_client().chat.completions.create(
-            model=settings.axk1_model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        if not resp.choices:
-            raise ValueError("A.X fallback 응답에 choices가 없습니다")
+            raise ValueError("EXAONE fallback 응답에 choices가 없습니다")
         return resp.choices[0].message.content or ""
 
 
@@ -283,9 +283,9 @@ async def chat_completion(
     return content
 
 
-# 의도분석 primary 시도 상한 — EXAONE serverless가 429/지연이면 오래 기다리지 않고 A.X로 넘긴다.
+# 의도분석 primary 시도 상한 — 게이트웨이가 429/지연이면 오래 기다리지 않고 EXAONE으로 넘긴다.
 # max_retries=0으로 클라이언트 내부 백오프를 끊어(429가 즉시 예외로 올라오게) fallback을 앞당긴다.
-_INTENT_EXAONE_TIMEOUT = 12.0
+_INTENT_PRIMARY_TIMEOUT = 12.0
 
 
 async def chat_completion_intent(
@@ -295,11 +295,11 @@ async def chat_completion_intent(
     temperature: float = 0.0,
     max_tokens: int = 1000,
 ) -> tuple[str, str]:
-    """의도분석 전용 — EXAONE 우선, 지연/rate limit/오류 시 A.X fallback. (content, model) 반환.
+    """의도분석 전용 — A.X 우선, 지연/rate limit/오류/빈 응답 시 EXAONE fallback. (content, model) 반환.
 
-    근거: docs/DecisionLog.md 2026-08-05 공정 재평가(EXAONE 튜닝 프롬프트로 A.X와 품질 대등,
-    노이즈 제외는 EXAONE 우세) + serverless rate limit 대응 하이브리드. chat_completion_with_meta
-    (A.X 우선, 요약·리랭킹용)와 방향이 반대라 별도 함수로 둔다.
+    근거: docs/DecisionLog.md 2026-10-22 model-eval-v1(R1 정확도 A.X-K2 87.6% 대 EXAONE 78.8%,
+    JSON 유효율 100% 대 87.4%). chat_completion_with_meta와 달리 짧은 timeout·재시도 없음·빈 응답
+    fallback을 둔다 — 세션화 배치에서 실패 한 번이 그룹 전체 hold로 이어지기 때문이다.
     """
     await _throttle()
     messages = [
@@ -309,40 +309,40 @@ async def chat_completion_intent(
 
     try:
         client = AsyncOpenAI(
-            api_key=settings.friendli_api_key,
-            base_url=settings.friendli_base_url,
-            timeout=_INTENT_EXAONE_TIMEOUT,
+            api_key=settings.axk1_api_key,
+            base_url=settings.axk1_base_url,
+            timeout=_INTENT_PRIMARY_TIMEOUT,
             max_retries=0,
         )
         resp = await client.chat.completions.create(
-            model=settings.exaone_model,
+            model=settings.axk1_model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            extra_body=_EXAONE_EXTRA_BODY,
         )
         content = resp.choices[0].message.content if resp.choices else ""
         if not (content or "").strip():
-            raise ValueError("EXAONE 빈 응답")
-        return content, _exaone_model_label()
+            raise ValueError("A.X 빈 응답")
+        return content, settings.axk1_model
     except RateLimitError:
-        logger.warning("EXAONE rate limit — A.X fallback")
+        logger.warning("A.X rate limit — EXAONE fallback")
     except (APIConnectionError, APITimeoutError):
-        logger.warning("EXAONE 지연/연결 실패 — A.X fallback")
+        logger.warning("A.X 지연/연결 실패 — EXAONE fallback")
     except APIStatusError as e:
         if _should_fallback(e.status_code):
-            logger.warning("EXAONE %s 오류 — A.X fallback", e.status_code)
+            logger.warning("A.X %s 오류 — EXAONE fallback", e.status_code)
         else:
             raise
     except ValueError as exc:
-        logger.warning("EXAONE 응답 이상 (%s) — A.X fallback", exc)
+        logger.warning("A.X 응답 이상 (%s) — EXAONE fallback", exc)
 
-    resp = await _ax_client().chat.completions.create(
-        model=settings.axk1_model,
+    resp = await _friendli_client().chat.completions.create(
+        model=settings.exaone_model,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
+        extra_body=_EXAONE_EXTRA_BODY,
     )
     if not resp.choices:
-        raise ValueError("A.X fallback 응답에 choices가 없습니다")
-    return resp.choices[0].message.content or "", settings.axk1_model
+        raise ValueError("EXAONE fallback 응답에 choices가 없습니다")
+    return resp.choices[0].message.content or "", _exaone_model_label()
