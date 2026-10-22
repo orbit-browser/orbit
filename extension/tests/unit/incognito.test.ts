@@ -5,6 +5,7 @@ import { fakeBrowser } from 'wxt/testing';
 import config from '../../wxt.config';
 import { handlePageContentReady, initCollector } from '../../lib/events/collector';
 import { addEvent, getEvent, listByStatus, setPendingChangeListener } from '../../lib/events/queue';
+import { CONSENT_VERSION } from '../../lib/settings';
 import { clearEvents, makeInput } from '../helpers';
 
 vi.mock('../../lib/api', () => ({
@@ -35,7 +36,7 @@ async function startCollecting() {
       expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
       user: { id: USER, email: 'a@example.com', name: 'a', picture: null },
     },
-    'orbit:collectionConsent': { [USER]: true },
+    'orbit:collectionConsent': { [USER]: CONSENT_VERSION },
     'orbit:settings': { collectionEnabled: true, contentCapture: true, excludeSensitive: true },
   });
   const idle = { setDetectionInterval: () => {}, onStateChanged: { addListener: () => {} } };

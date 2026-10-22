@@ -283,7 +283,7 @@ event: delta
 data: {"text":"가장 낮은 선택지는 A사였습니다 [1]."}
 
 event: done
-data: {"model":"A.X-K2"}
+data: {"model":"exaone/depmkuykpfon9lg"}
 
 event: verification
 data: {"issues":[{"value":"21:31","answer_subject":"청량리에서 출발하는 강릉행 KTX 막차","record_subject":"서울역 출발 KTX 847 (막차)"}]}
@@ -322,8 +322,9 @@ LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 �
 상위 4개 페이지의 본문 앞 1,200자로 fallback한다. 미할당 이벤트는 포함하지 않으며, 페이지 본문 안의
 지시문은 신뢰하지 않는 데이터로 취급한다. 답변은 근거 세션을 `[1]`, `[2]`처럼 표시한다.
 
-모델은 A.X-K2 스트리밍을 우선 사용한다. 첫 토큰 전에 연결·rate limit·키 권한(401/403)·지원 상태
-오류가 나면 EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
+모델은 K-EXAONE 스트리밍(`enable_thinking: false`)을 우선 사용한다(DecisionLog 2026-10-23). `done.model`은
+실제로 답한 모델 라벨이다(EXAONE은 `exaone/<endpoint id>`, 폴백은 `A.X-K2`). 첫 토큰 전에 연결·rate limit·
+키 권한(401/403)·지원 상태 오류나 빈 스트림이 오면 A.X-K2로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
 `stream_interrupted`를 보낸다.
 
 ### 8.2 `POST /assistant/route` — Ask AI 통합 의도 판별

@@ -10,19 +10,25 @@ _ENV_FILE = Path(__file__).parent.parent / ".env"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
-    # A.X (SKT, 기본 A.X-K2) — 모든 LLM 역할 primary (DecisionLog 2026-10-22 model-eval-v1).
+    # A.X (SKT, 기본 A.X-K2) — Ask 답변을 뺀 모든 LLM 역할 primary, Ask 답변 fallback (DecisionLog 2026-10-23).
     # 발급 키는 A.X-K2만 서빙 권한이 있다 — A.X-K1은 401(DecisionLog 2026-10-19).
     axk1_api_key: str = ""
     axk1_base_url: str = "https://awf-gw.adot.ai/v1"
     axk1_model: str = "A.X-K2"
 
-    # LG K-EXAONE (FriendliAI dedicated endpoint, OpenAI 호환) — 모든 LLM 역할의 fallback.
+    # LG K-EXAONE (FriendliAI dedicated endpoint, OpenAI 호환) — Ask 답변 primary, 요약·리랭크 fallback.
     # serverless는 2026-08-20 K-EXAONE 제공 종료. model 자리에 팀 endpoint ID를 넣는다(DecisionLog 2026-10-19).
     friendli_api_key: str = ""
     friendli_base_url: str = "https://api.friendli.ai/dedicated/v1"
     exaone_model: str = "depmkuykpfon9lg"
 
-    # Upstage — embedding 전용 (채팅 경로는 A.X → EXAONE 폴백)
+    # KT 믿:음 (OpenAI 호환) — 의도 분석·탭 묶기의 fallback (DecisionLog 2026-10-23).
+    # 대표 .env의 KT_MODEL은 쓰지 않는다(값이 모델명이 아니다). 모델명은 KT_MODEL_NAME으로 받는다.
+    kt_api_key: str = ""
+    kt_base_url: str = "https://midm.kt.com/v1"
+    kt_model_name: str = "midm-pro-fp8-kaic"
+
+    # Upstage — embedding 전용
     upstage_api_key: str = ""
     upstage_base_url: str = "https://api.upstage.ai/v1"
     embedding_model: str = "embedding-query"       # 검색 쿼리 임베딩

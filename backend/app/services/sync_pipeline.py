@@ -472,15 +472,17 @@ async def _process_group(
 
 
 def _summarize_models(counts: dict[str, int]) -> str | None:
-    """그룹별 사용 모델 카운트를 감사용 요약 문자열로(EXAONE/A.X 폴백률 관측). String(50) 상한.
+    """그룹별 사용 모델 카운트를 감사용 요약 문자열로(폴백률 관측). String(50) 상한.
 
-    예: {"exaone/LGAI-EXAONE/K-EXAONE-236B-A23B": 12, "A.X-K1": 3} → "exaone:12,A.X-K1:3"
+    예: {"exaone/LGAI-EXAONE/K-EXAONE-236B-A23B": 12, "kt/midm-pro-fp8-kaic": 2, "A.X-K2": 3}
+    → "exaone:12,A.X-K2:3,kt:2"
     """
     if not counts:
         return None
 
     def _short(model: str) -> str:
-        return "exaone" if model.startswith("exaone/") else model
+        # 폴백 라벨은 "공급자/모델" 형식이다(llm._exaone_model_label, _kt_model_label).
+        return model.split("/", 1)[0]
 
     parts = [f"{_short(m)}:{n}" for m, n in sorted(counts.items(), key=lambda kv: -kv[1])]
     return ",".join(parts)[:50]

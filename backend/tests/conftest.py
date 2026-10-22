@@ -4,6 +4,18 @@ from collections.abc import Iterator
 import pytest
 from sqlalchemy.engine import Engine
 
+from app.config import settings
+
+# backend/.env(또는 셸 환경변수)의 실제 키를 시험에서 지운다. 키가 있으면 대역 없는 경로가
+# 실제 공급자에 연결하려다 네트워크 차단에 걸려, 같은 시험이 키 유무에 따라 결과가 갈렸다.
+_EXTERNAL_API_KEYS = ("axk1_api_key", "friendli_api_key", "kt_api_key", "upstage_api_key")
+
+
+@pytest.fixture(autouse=True)
+def _blank_external_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _EXTERNAL_API_KEYS:
+        monkeypatch.setattr(settings, name, "")
+
 
 @pytest.fixture(autouse=True)
 def _forbid_database_connections(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:

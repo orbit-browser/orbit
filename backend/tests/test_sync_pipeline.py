@@ -330,6 +330,11 @@ def test_summarize_models_counts_and_shortens():
     assert len(sync_pipeline._summarize_models({"exaone/x": 1, "A.X-K1": 1})) <= 50
 
 
+def test_summarize_models_shortens_kt_fallback_label():
+    summary = sync_pipeline._summarize_models({"A.X-K2": 5, "kt/midm-pro-fp8-kaic": 2})
+    assert summary == "A.X-K2:5,kt:2"
+
+
 def test_event_embedding_text_joins_title_domain_query():
     assert (
         sync_pipeline._event_embedding_text(
