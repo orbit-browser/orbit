@@ -10,6 +10,7 @@
 """
 
 import logging
+from typing import NamedTuple
 
 from ..ai.json_utils import extract_json
 from ..ai.llm import chat_completion_ax_only
@@ -100,11 +101,18 @@ def _groups(labels: list[int]) -> list[list[int]]:
     return sorted((sorted(g) for g in groups.values()), key=lambda g: g[0])
 
 
-async def split_by_subject(events: list[dict]) -> list[list[int]]:
+class SplitResult(NamedTuple):
+    groups: list[list[int]]
+    # 배치 감사(sync_batches.model) 라벨. 묻지 않았으면 None, 나눴으면 "split@<모델>", 그대로 두기로 했으면
+    # "keep@<모델>", 호출·형식이 실패했으면 "split_fail".
+    audit: str | None
+
+
+async def split_by_subject(events: list[dict]) -> SplitResult:
     """이벤트 인덱스를 대상별 묶음으로 돌려준다. 작은 묶음·실패·대상 하나면 [전체] 그대로."""
     whole = [list(range(len(events)))]
     if len(events) < MIN_EVENTS:
-        return whole
+        return SplitResult(whole, None)
     prompt = _USER_TEMPLATE.format(
         events_text="\n".join(_format_event_line(i, e) for i, e in enumerate(events))
     )
@@ -112,15 +120,16 @@ async def split_by_subject(events: list[dict]) -> list[list[int]]:
         raw, model = await chat_completion_ax_only(_SYSTEM_PROMPT, prompt, temperature=0.0, max_tokens=400)
     except Exception as exc:
         logger.warning("Subject split call failed (%s); keeping the subcluster whole", type(exc).__name__)
-        return whole
+        return SplitResult(whole, "split_fail")
     try:
         labels = _parse_labels(raw, len(events))
     except Exception:
         labels = None
     if labels is None:
         logger.warning("Subject split response malformed (model=%s); keeping the subcluster whole", model)
-        return whole
+        return SplitResult(whole, "split_fail")
     groups = _groups(labels)
     if len(groups) > 1:
         logger.info("Subject split: %d events into %s (model=%s)", len(events), [len(g) for g in groups], model)
-    return groups
+        return SplitResult(groups, f"split@{model}")
+    return SplitResult(groups, f"keep@{model}")

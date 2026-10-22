@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services import sync_pipeline
+from app.services.subject_splitter import SplitResult
 
 
 class _FakeSessionLocalCtx:
@@ -817,7 +818,7 @@ def test_process_group_analyzes_each_subject_of_a_large_subcluster_separately(mo
 
     async def split(cluster_events):
         assert [e["id"] for e in cluster_events] == ["e0", "e1", "e2", "e3", "e4", "e5"]
-        return [[1, 3, 5], [0, 2, 4]][::-1]
+        return SplitResult([[0, 2, 4], [1, 3, 5]], "split@A.X-K2")
 
     async def analyze(cluster_events, _candidates):
         seen.append([e["id"] for e in cluster_events])
@@ -827,9 +828,12 @@ def test_process_group_analyzes_each_subject_of_a_large_subcluster_separately(mo
     monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
     monkeypatch.setattr(sync_pipeline.settings, "subject_split_enabled", True)
 
-    asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+    models = asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
 
     assert sorted(seen) == [["e0", "e2", "e4"], ["e1", "e3", "e5"]]
+    # 나누기 시도 결과와 모델이 배치 감사(sync_batches.model)로 간다.
+    assert models == ["split@A.X-K2"]
+    assert sync_pipeline._summarize_models({"A.X-K2": 2, "split@A.X-K2": 1}) == "A.X-K2:2,split@A.X-K2:1"
     assert applied == [["e0", "e2", "e4"], ["e1", "e3", "e5"]]
 
 
@@ -847,18 +851,42 @@ def test_subject_split_is_off_by_default_and_then_leaves_subclusters_alone(monke
     async def must_not_split(cluster_events):
         # 예외를 던지면 _split_clusters_by_subject가 삼키므로 호출 자체를 센다.
         split_calls.append(len(cluster_events))
-        return [list(range(len(cluster_events)))]
+        return SplitResult([list(range(len(cluster_events)))], "keep@A.X-K2")
 
     async def analyze(cluster_events, _candidates):
         seen.append([e["id"] for e in cluster_events])
-        return [sync_pipeline.Assignment(list(range(len(cluster_events))), "create", title="t")]
+        return [sync_pipeline.Assignment(list(range(len(cluster_events))), "create", title="t", model="A.X-K2")]
 
     monkeypatch.setattr(sync_pipeline, "split_by_subject", must_not_split)
     monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
     monkeypatch.setattr(sync_pipeline.settings, "subject_split_enabled", False)
 
-    asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+    models = asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
 
     assert split_calls == []
+    assert models == ["A.X-K2", "A.X-K2"]  # 감사 기록도 의도 분석 모델만(대상 나누기 전과 같음)
     assert seen == [["e0", "e1", "e2", "e3", "e4", "e5"], ["e6"]]
     assert applied == seen
+
+
+def test_subject_split_audit_counts_attempts_and_failures(monkeypatch):
+    events, _applied = _group_fakes(monkeypatch, [[0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11], [12, 13]])
+    for i in range(12, 14):
+        events.append({"id": f"e{i}", "url": f"https://example.com/{i}", "title": f"t{i}", "workspace_id": None})
+    outcomes = {"e0": SplitResult([[0, 1, 2, 3, 4, 5]], "keep@A.X-K2"), "e12": SplitResult([[0, 1]], None)}
+
+    async def split(cluster_events):
+        if cluster_events[0]["id"] == "e6":
+            raise RuntimeError("unexpected")  # split_by_subject 밖의 예외도 실패로 센다
+        return outcomes[cluster_events[0]["id"]]
+
+    async def analyze(cluster_events, _candidates):
+        return [sync_pipeline.Assignment(list(range(len(cluster_events))), "create", title="t", model="A.X-K2")]
+
+    monkeypatch.setattr(sync_pipeline, "split_by_subject", split)
+    monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+    monkeypatch.setattr(sync_pipeline.settings, "subject_split_enabled", True)
+
+    models = asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+
+    assert sorted(models) == ["A.X-K2"] * 3 + ["keep@A.X-K2", "split_fail"]

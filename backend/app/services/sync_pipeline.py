@@ -451,7 +451,9 @@ async def _process_group(
     embeddings = await embed_many([_event_embedding_text(e) for e in filtered_group])
     clusters_idx = subcluster(embeddings, settings.subcluster_threshold)
     if settings.subject_split_enabled:
-        clusters_idx = await _split_clusters_by_subject(filtered_group, clusters_idx)
+        clusters_idx, split_audit = await _split_clusters_by_subject(filtered_group, clusters_idx)
+    else:
+        split_audit = []
 
     # phase 1 — 클러스터별 후보검색 + 의도분석 + 게이트. apply 전에 모두 수행해, 클러스터가
     # 서로가 방금 만든 세션을 후보로 잡아 쪼갠 주제를 다시 붙이는 것(재병합)을 막는다.
@@ -474,6 +476,8 @@ async def _process_group(
             raise result
     pending: list[tuple[list[dict], list[Assignment]]] = results
     models_used = [a.model for _events, assignments in pending for a in assignments if a.model]
+    # 켜짐이면 대상 나누기 시도마다 결과·모델을 감사에 남긴다(split@모델/keep@모델/split_fail). 꺼짐이면 빈 목록.
+    models_used.extend(split_audit)
 
     # phase 2 — 세션 생성/갱신 반영. 클러스터 순서대로 하나씩(팀 수집 재판정과 창→세션 잠금 순서를 그대로 둔다).
     for cluster_events, assignments in pending:
@@ -496,21 +500,28 @@ async def _gather_limited(limit: int, items: list, fn) -> list:
     return await asyncio.gather(*(run(item) for item in items), return_exceptions=True)
 
 
-async def _split_clusters_by_subject(events: list[dict], clusters_idx: list[list[int]]) -> list[list[int]]:
+async def _split_clusters_by_subject(
+    events: list[dict], clusters_idx: list[list[int]]
+) -> tuple[list[list[int]], list[str]]:
     """큰 서브클러스터를 알아본 대상별로 다시 나눈다(subject_splitter). 임베딩은 같은 범주의 다른 대상을
-    가르지 못한다. 실패한 묶음은 그대로 둔다. 순서는 각 묶음의 첫 이벤트 순이다."""
-
-    async def split(idx_group: list[int]) -> list[list[int]]:
-        parts = await split_by_subject([events[i] for i in idx_group])
-        return [[idx_group[i] for i in part] for part in parts]
-
-    results = await _gather_limited(_INTENT_CONCURRENCY, clusters_idx, split)
+    가르지 못한다. 실패한 묶음은 그대로 둔다. 순서는 각 묶음의 첫 이벤트 순이다.
+    반환: (나눈 묶음, 시도마다의 감사 라벨)."""
+    results = await _gather_limited(
+        _INTENT_CONCURRENCY, clusters_idx, lambda idx_group: split_by_subject([events[i] for i in idx_group])
+    )
     refined: list[list[int]] = []
+    audit: list[str] = []
     for idx_group, result in zip(clusters_idx, results):
         if isinstance(result, BaseException) and not isinstance(result, Exception):
             raise result
-        refined.extend([idx_group] if isinstance(result, Exception) else result)
-    return sorted(refined, key=lambda part: part[0])
+        if isinstance(result, Exception):
+            refined.append(idx_group)
+            audit.append("split_fail")
+            continue
+        refined.extend([idx_group[i] for i in part] for part in result.groups)
+        if result.audit:
+            audit.append(result.audit)
+    return sorted(refined, key=lambda part: part[0]), audit
 
 
 def _summarize_models(counts: dict[str, int]) -> str | None:
