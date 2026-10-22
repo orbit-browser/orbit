@@ -412,3 +412,35 @@ async def chat_completion_intent(
         logger.warning("A.X 클라이언트 오류 (%s) — KT fallback", type(exc).__name__)
 
     return await _kt_completion(messages, temperature=temperature, max_tokens=max_tokens)
+
+
+async def chat_completion_ax_only(
+    system: str,
+    user: str,
+    *,
+    temperature: float = 0.0,
+    max_tokens: int = 400,
+) -> tuple[str, str]:
+    """A.X만 부른다(폴백 없음, 재시도 없음, 12초). 실패·빈 응답이면 예외를 올린다. (content, model) 반환.
+
+    대상 나누기처럼 "못 하면 안 하는" 보조 판단용이다. 다른 모델로 넘기면 평가하지 않은 모델이 세션 경계를
+    바꾸게 된다(S3 판정 2026-10-23: KT가 나누기를 맡으면 단일 주제 과분할이 1→5로 늘었다).
+    """
+    client = AsyncOpenAI(
+        api_key=settings.axk1_api_key,
+        base_url=settings.axk1_base_url,
+        timeout=_INTENT_PRIMARY_TIMEOUT,
+        max_retries=0,
+    )
+    resp = await _create(
+        "ax",
+        client,
+        model=settings.axk1_model,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    content = resp.choices[0].message.content if resp.choices else ""
+    if not (content or "").strip():
+        raise ValueError("A.X 빈 응답")
+    return content, settings.axk1_model

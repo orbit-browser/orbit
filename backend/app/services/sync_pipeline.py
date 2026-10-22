@@ -449,9 +449,9 @@ async def _process_group(
     # 이벤트별 임베딩(1회 배치 요청) — 서브클러스터링과 클러스터 centroid 후보검색에 재사용한다.
     # 기존 세션(embedding-passage 저장)을 검색하는 쿼리 벡터이므로 embedding-query(기본값)를 쓴다.
     embeddings = await embed_many([_event_embedding_text(e) for e in filtered_group])
-    clusters_idx = await _split_clusters_by_subject(
-        filtered_group, subcluster(embeddings, settings.subcluster_threshold)
-    )
+    clusters_idx = subcluster(embeddings, settings.subcluster_threshold)
+    if settings.subject_split_enabled:
+        clusters_idx = await _split_clusters_by_subject(filtered_group, clusters_idx)
 
     # phase 1 — 클러스터별 후보검색 + 의도분석 + 게이트. apply 전에 모두 수행해, 클러스터가
     # 서로가 방금 만든 세션을 후보로 잡아 쪼갠 주제를 다시 붙이는 것(재병합)을 막는다.

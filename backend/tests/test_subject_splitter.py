@@ -2,8 +2,13 @@
 
 import asyncio
 import json
+from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import APIConnectionError, RateLimitError
+
+from app.ai import llm
 
 from app.services import subject_splitter
 
@@ -21,7 +26,7 @@ def _llm(monkeypatch, response):
             raise response
         return response, "A.X-K2"
 
-    monkeypatch.setattr(subject_splitter, "chat_completion_intent", fake)
+    monkeypatch.setattr(subject_splitter, "chat_completion_ax_only", fake)
     return calls
 
 
@@ -81,3 +86,57 @@ def test_single_event_subject_joins_the_preceding_subject(monkeypatch):
     _llm(monkeypatch, _answer([[0, 1, 2], [3], [4, 5, 6]]))
 
     assert asyncio.run(subject_splitter.split_by_subject(_events(7))) == [[0, 1, 2, 3], [4, 5, 6]]
+
+
+class _FakeOpenAI:
+    """AsyncOpenAI 대역. 만들어진 클라이언트의 base_url과 호출한 모델을 기록한다."""
+
+    created: list[str] = []
+    models: list[str] = []
+    behavior = "ok"
+
+    def __init__(self, **kwargs):
+        _FakeOpenAI.created.append(kwargs["base_url"])
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    async def _create(self, *, model, **_kwargs):
+        _FakeOpenAI.models.append(model)
+        request = httpx.Request("POST", "https://llm.test")
+        if _FakeOpenAI.behavior == "connection":
+            raise APIConnectionError(request=request)
+        if _FakeOpenAI.behavior == "rate_limit":
+            raise RateLimitError("429", response=httpx.Response(429, request=request), body=None)
+        content = "  " if _FakeOpenAI.behavior == "empty" else _answer([[0, 1, 2], [3, 4, 5]])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+
+def _real_llm(monkeypatch, behavior):
+    async def no_throttle(*_args):
+        return None
+
+    _FakeOpenAI.created, _FakeOpenAI.models, _FakeOpenAI.behavior = [], [], behavior
+    monkeypatch.setattr(llm, "AsyncOpenAI", _FakeOpenAI)
+    monkeypatch.setattr(llm, "_throttle", no_throttle)
+    for name, value in [
+        ("axk1_api_key", "k"), ("axk1_base_url", "https://ax.invalid/v1"), ("axk1_model", "A.X-K2"),
+        ("kt_api_key", "k"), ("friendli_api_key", "k"),
+    ]:
+        monkeypatch.setattr(llm.settings, name, value)
+
+
+def test_subject_split_asks_ax_k2(monkeypatch):
+    _real_llm(monkeypatch, "ok")
+
+    assert asyncio.run(subject_splitter.split_by_subject(_events(6))) == [[0, 1, 2], [3, 4, 5]]
+    assert _FakeOpenAI.models == ["A.X-K2"]
+    assert _FakeOpenAI.created == ["https://ax.invalid/v1"]
+
+
+@pytest.mark.parametrize("behavior", ["connection", "rate_limit", "empty"])
+def test_subject_split_has_no_fallback_provider(monkeypatch, behavior):
+    # 대상 나누기는 K2 전용이다. K2가 못 하면 KT·EXAONE에 넘기지 않고 나누지 않는다(S3 판정 2026-10-23).
+    _real_llm(monkeypatch, behavior)
+
+    assert asyncio.run(subject_splitter.split_by_subject(_events(6))) == [[0, 1, 2, 3, 4, 5]]
+    assert _FakeOpenAI.models == ["A.X-K2"]
+    assert _FakeOpenAI.created == ["https://ax.invalid/v1"]

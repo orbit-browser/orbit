@@ -4,14 +4,15 @@
 (S1 검증셋 47개 중 44개), 의도 분석 LLM은 그 묶음을 상위 범주 세션 하나로 만든다. 그래서 이벤트가
 많은 묶음에만 LLM에게 이벤트마다 대상을 묻고, 대상이 둘 이상이면 대상별 묶음으로 나눠 의도 분석에 넘긴다.
 
-실패(호출 오류, 형식 오류)는 나누지 않는 쪽(지금 동작)으로 둔다. 판단이 어려우면 같은 대상으로 두라고
-지시한다 — 한 주제를 쪼개는 과분할(origin #22)이 형제를 합치는 것보다 사용자에게 더 거슬린다.
+호출은 A.X 전용이고 폴백이 없다. 실패(호출 오류, 형식 오류)는 나누지 않는 쪽(지금 동작)으로 둔다.
+판단이 어려우면 같은 대상으로 두라고 지시한다 — 한 주제를 쪼개는 과분할(origin #22)이 형제를 합치는 것보다
+사용자에게 더 거슬린다. 설정 subject_split_enabled(기본 끔)로 켠다.
 """
 
 import logging
 
 from ..ai.json_utils import extract_json
-from ..ai.llm import chat_completion_intent
+from ..ai.llm import chat_completion_ax_only
 from .intent_analyzer import _format_event_line
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,7 @@ async def split_by_subject(events: list[dict]) -> list[list[int]]:
         events_text="\n".join(_format_event_line(i, e) for i, e in enumerate(events))
     )
     try:
-        raw, model = await chat_completion_intent(_SYSTEM_PROMPT, prompt, temperature=0.0, max_tokens=400)
+        raw, model = await chat_completion_ax_only(_SYSTEM_PROMPT, prompt, temperature=0.0, max_tokens=400)
     except Exception as exc:
         logger.warning("Subject split call failed (%s); keeping the subcluster whole", type(exc).__name__)
         return whole

@@ -825,8 +825,40 @@ def test_process_group_analyzes_each_subject_of_a_large_subcluster_separately(mo
 
     monkeypatch.setattr(sync_pipeline, "split_by_subject", split)
     monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+    monkeypatch.setattr(sync_pipeline.settings, "subject_split_enabled", True)
 
     asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
 
     assert sorted(seen) == [["e0", "e2", "e4"], ["e1", "e3", "e5"]]
     assert applied == [["e0", "e2", "e4"], ["e1", "e3", "e5"]]
+
+
+def test_subject_split_is_off_by_default_and_then_leaves_subclusters_alone(monkeypatch):
+    # 꺼짐(기본)이면 서브클러스터를 그대로 의도 분석에 넘긴다 — 대상 나누기 전 main과 같다.
+    from app.config import Settings
+
+    assert Settings.model_fields["subject_split_enabled"].default is False
+    events, applied = _group_fakes(monkeypatch, [[0, 1, 2, 3, 4, 5], [6]])
+    events.append({"id": "e6", "url": "https://example.com/6", "title": "t6", "workspace_id": None})
+    seen: list[list[str]] = []
+
+    split_calls: list[int] = []
+
+    async def must_not_split(cluster_events):
+        # 예외를 던지면 _split_clusters_by_subject가 삼키므로 호출 자체를 센다.
+        split_calls.append(len(cluster_events))
+        return [list(range(len(cluster_events)))]
+
+    async def analyze(cluster_events, _candidates):
+        seen.append([e["id"] for e in cluster_events])
+        return [sync_pipeline.Assignment(list(range(len(cluster_events))), "create", title="t")]
+
+    monkeypatch.setattr(sync_pipeline, "split_by_subject", must_not_split)
+    monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+    monkeypatch.setattr(sync_pipeline.settings, "subject_split_enabled", False)
+
+    asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+
+    assert split_calls == []
+    assert seen == [["e0", "e1", "e2", "e3", "e4", "e5"], ["e6"]]
+    assert applied == seen
