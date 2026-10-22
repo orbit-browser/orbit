@@ -2858,3 +2858,60 @@ body {
     animation: none;
   }
 }
+
+/* ═══════════════ 팀 접근 상실 안내 ═══════════════ */
+
+.team-access-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 12px 12px 12px 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--bg-canvas);
+  color: var(--text-main);
+  font-size: 13.5px;
+  box-shadow: var(--card-shadow);
+  translate: -50% 0;
+  animation: team-notice-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.team-access-notice button {
+  flex: none;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 9px;
+  background: var(--text-main);
+  color: var(--bg-canvas);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.team-access-notice button:hover {
+  opacity: 0.88;
+  box-shadow: 0 4px 14px var(--shadow-warm);
+}
+
+@keyframes team-notice-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 움직임은 빼고 나타남(투명도)만 남긴다 */
+@keyframes team-notice-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-access-notice {
+    animation-name: team-notice-fade;
+  }
+}

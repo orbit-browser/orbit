@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { queryClient } from '../../lib/query-client';
+import { queryClient, trackWindowFocus } from '../../lib/query-client';
 // 시안은 Phosphor 를 CDN <script> 로 불러왔다. MV3 CSP 에서 막히므로 로컬 번들로 바꿨다.
 import './styles/phosphor.css';
 import './styles/index.css';
@@ -10,6 +10,7 @@ import { OrbitAtlasPage } from './pages/OrbitAtlasPage';
 import { getRoute, isOnboardingLaunch } from './lib/navigation';
 import { LoginScreen } from './components/sections/LoginScreen';
 import { OnboardingLaunch } from './components/sections/OnboardingLaunch';
+import { TeamAccessNotice } from './components/layout/TeamAccessNotice';
 import { useAuth } from '../../lib/useAuth';
 import { useOrbitSettings } from './hooks/useOrbitSettings';
 import { useTheme } from './hooks/useTheme';
@@ -64,8 +65,15 @@ function Root() {
     );
   }
 
-  return route === 'orbit-atlas' ? <OrbitAtlasPage /> : <App />;
+  return (
+    <>
+      {route === 'orbit-atlas' ? <OrbitAtlasPage /> : <App />}
+      <TeamAccessNotice />
+    </>
+  );
 }
+
+trackWindowFocus();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -1,5 +1,5 @@
 import type { SessionNode } from '../atlas/data';
-import { formatMinutes } from '../atlas/data';
+import { formatMinutes, sharerLabel } from '../atlas/data';
 
 export interface ExplorationEntry {
   session: SessionNode;
@@ -44,6 +44,12 @@ export function RecentExploration({ items, onSelect }: RecentExplorationProps) {
                   <span>{formatMinutes(session.minutes)}</span>
                   <span className="dot-sep" />
                   <span>페이지 {session.pages.length}개</span>
+                  {session.sharedBy && (
+                    <>
+                      <span className="dot-sep" />
+                      <span>{sharerLabel(session)}</span>
+                    </>
+                  )}
                 </span>
 
                 <span className="page-tags">

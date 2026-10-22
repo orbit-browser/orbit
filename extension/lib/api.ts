@@ -328,12 +328,24 @@ async function handleUnauthorized(): Promise<never> {
   throw new AuthRequiredError('세션이 만료되었어요. 다시 로그인해 주세요.');
 }
 
+/** 서버가 2xx 가 아닌 응답을 줬다. 상태와 경로를 남겨 팀 접근 상실(403/404) 같은 경우를 가려낸다. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly path: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, await authorized(init));
   if (res.status === 401) await handleUnauthorized();
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`[Orbit API] ${init?.method ?? 'GET'} ${path} ${res.status}: ${body}`);
+    throw new ApiError(`[Orbit API] ${init?.method ?? 'GET'} ${path} ${res.status}: ${body}`, res.status, path);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

@@ -51,5 +51,7 @@ export function useAtlasData(workspaceId: string | null = null) {
     // 범위마다 따로 캐시한다. ATLAS_QUERY_KEY 로 무효화하면 모든 범위가 함께 갱신된다.
     queryKey: [...ATLAS_QUERY_KEY, workspaceId],
     queryFn: () => fetchAtlasData(workspaceId),
+    // 돌아왔을 때 팀 범위는 신선해도 다시 받는다 — 공유가 풀린 세션이 남아 있으면 안 된다.
+    refetchOnWindowFocus: workspaceId ? 'always' : true,
   });
 }
