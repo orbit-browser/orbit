@@ -23,7 +23,10 @@ class CreateWorkspaceRequest(BaseModel):
 
 
 class UpdateWorkspaceRequest(BaseModel):
-    name: WorkspaceName
+    """부분 갱신 — 보낸 필드만 바꾼다. collect_allowed 를 끄면 그 팀의 열린 수집 창이 모두 끝난다."""
+
+    name: WorkspaceName | None = None
+    collect_allowed: bool | None = None
 
 
 class JoinWorkspaceRequest(BaseModel):
@@ -35,7 +38,28 @@ class ShareSessionsRequest(BaseModel):
     session_ids: list[str] = Field(min_length=1, max_length=200)
 
 
+DeviceId = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+# 수집 창 길이(분). 최대 8시간 — 무기한 켜기는 없다(docs/team-collect-mode.md §1.3).
+CollectDuration = Literal[30, 60, 120, 240, 480]
+StopReason = Literal["stop", "pause", "browser_restart", "account_switch"]
+
+
+class StartCollectRequest(BaseModel):
+    device_id: DeviceId
+    duration_minutes: CollectDuration = 120
+    # 확장이 보여 준 팀 수집 동의 문구의 버전. user_settings 에 기록한다(§7.2).
+    consent_version: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32)]
+
+
 # ── 응답 ──────────────────────────────────────────────
+
+
+class CollectWindowItem(BaseModel):
+    window_id: str
+    workspace_id: str
+    device_id: str
+    started_at: str
+    expires_at: str
 
 
 class WorkspaceItem(BaseModel):
@@ -45,6 +69,41 @@ class WorkspaceItem(BaseModel):
     role: WorkspaceRole
     member_count: int
     created_at: str
+    collect_allowed: bool = False
+    # 이 기기(`GET /workspaces?device_id=`)의 활성 수집 창. device_id 를 주지 않으면 항상 null.
+    my_collect: CollectWindowItem | None = None
+
+
+class CollectingMember(BaseModel):
+    user_id: str
+    name: str | None = None
+    picture: str | None = None
+    expires_at: str
+
+
+class CollectStatusResponse(BaseModel):
+    allowed: bool
+    # 이 팀에 대한 내 모든 기기의 활성 창(다른 기기에서 켠 것을 끄기 위해, S3).
+    my_windows: list[CollectWindowItem]
+    # 지금 이 팀으로 수집 중인 멤버. 남의 기기 정보는 싣지 않는다.
+    collecting: list[CollectingMember]
+
+
+class StartCollectResponse(BaseModel):
+    window: CollectWindowItem
+    # 확장이 기기 시계 차이를 보정하는 기준(S1). 서버 판정을 대신하지 않는다.
+    server_now: str
+    # 같은 기기에서 다른 팀 수집이 켜져 있었다면 그 팀 id(이번 시작으로 끝났다).
+    ended_workspace_id: str | None = None
+
+
+class WithdrawResponse(BaseModel):
+    # 세션에 묶이기 전이라 개인으로 돌린 방문 수.
+    withdrawn_events: int
+    # 이미 세션이 된 이 창의 내 세션 — 돌아보기 목록을 갱신해 세션별로 뺄 수 있게 한다.
+    sessions: list[SessionDetail]
+    # 이 창이 지금 끝난 상태인가. 열린 창을 빼면 창도 함께 끝낸다(S'3).
+    window_closed: bool
 
 
 class WorkspaceMemberItem(BaseModel):
@@ -75,6 +134,8 @@ class WorkspaceSessionItem(SessionDetail):
 
     shared_by: MemberBrief
     shared_at: str
+    # 이 팀의 수집 창 방문으로 만들어진 세션인가(수동 공유와 구분해 표시한다).
+    collected: bool = False
 
 
 class ShareResult(BaseModel):

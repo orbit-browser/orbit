@@ -76,6 +76,9 @@ def test_event_ingest_result_fields():
         "duplicates": 2,
         "filtered": 3,
         "pending_total": 4,
+        "team_accepted": 0,
+        "team_downgraded": 0,
+        "window_closed": False,
     }
 
 

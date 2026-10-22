@@ -24,6 +24,10 @@ class ExplorationEventIn(BaseModel):
     content_excerpt: str = ""
     source: str = "browser"
     device_id: str | None = None
+    # 팀 수집 표시(docs/team-collect-mode.md §2.2·§5). 클라이언트의 요청일 뿐이며 서버가 창·기기·멤버십·시각·
+    # 민감/제외 판정을 통과할 때만 저장한다. 둘 다 있어야 판정한다. window_id(브라우저 창 번호)와 다른 값이다.
+    workspace_id: str | None = Field(default=None, max_length=36)
+    collect_window_id: str | None = Field(default=None, max_length=36)
 
     @field_validator("id")
     @classmethod
@@ -48,6 +52,11 @@ class EventIngestResult(BaseModel):
     duplicates: int
     filtered: int
     pending_total: int
+    # 팀 표시를 받아들인 수 / 팀 표시를 지우고 개인으로 저장한 수(이유는 알리지 않는다).
+    team_accepted: int = 0
+    team_downgraded: int = 0
+    # 요청이 가리킨 수집 창 중 서버에서 이미 끝난 것이 있다 — 확장이 로컬 수집 상태를 끄는 유일한 신호(S'5).
+    window_closed: bool = False
 
 
 class PendingCountResponse(BaseModel):
