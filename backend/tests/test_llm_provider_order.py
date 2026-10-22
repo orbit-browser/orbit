@@ -5,7 +5,13 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from openai import APIConnectionError, AuthenticationError, OpenAIError, RateLimitError
+from openai import (
+    APIConnectionError,
+    AuthenticationError,
+    OpenAIError,
+    PermissionDeniedError,
+    RateLimitError,
+)
 
 from app.ai import llm
 from app.config import Settings
@@ -21,7 +27,7 @@ def _status_error(cls, code: int):
 class _FakeOpenAI:
     """AsyncOpenAI 대역. 클라이언트 설정과 호출 인자를 기록하고, 모델별 실패를 흉내 낸다.
 
-    failures: 모델 → "connection" | "rate_limit" | "auth" | "empty". 빈 api_key로 만들면 실제 SDK처럼
+    failures: 모델 → "connection" | "rate_limit" | "auth" | "forbidden" | "empty". 빈 api_key로 만들면 실제 SDK처럼
     생성자에서 OpenAIError를 던진다.
     """
 
@@ -44,6 +50,8 @@ class _FakeOpenAI:
             raise _status_error(RateLimitError, 429)
         if failure == "auth":
             raise _status_error(AuthenticationError, 401)
+        if failure == "forbidden":
+            raise _status_error(PermissionDeniedError, 403)
         content = "  " if failure == "empty" else f"from {model}"
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
@@ -97,11 +105,16 @@ def test_intent_falls_back_to_exaone_without_thinking(monkeypatch, failure):
     assert _FakeOpenAI.calls[1]["extra_body"] == _NO_THINKING
 
 
-def test_intent_raises_on_auth_error_without_fallback(monkeypatch):
-    # 401은 설정 오류다. EXAONE으로 가리지 않고 올려서 analyze가 그룹을 hold하게 한다.
-    _setup(monkeypatch, {"A.X-K2": "auth"})
+@pytest.mark.parametrize("failure,error", [
+    ("auth", AuthenticationError),
+    # 403은 옛 .env의 AXK1_MODEL=A.X-K1(모델 권한 없음)에서 실제로 난다(품질 회의 2026-10-22-intent-k2).
+    ("forbidden", PermissionDeniedError),
+])
+def test_intent_raises_on_auth_error_without_fallback(monkeypatch, failure, error):
+    # 401·403은 설정 오류다. EXAONE으로 가리지 않고 올려서 analyze가 그룹을 hold하게 한다(CTO 결정 2026-10-22).
+    _setup(monkeypatch, {"A.X-K2": failure})
 
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(error):
         asyncio.run(llm.chat_completion_intent("s", "u"))
     assert _models() == ["A.X-K2"]
 

@@ -9,10 +9,12 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
+
 from fastapi import HTTPException
 
-from app.api import ask
+from app.api import ask, workspaces
 from app.services import ask_service
+from tests.test_workspace_security import db  # noqa: F401 — 실제 SQL을 돌리는 메모리 SQLite 픽스처
 
 _NOW = datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc)
 
@@ -122,17 +124,40 @@ def test_vector_search_receives_requesting_user(monkeypatch):
     assert captured["query"] == "교토"
 
 
-def test_previous_sources_are_loaded_only_for_the_requesting_user():
-    """후속 질문의 이전 출처 id는 클라이언트가 보낸 값 — 소유자·활성 조건으로만 불러온다."""
-    db = _FakeDB()
-    history = [SimpleNamespace(query="이전", answer="답", source_session_ids=["s1", "other"])]
+def _history_body(source_ids, workspace_id=None):
+    history = [SimpleNamespace(query="이전", answer="답", source_session_ids=source_ids)]
+    body = _body(history=history)
+    body.workspace_id = workspace_id
+    return body
 
-    sources = asyncio.run(ask._previous_sources(_body(history=history), db, _OWNER))
 
-    assert sources == []
-    where_clause = str(db.executed[0])
-    assert "user_id" in where_clause
-    assert "status" in where_clause
+@pytest.mark.parametrize("user,workspace_id,requested,expected", [
+    # (a) 개인 범위: 남의 세션 id를 보내도 내 세션만 남는다
+    ("bob", None, ["bob-private", "private", "shared"], ["bob-private"]),
+    # (b) 팀 범위: 팀원이 공유한 세션은 남이 소유했어도 들어온다
+    ("bob", "alpha", ["shared", "bob-shared"], ["shared", "bob-shared"]),
+    # (c) 다른 팀에만 공유됐거나, 공유한 사람이 팀을 떠났거나, 공유하지 않은 세션은 빠진다
+    ("bob", "alpha", ["other-team", "departed-share", "private", "eve-private"], []),
+    # (d) merged 세션은 빠진다 — 개인·팀 둘 다
+    ("alice", None, ["absorbed", "private"], ["private"]),
+    ("bob", "alpha", ["absorbed"], []),
+])
+def test_previous_sources_follow_request_scope_with_real_sql(db, user, workspace_id, requested, expected):
+    """후속 질문의 직전 출처 id는 클라이언트가 보낸 값이다. 읽을 수 있는 세션만 출처가 된다."""
+    sources = asyncio.run(ask._previous_sources(_history_body(requested, workspace_id), db, user))
+
+    assert [s.session_id for s in sources] == expected
+
+
+def test_previous_sources_drop_session_unshared_after_answer(db):
+    """(c) 직전 답변 뒤 공유를 끊은 세션은 다음 턴의 출처로 다시 들어오지 않는다."""
+    asyncio.run(workspaces.unshare_session("alpha", "bob-shared", db, "bob"))
+
+    sources = asyncio.run(ask._previous_sources(_history_body(["bob-shared", "shared"], "alpha"), db, "alice"))
+
+    assert [s.session_id for s in sources] == ["shared"]
+    # 팀원에게 가는 카드에는 소유자 개인 정보(폴더)를 싣지 않는다
+    assert sources[0].folder_id is None
 
 
 def test_previous_sources_skip_query_without_history():
@@ -206,15 +231,18 @@ def test_followup_after_session_discovery_keeps_new_results_and_caps_previous(mo
 # ── _load_context_records ──────────────────────────────────────
 
 
-def test_context_loading_filters_by_owner():
-    """이중 방어 — 호출측이 걸렀더라도 컨텍스트 로딩에서 한 번 더 소유자를 건다."""
-    db = _FakeDB()
+@pytest.mark.parametrize("user,workspace_id,requested,expected", [
+    ("bob", None, ["bob-private", "private", "shared"], {"bob-private"}),
+    ("bob", "alpha", ["shared", "bob-shared", "other-team", "absorbed", "departed-share"], {"shared", "bob-shared"}),
+    ("alice", None, ["absorbed", "private"], {"absorbed", "private"}),
+])
+def test_context_loading_follows_request_scope_with_real_sql(db, user, workspace_id, requested, expected):
+    """이중 방어 — 호출측이 걸렀더라도 본문 로딩이 같은 SQL에서 범위를 다시 판정한다.
+    개인 범위의 merged 세션은 소유자 본인이 지정해 읽을 수 있으므로 남는다(호출측이 막는다)."""
+    models, rows = asyncio.run(ask_service._load_context_records(db, requested, user, workspace_id))
 
-    asyncio.run(ask_service._load_context_records(db, ["s1", "s2"], _OWNER))
-
-    assert db.executed, "세션 조회가 실행되지 않았다"
-    where_clause = str(db.executed[0])
-    assert "user_id" in where_clause, "세션 조회에 소유자 조건이 없다"
+    assert set(models) == expected
+    assert {session_event.session_id for session_event, _event in rows} == expected
 
 
 def test_context_loading_skips_query_when_no_sessions():
