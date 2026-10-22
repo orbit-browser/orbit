@@ -520,17 +520,22 @@ export async function handleAccountSwitch(previous: AuthSession | null): Promise
  */
 export async function finishAccountSwitch(item: RetryItem | null, token?: string): Promise<void> {
   if (!item) return;
-  if (await hasUnsentEvents(item.accountId)) {
+  if (item.kind === 'stop' && (await hasUnsentWindowEvents(item.accountId, item.windowId))) {
     await queueRetry(item);
     return;
   }
   await sendOrQueue(item, token);
 }
 
-/** 이 계정의 아직 서버에 닿지 않은 방문이 있는가(open·pending·syncing). */
-async function hasUnsentEvents(accountId: string): Promise<boolean> {
+/**
+ * 끄려는 그 창의 표시를 단 방문 중 아직 서버에 닿지 않은 것이 있는가(open·pending·syncing).
+ * 개인 방문·다른 창 방문은 세지 않는다 — 세면 브라우징 중엔 늘 참이라 일반 끄기가 만료까지 밀린다.
+ * 창 id 가 없는 옛 항목은 팀 표시가 붙은 미전송 방문 전체로 본다.
+ */
+async function hasUnsentWindowEvents(accountId: string, windowId: string | undefined): Promise<boolean> {
   for (const status of ['open', 'pending', 'syncing'] as const) {
-    if ((await listByStatus(status, accountId)).length > 0) return true;
+    const events = await listByStatus(status, accountId);
+    if (events.some((e) => (windowId ? e.collectWindowId === windowId : !!e.collectWindowId))) return true;
   }
   return false;
 }
@@ -629,11 +634,10 @@ async function retryLocked(): Promise<void> {
   const items = (stored[RETRY_KEY] as RetryItem[] | undefined) ?? [];
   const done: RetryItem[] = [];
   let failed = false;
-  // 끄기는 그 계정의 방문이 모두 나간 뒤에만 보낸다(창보다 방문이 늦게 닿으면 개인으로 강등된다).
-  const unsent = await hasUnsentEvents(session.user.id);
   for (const item of items) {
     if (item.accountId !== session.user.id) continue;
-    if (item.kind === 'stop' && unsent) {
+    // 끄기는 그 창의 방문이 모두 나간 뒤에만 보낸다(창보다 방문이 늦게 닿으면 개인으로 강등된다).
+    if (item.kind === 'stop' && (await hasUnsentWindowEvents(item.accountId, item.windowId))) {
       failed = true;
       continue;
     }

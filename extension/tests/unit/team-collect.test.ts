@@ -809,3 +809,35 @@ describe('계정 전환 순서 — 이전 계정 방문을 보낸 뒤 창 끄기
     expect(order()).toEqual(['POST /events Bearer token-b2', 'DELETE /workspaces/ws-1/collect Bearer token-b2']);
   });
 });
+
+describe('끄기 재시도는 그 창의 미전송 방문만 기다린다', () => {
+  const retryItems = async () =>
+    ((await chrome.storage.local.get('orbit:teamCollectRetry'))['orbit:teamCollectRetry'] as unknown[] | undefined) ?? [];
+
+  it('개인 방문·다른 창 방문·열린 방문이 있어도 그 창 방문이 없으면 끄기가 바로 나간다', async () => {
+    await signIn();
+    await seedActive({ windowId: 'cw-1' });
+    failDelete = true;
+    await endTeamCollect(USER, 'stop');
+    await addEvent(makeInput({ accountId: USER })); // 개인, open
+    const { finalizeOpenEvent } = await import('../../lib/events/queue');
+    const other = await addEvent(makeInput({ accountId: USER, workspaceId: 'ws-1', collectWindowId: 'cw-0' }));
+    await finalizeOpenEvent(other.eventId, new Date().toISOString()); // 다른 창, pending
+    failDelete = false;
+    await retryTeamCollectRequests();
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(2);
+    expect(await retryItems()).toEqual([]);
+  });
+
+  it('그 창 표시를 단 미전송 방문이 있으면 끄기를 뒤로 미룬다', async () => {
+    await signIn();
+    await seedActive({ windowId: 'cw-1' });
+    failDelete = true;
+    await endTeamCollect(USER, 'stop');
+    await addEvent(makeInput({ accountId: USER, workspaceId: 'ws-1', collectWindowId: 'cw-1' }));
+    failDelete = false;
+    await retryTeamCollectRequests();
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
+    expect(await retryItems()).toHaveLength(1);
+  });
+});
