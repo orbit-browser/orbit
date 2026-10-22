@@ -9,6 +9,7 @@ import { fetchTabSnapshots } from '../../lib/useTabSnapshots';
 import {
   canSnapshotUrl,
   captureVisibleTab,
+  initTabCapture,
   MIN_CAPTURE_GAP_MS,
   resetCaptureThrottle,
   SAME_PAGE_INTERVAL_MS,
@@ -348,6 +349,41 @@ describe('켜기·끄기와 권한 (보안 검토 M1·M2)', () => {
     resetCaptureThrottle();
     activeTabs = [tab({ url: 'https://example.com/after-off' })];
     expect(await captureVisibleTab(WINDOW)).toBe(false);
+  });
+
+  it('크롬이 반납을 거절해 권한이 남으면 알리고, 설정은 꺼진 채로 둔다', async () => {
+    await signIn();
+    (chrome.permissions.remove as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      throw new Error('cannot remove required permission');
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(await disableTabSnapshots()).toBe(false);
+    expect(permissionGranted).toBe(true);
+    expect((await getSettings()).tabSnapshotsEnabled).toBe(false);
+    expect(warn).toHaveBeenCalled();
+    expect(await captureVisibleTab(WINDOW)).toBe(false);
+  });
+
+  it('반납이 되면 true', async () => {
+    await signIn();
+    expect(await disableTabSnapshots()).toBe(true);
+  });
+
+  it('크롬 설정에서 사이트 접근을 거두면(onRemoved) 미리보기 설정도 끈다', async () => {
+    await signIn();
+    let listener: ((p: chrome.permissions.Permissions) => void) | undefined;
+    (chrome.permissions as unknown as { onRemoved: unknown }).onRemoved = {
+      addListener: (fn: typeof listener) => (listener = fn),
+    };
+    initTabCapture();
+    listener!({ origins: ['https://other.example/*'] });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await getSettings()).tabSnapshotsEnabled).toBe(true);
+    listener!({ origins: ['<all_urls>'] });
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await getSettings()).tabSnapshotsEnabled).toBe(false);
+    await putSnapshot(USER, PAGE, 'data:a');
+    expect(await fetchTabSnapshots([PAGE])).toEqual({});
   });
 
   it('끄면 이미 찍은 사진도 화면에 내주지 않는다(지우지는 않는다)', async () => {

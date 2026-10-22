@@ -786,13 +786,13 @@ export const SNAPSHOT_NOTICE =
  */
 function TabSnapshotSection({ enabled }: { enabled: boolean }) {
   const { state, clear, disabled } = useClearSnapshots();
-  const [note, setNote] = useState<'denied' | 'ask-clear' | null>(null);
+  const [note, setNote] = useState<'denied' | 'ask-clear' | 'still-granted' | null>(null);
   const toggle = (next: boolean) => {
     if (next) {
       // 권한 요청은 클릭 처리기 안에서 곧바로 불러야 크롬이 받아 준다.
       void enableTabSnapshots().then((granted) => setNote(granted ? null : 'denied'));
     } else {
-      void disableTabSnapshots().then(() => setNote('ask-clear'));
+      void disableTabSnapshots().then((released) => setNote(released ? 'ask-clear' : 'still-granted'));
     }
   };
   return (
@@ -805,6 +805,13 @@ function TabSnapshotSection({ enabled }: { enabled: boolean }) {
       </Row>
       {note === 'denied' && (
         <Row nested label="권한을 받지 못해 켜지 않았어요" description="다시 켜면 크롬이 한 번 더 물어요." />
+      )}
+      {note === 'still-granted' && (
+        <Row
+          nested
+          label="미리보기는 껐지만 크롬이 사이트 접근 권한을 돌려받지 못했어요"
+          description="크롬 확장 설정의 사이트 접근에서 직접 끌 수 있어요. 미리보기는 꺼져 있어 화면을 찍지 않아요."
+        />
       )}
       {note === 'ask-clear' && (
         <Row nested label="저장된 미리보기도 지울까요?" description="꺼 둔 동안에는 저장된 사진도 보이지 않아요.">

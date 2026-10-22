@@ -6,7 +6,7 @@
 import { getSession } from './auth';
 import { getSettings, hasCollectionConsent } from './settings';
 import { isTeamBlockedUrl } from './sensitive-domains';
-import { hasSnapshotPermission, putSnapshot, snapshotCapturedAt } from './tab-snapshots';
+import { handlePermissionRemoved, hasSnapshotPermission, putSnapshot, snapshotCapturedAt } from './tab-snapshots';
 
 /** 같은 페이지는 이 간격 안에 다시 찍지 않는다. */
 export const SAME_PAGE_INTERVAL_MS = 10 * 60 * 1000;
@@ -113,4 +113,7 @@ export function initTabCapture(): void {
   });
   chrome.tabs.onActivated.addListener(({ windowId }) => scheduleCapture(windowId));
   chrome.windows.onFocusChanged.addListener((windowId) => scheduleCapture(windowId));
+  chrome.permissions.onRemoved.addListener((removed) => {
+    handlePermissionRemoved(removed).catch((err) => console.error('[Orbit] snapshot permission sync failed', err));
+  });
 }

@@ -176,8 +176,21 @@ export async function enableTabSnapshots(): Promise<boolean> {
   return granted;
 }
 
-/** 미리보기 끄기. 설정을 먼저 끄고(찍기·표시가 멈춘다) 권한을 돌려준다. 사진은 지우지 않는다(화면이 묻는다). */
-export async function disableTabSnapshots(): Promise<void> {
+/**
+ * 미리보기 끄기. 설정을 먼저 끄고(찍기·표시가 멈춘다) 권한을 돌려준다. 사진은 지우지 않는다(화면이 묻는다).
+ * 크롬이 반납을 거절할 수 있어(예: 다른 선언과 겹침) 다시 확인한다. 권한이 남았으면 false — 화면은
+ * 크롬 확장 설정에서 직접 끄도록 안내한다. 설정은 어느 경우든 꺼져 있어 찍지 않는다.
+ */
+export async function disableTabSnapshots(): Promise<boolean> {
   await updateSettings({ tabSnapshotsEnabled: false });
   await chrome.permissions.remove(SNAPSHOT_PERMISSION).catch(() => false);
+  if (!(await hasSnapshotPermission())) return true;
+  console.warn('[Orbit] <all_urls> permission is still granted after remove');
+  return false;
+}
+
+/** 사용자가 크롬 확장 설정에서 사이트 접근을 거두면 미리보기 설정도 끈다(표시도 멈춘다). */
+export async function handlePermissionRemoved(removed: chrome.permissions.Permissions): Promise<void> {
+  if (!removed.origins?.includes('<all_urls>')) return;
+  await updateSettings({ tabSnapshotsEnabled: false });
 }
