@@ -29,11 +29,6 @@ from app.services.recommender import service as recommender
 from app.services.recommender.llm_rerank import RecommendationContext
 
 
-async def _no_conflations(_prompt: str, _answer: str) -> list:
-    """Ask 답변 뒤 검증(find_conflations)의 대역. 이 시험은 검증 결과를 보지 않는다."""
-    return []
-
-
 class MemoryDB:
     """Async-shaped adapter; the production statements execute unchanged."""
 
@@ -178,8 +173,16 @@ def api(db, monkeypatch):
             )
         return scored
 
+    generated: list[str] = []
+    verified: list[str] = []
+
     async def answer(_system, prompt):
+        generated.append(prompt)
         yield prompt, "test-model"
+
+    async def verify(prompt, _answer):
+        verified.append(prompt)
+        return []
 
     async def no_delete(_sid):
         pass
@@ -189,7 +192,7 @@ def api(db, monkeypatch):
     monkeypatch.setattr(search, "search_similar_with_scores", scored_vector_results)
     monkeypatch.setattr(ask_service, "score_passages", score)
     monkeypatch.setattr(ask, "chat_completion_stream_with_meta", answer)
-    monkeypatch.setattr(ask, "find_conflations", _no_conflations)
+    monkeypatch.setattr(ask, "find_conflations", verify)
     monkeypatch.setattr(sessions, "delete_point", no_delete)
 
     def request(method, path, user="bob", **kwargs):
@@ -200,7 +203,10 @@ def api(db, monkeypatch):
                 return await client.request(method, path, headers={"x-test-user": user}, **kwargs)
         return asyncio.run(send())
 
-    return request
+    yield request
+
+    # 답변 뒤 검증기도 생성과 같은 범위의 프롬프트만 받아야 한다(품질 회의 2026-10-23-provider-gaps).
+    assert verified == generated
 
 
 @pytest.mark.parametrize("suffix", ["", "/events", "/versions"])

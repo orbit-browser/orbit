@@ -15,11 +15,6 @@ from app.services.ask_service import AskContext, grounded_answer
 from app.services.intent_analyzer import Assignment
 
 
-async def _no_conflations(_prompt: str, _answer: str) -> list:
-    """Ask 답변 뒤 검증(find_conflations)의 대역. 이 시험은 검증 결과를 보지 않는다."""
-    return []
-
-
 @pytest.mark.parametrize("score", [None, float("nan"), float("inf")])
 def test_append_requires_verified_similarity(score):
     # The trial's old sessions were all recent. Recency alone is not topic evidence.
@@ -207,12 +202,19 @@ def test_gpu_answer_replay_streams_then_replaces_denial(monkeypatch, caplog):
 
 
 def test_grounded_stream_has_no_replace(monkeypatch):
-    async def fine(_system, _prompt):
+    async def fine(_system, prompt):
+        prompts["generated"] = prompt
         yield "Blender 페이지를 ", "replay"
         yield "방문했어요 [1].", "replay"
 
+    async def verify(prompt, answer):
+        prompts["verified"] = prompt
+        assert answer == "Blender 페이지를 방문했어요 [1]."
+        return []
+
+    prompts: dict[str, str] = {}
     monkeypatch.setattr(ask, "chat_completion_stream_with_meta", fine)
-    monkeypatch.setattr(ask, "find_conflations", _no_conflations)
+    monkeypatch.setattr(ask, "find_conflations", verify)
     raw = json.loads((Path(__file__).parent / "fixtures/ui_trial_answer.json").read_text())
     context = AskContext([SessionDetail.model_validate(raw["sources"][1])], "prompt")
 
@@ -222,6 +224,8 @@ def test_grounded_stream_has_no_replace(monkeypatch):
     text, kinds = _displayed(asyncio.run(collect()))
     assert kinds == ["sources", "delta", "delta", "done"]
     assert text == "Blender 페이지를 방문했어요 [1]."
+    # 검증기는 답변을 만든 것과 같은 프롬프트(같은 근거 범위)만 받는다.
+    assert prompts["verified"] == prompts["generated"] == context.prompt
 
 
 def test_empty_generation_with_sources_is_not_silent_success(monkeypatch):
