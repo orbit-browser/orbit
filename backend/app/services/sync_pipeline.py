@@ -36,6 +36,10 @@ logger = logging.getLogger(__name__)
 
 _GAP_MINUTES = 30
 _MAX_GROUP_SIZE = 25
+# 배치 안 LLM 호출 동시 상한. 첫 배치 지연의 89%가 요약·의도 분석을 차례로 부르는 데서 났다(2026-10-23 측정).
+# 공급자 리미터(llm._throttle)가 RPS를 따로 지키므로 여기서는 동시에 기다리는 호출 수만 묶는다.
+_INTENT_CONCURRENCY = 2
+_SUMMARY_CONCURRENCY = 2
 _CANDIDATE_VECTOR_LIMIT = 3
 _CANDIDATE_RECENT_LIMIT = 5
 _CANDIDATE_RECENT_HOURS = 24
@@ -448,27 +452,45 @@ async def _process_group(
 
     # phase 1 — 클러스터별 후보검색 + 의도분석 + 게이트. apply 전에 모두 수행해, 클러스터가
     # 서로가 방금 만든 세션을 후보로 잡아 쪼갠 주제를 다시 붙이는 것(재병합)을 막는다.
-    pending: list[tuple[list[dict], list[Assignment]]] = []
-    models_used: list[str] = []
+    # 읽기와 LLM 호출뿐이라 클러스터끼리 동시에 돈다(상한 _INTENT_CONCURRENCY). 잠금은 phase 2에서만 잡는다.
     # 한 배치는 한 스트림이다(_claim_pending_events). 반영 직전 재판정은 apply_assignments가 한다.
     stream = filtered_group[0].get("workspace_id")
-    for idx_group in clusters_idx:
+
+    async def analyze_cluster(idx_group: list[int]) -> tuple[list[dict], list[Assignment]]:
         cluster_events = [filtered_group[i] for i in idx_group]
         centroid = _centroid([embeddings[i] for i in idx_group])
         candidates = await _fetch_candidates(centroid, user_id, workspace_id=stream)
         assignments = await intent_analyzer.analyze(cluster_events, candidates)
         assignments = _gate_appends(_merge_split_topic(assignments), candidates)
-        assignments = _guard_discards(assignments, cluster_events, counts)
-        pending.append((cluster_events, assignments))
-        models_used.extend(a.model for a in assignments if a.model)
+        return cluster_events, _guard_discards(assignments, cluster_events, counts)
 
-    # phase 2 — 세션 생성/갱신 반영
+    results = await _gather_limited(_INTENT_CONCURRENCY, clusters_idx, analyze_cluster)
+    for result in results:
+        # 후보 검색 실패 같은 오류는 예전처럼 그룹 전체를 실패시킨다(_process_batch가 pending으로 되돌린다).
+        if isinstance(result, BaseException):
+            raise result
+    pending: list[tuple[list[dict], list[Assignment]]] = results
+    models_used = [a.model for _events, assignments in pending for a in assignments if a.model]
+
+    # phase 2 — 세션 생성/갱신 반영. 클러스터 순서대로 하나씩(팀 수집 재판정과 창→세션 잠금 순서를 그대로 둔다).
     for cluster_events, assignments in pending:
         async with AsyncSessionLocal() as db:
             touched_ids = await apply_assignments(db, cluster_events, assignments, batch_id)
         touched.update(touched_ids)
 
     return models_used
+
+
+async def _gather_limited(limit: int, items: list, fn) -> list:
+    """items마다 fn을 동시 limit개까지 돌려 입력 순서대로 결과를 돌려준다. 예외도 결과 자리에 담는다
+    (하나가 실패해도 나머지는 끝까지 돈다)."""
+    semaphore = asyncio.Semaphore(limit)
+
+    async def run(item):
+        async with semaphore:
+            return await fn(item)
+
+    return await asyncio.gather(*(run(item) for item in items), return_exceptions=True)
 
 
 def _summarize_models(counts: dict[str, int]) -> str | None:
@@ -531,11 +553,14 @@ async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> No
                 logger.warning("배치 그룹 처리 실패(batch_id=%s) — 이벤트 pending 복귀: %s", batch_id, exc)
                 await _set_status([e["id"] for e in group], "pending")
 
-        for session_id in touched:
-            try:
-                await refresh_session_ai(session_id)
-            except Exception as exc:
-                logger.warning("세션 재요약 실패(session_id=%s): %s", session_id, exc)
+        # 세션마다 자기 DB 세션으로 따로 반영하므로 동시에 돌려도 서로 기다리지 않는다.
+        session_ids = sorted(touched)
+        refreshed = await _gather_limited(_SUMMARY_CONCURRENCY, session_ids, refresh_session_ai)
+        for session_id, result in zip(session_ids, refreshed):
+            if isinstance(result, Exception):
+                logger.warning("세션 재요약 실패(session_id=%s): %s", session_id, result)
+            elif isinstance(result, BaseException):
+                raise result
 
         # opt-in 자동 병합(기본 OFF) — 그 사용자의 토글(user_settings, DB) 우선, 없으면 env 기본값.
         # '명백한 중복'만 배치 후 자동 병합(merge-design §2, DecisionLog 2026-08-07).

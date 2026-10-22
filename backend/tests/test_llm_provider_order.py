@@ -65,7 +65,7 @@ def _setup(
     axk1_key: str = "test-key",
     kt_key: str = "test-key",
 ):
-    async def no_throttle():
+    async def no_throttle(*_args):
         return None
 
     _FakeOpenAI.clients = []

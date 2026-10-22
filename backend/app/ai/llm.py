@@ -18,22 +18,41 @@ logger = logging.getLogger(__name__)
 # 폴링 UX 파이프라인이라 60초는 과함 — 짧게 잡아 fallback 진입을 앞당긴다
 _TIMEOUT = 25.0  # LLM 응답 최대 대기 시간 (초)
 
-# 스냅샷 경로와 배치 파이프라인이 공유하는 전역 최소 호출 간격 리미터(docs/target-architecture.md §5).
-# asyncio.Lock으로 감싸 동시 호출도 직렬화한다. 0.5초는 A.X-K1 시절 안내값 3 RPS에 맞춘 값이다.
-# 2026-10-23 A.X-K2 실측은 짧은 요청·단계당 10초로 6 RPS까지 429가 없었다(eval/probe_rate_limit.py). 간격 조정은 배치 지연 측정 뒤 정한다.
-_MIN_CALL_INTERVAL = 0.5  # 초
-_rate_lock = asyncio.Lock()
-_last_call_at: float = 0.0
+# 공급자별 최소 호출 간격 리미터(docs/target-architecture.md §5). 스냅샷 경로와 배치 파이프라인이 공유하고,
+# 공급자마다 asyncio.Lock으로 동시 호출을 직렬화한다. 예전 전역 0.5초 하나는 서로 다른 공급자까지 줄 세웠다.
+# A.X-K2는 짧은 요청 6 RPS까지 429가 없어(eval/probe_rate_limit.py, company/meetings/2026-10-23-k2-rate.md)
+# 여유를 두고 4 RPS로 둔다. EXAONE·KT는 한도를 재지 않아 A.X-K1 시절 값(0.5초)을 유지한다.
+_MIN_CALL_INTERVAL = {"ax": 0.25, "exaone": 0.5, "kt": 0.5}  # 초
+# 429를 받으면 그 공급자의 다음 호출만 이만큼 늦춘다. 다른 공급자로의 폴백 규칙은 그대로다.
+_RATE_LIMIT_BACKOFF = 1.0  # 초
+_rate_locks: dict[str, asyncio.Lock] = {}
+_next_call_at: dict[str, float] = {}
 
 
-async def _throttle() -> None:
-    """직전 chat 호출 이후 최소 간격이 지날 때까지 대기한다."""
-    global _last_call_at
-    async with _rate_lock:
-        elapsed = time.monotonic() - _last_call_at
-        if elapsed < _MIN_CALL_INTERVAL:
-            await asyncio.sleep(_MIN_CALL_INTERVAL - elapsed)
-        _last_call_at = time.monotonic()
+async def _throttle(provider: str) -> None:
+    """그 공급자의 다음 호출 시각까지 기다리고, 다음 시각을 최소 간격만큼 미룬다."""
+    async with _rate_locks.setdefault(provider, asyncio.Lock()):
+        wait = _next_call_at.get(provider, 0.0) - time.monotonic()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _next_call_at[provider] = time.monotonic() + _MIN_CALL_INTERVAL[provider]
+
+
+def _back_off(provider: str) -> None:
+    """429를 받은 공급자의 다음 호출을 늦춘다(이미 더 늦게 잡혀 있으면 그대로)."""
+    _next_call_at[provider] = max(
+        _next_call_at.get(provider, 0.0), time.monotonic() + _RATE_LIMIT_BACKOFF
+    )
+
+
+async def _create(provider: str, client: AsyncOpenAI, **kwargs):
+    """공급자 리미터를 지나 chat completion 한 번. 429면 그 공급자만 늦추고 예외는 그대로 올린다."""
+    await _throttle(provider)
+    try:
+        return await client.chat.completions.create(**kwargs)
+    except RateLimitError:
+        _back_off(provider)
+        raise
 
 
 def _ax_client() -> AsyncOpenAI:
@@ -80,7 +99,9 @@ async def _kt_completion(
     KT는 추론 필드가 없어 extra_body를 넣지 않는다. 호출마다 숨은 입력 토큰이 약 590개 붙는다
     (model-eval-v1 연결 확인, 2026-10-23) — 비용 추정에 넣는다.
     """
-    resp = await _kt_client().chat.completions.create(
+    resp = await _create(
+        "kt",
+        _kt_client(),
         model=settings.kt_model_name,
         messages=messages,
         temperature=temperature,
@@ -158,7 +179,7 @@ async def chat_completion_stream_with_meta(
     일부 토큰을 이미 전송한 뒤 provider가 끊기면 다른 모델의 처음부터 다시 이어 붙일 수 없으므로
     `StreamInterruptedError`를 발생시켜 호출자가 partial 오류를 명시하게 한다.
     """
-    await _throttle()
+    await _throttle("exaone")
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -183,6 +204,8 @@ async def chat_completion_stream_with_meta(
     except asyncio.CancelledError:
         raise
     except APIStatusError as exc:
+        if exc.status_code == 429:
+            _back_off("exaone")
         if yielded:
             raise StreamInterruptedError(primary_model) from exc
         if not _should_fallback(exc.status_code):
@@ -204,6 +227,7 @@ async def chat_completion_stream_with_meta(
 
     fallback_model = settings.axk1_model
     fallback_yielded = False
+    await _throttle("ax")
     try:
         async for text in _stream_provider(
             _ax_client(),
@@ -219,6 +243,8 @@ async def chat_completion_stream_with_meta(
     except asyncio.CancelledError:
         raise
     except Exception as exc:
+        if isinstance(exc, RateLimitError):
+            _back_off("ax")
         if fallback_yielded:
             raise StreamInterruptedError(fallback_model) from exc
         raise
@@ -235,13 +261,14 @@ async def chat_completion_light(
 
     모델 배정 근거: docs/DecisionLog.md 2026-10-23 (R10 K2 87.3%, KT 82.8%, EXAONE 78.9%).
     """
-    await _throttle()
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
     try:
-        resp = await _ax_client().chat.completions.create(
+        resp = await _create(
+            "ax",
+            _ax_client(),
             model=settings.axk1_model,
             messages=messages,
             temperature=temperature,
@@ -268,15 +295,15 @@ async def chat_completion_with_meta(
     max_tokens: int = 600,
 ) -> tuple[str, str]:
     """A.X 우선 호출, 장애 시 EXAONE fallback. (content, 실제 사용된 model명)을 반환한다."""
-    await _throttle()
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
 
     try:
-        client = _ax_client()
-        resp = await client.chat.completions.create(
+        resp = await _create(
+            "ax",
+            _ax_client(),
             model=settings.axk1_model,
             messages=messages,
             temperature=temperature,
@@ -286,8 +313,8 @@ async def chat_completion_with_meta(
             raise ValueError("A.X 응답에 choices가 없습니다")
         return resp.choices[0].message.content or "", settings.axk1_model
     except RateLimitError:
-        logger.warning("A.X RPS 초과 — 1초 후 EXAONE fallback")
-        await asyncio.sleep(1)
+        # _create가 A.X 다음 호출을 늦췄다. EXAONE은 따로 줄 서므로 바로 넘긴다.
+        logger.warning("A.X RPS 초과 — EXAONE fallback")
     except APIStatusError as e:
         if _should_fallback(e.status_code):
             logger.warning("A.X %s 오류 — EXAONE fallback", e.status_code)
@@ -297,7 +324,9 @@ async def chat_completion_with_meta(
         # 상태 코드조차 못 받는 네트워크 레벨 장애 (DNS 실패, 연결 거부, 타임아웃) — 가장 흔한 장애 유형
         logger.warning("A.X 연결 실패 (%s) — EXAONE fallback", exc)
 
-    resp = await _friendli_client().chat.completions.create(
+    resp = await _create(
+        "exaone",
+        _friendli_client(),
         model=settings.exaone_model,
         messages=messages,
         temperature=temperature,
@@ -340,7 +369,6 @@ async def chat_completion_intent(
     timeout·재시도 없음·빈 응답 fallback을 둔다 — 세션화 배치에서 실패 한 번이 그룹 전체 hold로 이어지기 때문이다.
     KT 설정이 없으면 KT 호출이 OpenAIError로 실패하고, 호출자(analyze)가 그룹을 hold한다.
     """
-    await _throttle()
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -353,7 +381,9 @@ async def chat_completion_intent(
             timeout=_INTENT_PRIMARY_TIMEOUT,
             max_retries=0,
         )
-        resp = await client.chat.completions.create(
+        resp = await _create(
+            "ax",
+            client,
             model=settings.axk1_model,
             messages=messages,
             temperature=temperature,
