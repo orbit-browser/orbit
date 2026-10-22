@@ -67,3 +67,9 @@ def test_parse_refuses_null_origin():
     # 파일·샌드박스 iframe 의 Origin: null 을 실수로 열지 않는다.
     assert parse_cors_origins("null") == [_EXTENSION]
     assert parse_cors_origins(" NULL , http://localhost:5173") == ["http://localhost:5173"]
+
+
+def test_allowed_origin_can_read_etag_for_conditional_polling():
+    resp = TestClient(app).get("/health", headers={"Origin": _EXTENSION})
+    exposed = resp.headers.get("access-control-expose-headers", "")
+    assert "etag" in exposed.lower()

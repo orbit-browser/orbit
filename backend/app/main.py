@@ -63,6 +63,8 @@ app.add_middleware(
     allow_origins=parse_cors_origins(settings.cors_allow_origins),
     allow_methods=["*"],
     allow_headers=["*"],
+    # 공유 세션 id 폴링이 304로 본문을 아끼려면 확장이 ETag 를 읽어야 한다(기본 노출 헤더가 아님).
+    expose_headers=["ETag"],
 )
 
 # /auth 만 무인증 — 로그인해야 토큰을 받을 수 있으므로.
