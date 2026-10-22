@@ -555,6 +555,7 @@ LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 �
 | `GET` | `/workspaces/{id}/members` | member | `{user_id, name, email, picture, role, joined_at}`. owner 먼저, 그다음 참여 순. `email`은 owner와 본인에게만 채워지고 다른 멤버에게는 `null` |
 | `DELETE` | `/workspaces/{id}/members/{user_id}` | owner(남) / 본인(탈퇴) | 나간 사람이 그 팀에 건 공유가 모두 풀린다. owner 본인은 `409` |
 | `GET` | `/workspaces/{id}/sessions` | member | 공유된 세션 = `SessionDetail` + `shared_by{user_id, name, picture}` + `shared_at`. 병합으로 흡수된 세션 제외, 최근 활동순 |
+| `GET` | `/workspaces/{id}/sessions/ids` | member | `{session_ids}`(정렬) — 팀 목록과 같은 범위(공유자가 멤버인 비흡수 공유)의 id 만. 열린 새 탭이 8초마다 공유 해제를 비출 때 쓴다. `ETag`(id 목록 해시)·`Cache-Control: private, no-cache`, `If-None-Match`가 같으면 본문 없이 `304`. 비멤버 `404` |
 | `POST` | `/workspaces/{id}/sessions` | member | `{session_ids}`(1~200). 내 소유의 흡수되지 않은 세션만 공유 |
 | `DELETE` | `/workspaces/{id}/sessions/{session_id}` | 공유한 사람 / owner | 공유 해제 |
 

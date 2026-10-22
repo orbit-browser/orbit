@@ -200,7 +200,8 @@ def api(db, monkeypatch):
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
-                return await client.request(method, path, headers={"x-test-user": user}, **kwargs)
+                headers = {"x-test-user": user, **kwargs.pop("headers", {})}
+                return await client.request(method, path, headers=headers, **kwargs)
         return asyncio.run(send())
 
     yield request

@@ -138,6 +138,12 @@ class WorkspaceSessionItem(SessionDetail):
     collected: bool = False
 
 
+class SharedSessionIds(BaseModel):
+    """지금 그 팀에 보이는 공유 세션 id(정렬). 팀 목록과 같은 범위의 가벼운 판."""
+
+    session_ids: list[str]
+
+
 class ShareResult(BaseModel):
     """폴더 배정(`AssignResult`)과 같은 규칙 — 남의·없는 세션이 섞여도 전체를 실패시키지 않고
     건너뛴 id를 돌려준다. 이미 공유된 세션은 `shared` 에 그대로 포함된다(멱등)."""

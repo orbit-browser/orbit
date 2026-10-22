@@ -535,6 +535,34 @@ export async function fetchWorkspaceSessions(workspaceId: string): Promise<Works
   return data.map(mapWorkspaceSession);
 }
 
+// 팀마다 마지막으로 받은 공유 id 목록과 ETag. 304 면 본문 없이 이 목록을 다시 쓴다.
+const sharedIdsCache = new Map<string, { etag: string; ids: string[] }>();
+
+/**
+ * 지금 그 팀에 보이는 공유 세션 id 만 받는다(`GET /workspaces/{id}/sessions/ids`). 열린 새 탭이 몇 초마다
+ * 부르므로 탭 JSON 이 든 팀 목록 대신 이것을 쓰고, 목록이 그대로면 서버가 304 로 본문을 생략한다.
+ * 304 는 내가 보낸 ETag 가 지금 내 범위의 목록과 같다는 뜻이라 저장한 목록을 그대로 쓸 수 있다.
+ */
+export async function fetchWorkspaceSessionIds(workspaceId: string): Promise<string[]> {
+  const path = `/workspaces/${workspaceId}/sessions/ids`;
+  const cached = sharedIdsCache.get(workspaceId);
+  // 브라우저 HTTP 캐시가 끼지 않게 하고 재검증은 직접 한다(조건부 요청 헤더를 우리가 붙인다).
+  const init: RequestInit = { cache: 'no-store', headers: cached ? { 'If-None-Match': cached.etag } : {} };
+  const res = await fetch(`${BASE}${path}`, await authorized(init));
+  if (res.status === 401) await rejectUnauthorized();
+  if (res.status === 304 && cached) return cached.ids;
+  if (!res.ok) {
+    sharedIdsCache.delete(workspaceId);
+    const body = await res.text().catch(() => '');
+    throw new ApiError(`[Orbit API] GET ${path} ${res.status}: ${body}`, res.status, path);
+  }
+  const data = (await res.json()) as { session_ids: string[] };
+  const etag = res.headers.get('ETag');
+  if (etag) sharedIdsCache.set(workspaceId, { etag, ids: data.session_ids });
+  else sharedIdsCache.delete(workspaceId);
+  return data.session_ids;
+}
+
 export async function shareSessions(workspaceId: string, sessionIds: string[]): Promise<ShareResult> {
   const data = await request<BackendShareResult>(`/workspaces/${workspaceId}/sessions`, {
     method: 'POST',

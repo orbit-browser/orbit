@@ -5,6 +5,7 @@ import {
   fetchFolders,
   fetchSessionEvents,
   fetchSessions,
+  fetchWorkspaceSessionIds,
   fetchWorkspaceSessions,
 } from '../../../lib/api';
 import type { FolderNode, SessionNode, SuggestionNode } from '../components/atlas/data';
@@ -80,7 +81,7 @@ export const TEAM_SHARE_POLL_MS = 8_000;
 export function teamShareQueryOptions(workspaceId: string) {
   return {
     queryKey: ['newtab', 'team-share-ids', workspaceId],
-    queryFn: async () => (await fetchWorkspaceSessions(workspaceId)).map((session) => session.id),
+    queryFn: () => fetchWorkspaceSessionIds(workspaceId),
     refetchInterval: () => (globalThis.document?.visibilityState === 'visible' ? TEAM_SHARE_POLL_MS : false),
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: 'always' as const,

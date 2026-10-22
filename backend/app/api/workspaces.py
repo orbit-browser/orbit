@@ -6,10 +6,11 @@
 - 공유는 자기 세션만, 공유 해제는 공유한 사람 또는 owner.
 """
 
+import hashlib
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +26,7 @@ from ..schemas.workspace import (
     JoinWorkspaceRequest,
     MemberBrief,
     ShareResult,
+    SharedSessionIds,
     ShareSessionsRequest,
     UpdateWorkspaceRequest,
     WorkspaceItem,
@@ -38,6 +40,7 @@ from ..services.workspaces import (
     hash_invite_code,
     new_invite_code,
     shared_session_ids,
+    session_scope_clause,
     sharer_is_member,
 )
 from .deps import current_user_id
@@ -376,6 +379,36 @@ async def list_workspace_sessions(
         )
         for session, share, user in result.all()
     ]
+
+
+@router.get("/{workspace_id}/sessions/ids", response_model=SharedSessionIds)
+async def list_workspace_session_ids(
+    workspace_id: str,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(current_user_id),
+) -> SharedSessionIds | Response:
+    """지금 그 팀에 보이는 공유 세션 id 만. 열린 새 탭이 공유 해제를 비추려고 몇 초마다 부른다.
+
+    범위는 팀 검색·Ask 와 같은 SQL 조건(session_scope_clause)이라 탈퇴·공유 해제가 바로 빠진다.
+    목록이 그대로면 If-None-Match 로 304 를 돌려 본문을 보내지 않는다. ETag 는 정렬한 id 목록의 해시다.
+    """
+    await _member_or_404(db, workspace_id, user_id)
+    ids = sorted(
+        (
+            await db.execute(
+                select(SessionModel.id).where(session_scope_clause(user_id, workspace_id))
+            )
+        ).scalars().all()
+    )
+    etag = '"' + hashlib.sha256("\n".join(ids).encode()).hexdigest()[:32] + '"'
+    # 응답을 중간 캐시에 두지 않고, 매번 서버에 다시 묻게 한다(공유 해제를 늦게 비추면 안 된다).
+    headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
+    if etag in (request.headers.get("if-none-match") or "").split(", "):
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return SharedSessionIds(session_ids=ids)
 
 
 @router.post("/{workspace_id}/sessions", response_model=ShareResult)

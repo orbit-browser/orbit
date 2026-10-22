@@ -8,6 +8,7 @@ import {
   type AtlasData,
 } from '../../entrypoints/newtab/hooks/useAtlasData';
 import type { SessionNode } from '../../entrypoints/newtab/components/atlas/data';
+import { fetchWorkspaceSessionIds } from '../../lib/api';
 import { signInTestUser, signOutTestUser } from '../helpers';
 
 const KEY = ['newtab', 'atlas-data', 'team-a'];
@@ -18,32 +19,28 @@ const atlas = (...ids: string[]): AtlasData => ({
   unfiled: ids.map(node),
 });
 
-const backendSession = (id: string) => ({
-  session_id: id,
-  title: id,
-  tabs: [],
-  created_at: '2026-10-23T00:00:00Z',
-  updated_at: '2026-10-23T00:00:00Z',
-  summary: { overview: '', purpose: '', highlights: [], todos: [], next_actions: [] },
-  summary_status: 'done',
-  shared_by: { user_id: 'u2', name: '민지', picture: null },
-  shared_at: '2026-10-23T00:00:00Z',
-});
-
 let liveIds: string[] = [];
-let sessionCalls = 0;
+let idCalls: { url: string; ifNoneMatch: string | null }[] = [];
+let listCalls = 0;
+const etagOf = (ids: string[]) => `"${[...ids].sort().join('|')}"`;
 
 beforeEach(async () => {
   await signInTestUser();
   liveIds = ['s1', 's2'];
-  sessionCalls = 0;
+  idCalls = [];
+  listCalls = 0;
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input).endsWith('/workspaces/team-a/sessions')) {
-        sessionCalls += 1;
-        return Response.json(liveIds.map(backendSession));
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/workspaces/team-a/sessions/ids')) {
+        const ifNoneMatch = new Headers(init?.headers).get('If-None-Match');
+        idCalls.push({ url, ifNoneMatch });
+        const etag = etagOf(liveIds);
+        if (ifNoneMatch === etag) return new Response(null, { status: 304, headers: { ETag: etag } });
+        return Response.json({ session_ids: [...liveIds].sort() }, { headers: { ETag: etag } });
       }
+      if (url.endsWith('/workspaces/team-a/sessions')) listCalls += 1;
       return Response.json([]);
     }),
   );
@@ -100,9 +97,22 @@ it('숨은 새 탭은 확인하지 않는다', () => {
   expect(teamShareQueryOptions('team-a').refetchInterval()).toBe(false);
 });
 
-it('공유 목록 질의는 그 팀의 세션 id 만 돌려준다', async () => {
+it('공유 목록 질의는 탭 JSON 이 든 팀 목록이 아니라 id 경로를 쓴다', async () => {
   const client = new QueryClient();
   liveIds = ['s1', 's3'];
   expect(await client.fetchQuery(teamShareQueryOptions('team-a'))).toEqual(['s1', 's3']);
-  expect(sessionCalls).toBe(1);
+  expect(idCalls.map((c) => c.url.replace(/^.*(?=\/workspaces)/, ''))).toEqual(['/workspaces/team-a/sessions/ids']);
+  expect(listCalls).toBe(0);
+});
+
+it('목록이 그대로면 ETag 로 304 를 받아 저장한 목록을 쓰고, 바뀌면 새 목록을 받는다', async () => {
+  liveIds = ['s4', 's5'];
+  const first = await fetchWorkspaceSessionIds('team-a');
+  const second = await fetchWorkspaceSessionIds('team-a');
+  liveIds = ['s4'];
+  const third = await fetchWorkspaceSessionIds('team-a');
+
+  expect([first, second, third]).toEqual([['s4', 's5'], ['s4', 's5'], ['s4']]);
+  // 첫 요청의 헤더는 앞선 시험이 남긴 ETag 일 수 있어 보지 않는다. 그다음부터는 받은 ETag 로 재검증한다.
+  expect(idCalls.slice(1).map((c) => c.ifNoneMatch)).toEqual(['"s4|s5"', '"s4|s5"']);
 });
