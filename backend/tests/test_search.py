@@ -288,3 +288,77 @@ def test_search_sessions_scope_sessions_default_returns_bare_list(monkeypatch):
     response = asyncio.run(search.search_sessions(q="query", limit=5, rerank=False, db=None, user_id="u1"))
 
     assert response == [session]
+
+
+def test_widened_candidates_keep_owned_scores_for_ask_gate(monkeypatch):
+    """넓힌 후보는 소유자 필터 뒤 세션만 점수와 함께 돌려준다. 관련성 판단은 Ask가 한다(has_evidence)."""
+    import asyncio
+    from types import SimpleNamespace
+
+    async def fake_embed(_q):
+        return [0.1]
+
+    async def fake_scores(_vector, user_id, limit, score_threshold, session_ids=None):
+        return [("other-user", 0.9), ("mine", 0.2)]
+
+    class _Result:
+        def scalars(self):
+            return SimpleNamespace(all=lambda: [SimpleNamespace(id="mine")])
+
+    class _DB:
+        async def execute(self, _stmt):
+            return _Result()
+
+    monkeypatch.setattr(search, "embed", fake_embed)
+    monkeypatch.setattr(search, "search_similar_with_scores", fake_scores)
+    monkeypatch.setattr(search, "_to_detail", lambda s, **_k: s)
+
+    result = asyncio.run(
+        search._search_sessions_by_vector("질문", 5, False, _DB(), "me", candidate_floor=0.15)
+    )
+
+    assert [(s.id, s.vector_score) for s in result] == [("mine", 0.2)]
+
+
+def test_vector_search_passes_user_id(monkeypatch):
+    seen: dict = {}
+
+    async def fake_embed(_q):
+        return [0.1]
+
+    async def fake_search(_vector, *, user_id, limit, session_ids=None):
+        seen["user_id"] = user_id
+        return []
+
+    monkeypatch.setattr(search, "embed", fake_embed)
+    monkeypatch.setattr(search, "search_similar", fake_search)
+
+    asyncio.run(search._search_sessions_by_vector("질문", 5, False, None, "me"))
+    assert seen["user_id"] == "me"
+
+
+def test_ask_candidate_search_keeps_team_scope(monkeypatch):
+    """Ask의 넓힌 후보 검색(candidate_floor)도 팀 공유 id를 Qdrant 필터로 넘긴다."""
+    import asyncio
+    from types import SimpleNamespace
+
+    seen: dict = {}
+
+    async def fake_embed(_q):
+        return [0.1]
+
+    async def fake_scores(_vector, *, user_id, limit, score_threshold, session_ids=None):
+        seen.update(user_id=user_id, session_ids=session_ids)
+        return []
+
+    monkeypatch.setattr(search, "embed", fake_embed)
+    monkeypatch.setattr(search, "search_similar_with_scores", fake_scores)
+
+    result = asyncio.run(
+        search._search_sessions_by_vector(
+            "질문", 5, False, SimpleNamespace(), "viewer", ["shared-1"], "team-1", candidate_floor=0.15
+        )
+    )
+
+    assert result == []
+    assert seen == {"user_id": "viewer", "session_ids": ["shared-1"]}

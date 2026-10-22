@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import {
+  buildAskHistory,
   getAskConversationSnapshot,
   useAskConversation,
+  type AskTurn,
 } from '../../entrypoints/shared/hooks/useAskConversation';
 import { streamAsk } from '../../lib/api';
 import { parseSseBuffer, readSseStream } from '../../lib/sse';
@@ -95,7 +97,7 @@ describe('Ask AI request', () => {
     conversation!.startNewConversation();
   });
 
-  it('현재 질문만 전송하고 이전 질문·답변 필드를 만들지 않는다', async () => {
+  it('최근 대화를 snake_case history로 보내고, 없으면 빈 배열을 보낸다', async () => {
     let requestBody = '';
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       requestBody = String(init?.body ?? '');
@@ -116,7 +118,198 @@ describe('Ask AI request', () => {
       rerank: false,
       intent: 'search_memory',
       workspace_id: null,
+      history: [],
     });
+
+    for await (const _event of streamAsk({
+      query: '그럼 9070은?',
+      history: [{ query: '5070 최저가?', answer: '665,000원 [1]', sourceSessionIds: ['s1'] }],
+    })) {
+      // 빈 스트림
+    }
+    expect(JSON.parse(requestBody).history).toEqual([
+      { query: '5070 최저가?', answer: '665,000원 [1]', source_session_ids: ['s1'] },
+    ]);
+  });
+
+  it('buildAskHistory는 끝난 Ask 답변만 최근 3턴까지 고른다', () => {
+    const turn = (id: string, patch: Partial<AskTurn>): AskTurn => ({
+      id,
+      query: `질문 ${id}`,
+      answer: `답변 ${id}`,
+      sources: [],
+      status: 'done',
+      model: 'A.X-K2',
+      error: null,
+      verificationIssues: [],
+      tabCandidates: [],
+      tabCandidateError: null,
+      ...patch,
+    });
+    const history = buildAskHistory([
+      turn('1', {}),
+      turn('2', { model: 'local-tab-action' }),
+      turn('3', { status: 'error' }),
+      turn('4', { sources: [{ id: 's4' } as never] }),
+      turn('5', { answer: '   ' }),
+      turn('6', {}),
+      turn('7', {}),
+    ]);
+
+    expect(history.map((h) => h.query)).toEqual(['질문 4', '질문 6', '질문 7']);
+    expect(history[0].sourceSessionIds).toEqual(['s4']);
+  });
+
+  it('두 번째 질문은 첫 답변과 출처를 history로 함께 보낸다', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/assistant/route')) {
+        return new Response(JSON.stringify({ intent: 'search_memory', reason: 'rule' }), { status: 200 });
+      }
+      bodies.push(JSON.parse(String(init?.body ?? '{}')));
+      const sse = new TextEncoder().encode([
+        'event: sources\ndata: {"sessions":[{"session_id":"gpu","title":"그래픽카드","summary":{"overview":"","purpose":"","highlights":[],"todos":[],"next_actions":[]},"summary_status":"done","tabs":[],"created_at":"2026-10-12T00:00:00Z","updated_at":"2026-10-12T00:00:00Z"}]}\n\n',
+        'event: delta\ndata: {"text":"665,000원입니다 [1]"}\n\n',
+        'event: done\ndata: {"model":"A.X-K2"}\n\n',
+      ].join(''));
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(sse);
+          controller.close();
+        },
+      }), { status: 200 });
+    }));
+
+    let conversation: ReturnType<typeof useAskConversation> | undefined;
+    function Probe() {
+      conversation = useAskConversation();
+      return null;
+    }
+    renderToString(createElement(Probe));
+    conversation!.startNewConversation();
+    await conversation!.ask('5070 최저가 얼마였지?');
+    await conversation!.ask('그럼 9070은?');
+
+    expect(bodies[0].history).toEqual([]);
+    expect(bodies[1].history).toEqual([
+      { query: '5070 최저가 얼마였지?', answer: '665,000원입니다 [1]', source_session_ids: ['gpu'] },
+    ]);
+    conversation!.startNewConversation();
+  });
+
+  it('done 뒤에 오는 검증 경고를 턴에 남기고, 기다리는 동안에도 다음 질문을 받는다', async () => {
+    const encoder = new TextEncoder();
+    let verificationStream: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let streamCount = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/assistant/route')) {
+        return new Response(JSON.stringify({ intent: 'search_memory', reason: 'rule' }), { status: 200 });
+      }
+      streamCount += 1;
+      const first = streamCount === 1;
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            `event: delta\ndata: {"text":"${first ? '막차는 21:31입니다 [1]' : '첫차는 05:32입니다 [1]'}"}\n\n`,
+            'event: done\ndata: {"model":"A.X-K2"}\n\n',
+          ].join('')));
+          if (first) verificationStream = controller;
+          else controller.close();
+        },
+      }), { status: 200 });
+    }));
+
+    let conversation: ReturnType<typeof useAskConversation> | undefined;
+    function Probe() {
+      conversation = useAskConversation();
+      return null;
+    }
+    renderToString(createElement(Probe));
+    conversation!.startNewConversation();
+    const pending = conversation!.ask('청량리 출발 막차 몇 시였지?');
+    await vi.waitFor(() => expect(getAskConversationSnapshot().turns.at(-1)?.status).toBe('done'));
+    expect(getAskConversationSnapshot().isStreaming).toBe(false);
+
+    verificationStream!.enqueue(encoder.encode(
+      'event: verification\ndata: {"issues":[{"value":"21:31","answer_subject":"청량리 출발 막차","record_subject":"서울역 출발 KTX 847"},{"value":7}]}\n\n',
+    ));
+    verificationStream!.close();
+    await pending;
+    expect(getAskConversationSnapshot().turns.at(-1)?.verificationIssues).toEqual([
+      { value: '21:31', answerSubject: '청량리 출발 막차', recordSubject: '서울역 출발 KTX 847' },
+    ]);
+    conversation!.startNewConversation();
+  });
+
+  it('검증 경고를 기다리다 연결이 끊겨도 끝난 답변은 그대로 두고 대화 맥락에 남긴다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/assistant/route')) {
+        return new Response(JSON.stringify({ intent: 'search_memory', reason: 'rule' }), { status: 200 });
+      }
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(
+            'event: delta\ndata: {"text":"막차는 21:31입니다 [1]"}\n\nevent: done\ndata: {"model":"A.X-K2"}\n\n',
+          ));
+          setTimeout(() => controller.error(new TypeError('network error')), 0);
+        },
+      }), { status: 200 });
+    }));
+
+    let conversation: ReturnType<typeof useAskConversation> | undefined;
+    function Probe() {
+      conversation = useAskConversation();
+      return null;
+    }
+    renderToString(createElement(Probe));
+    conversation!.startNewConversation();
+    await conversation!.ask('청량리 출발 막차 몇 시였지?');
+
+    const turns = getAskConversationSnapshot().turns;
+    expect(turns.map((turn) => [turn.status, turn.error])).toEqual([['done', null]]);
+    expect(buildAskHistory(turns)).toHaveLength(1);
+    conversation!.startNewConversation();
+  });
+
+  it('검증 경고를 기다리던 턴은 다음 질문이 와도 취소로 바뀌지 않는다', async () => {
+    const encoder = new TextEncoder();
+    let streamCount = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/assistant/route')) {
+        return new Response(JSON.stringify({ intent: 'search_memory', reason: 'rule' }), { status: 200 });
+      }
+      streamCount += 1;
+      const first = streamCount === 1;
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            `event: delta\ndata: {"text":"답변 ${streamCount}"}\n\nevent: done\ndata: {"model":"A.X-K2"}\n\n`,
+          ));
+          if (first) init?.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+          else controller.close();
+        },
+      }), { status: 200 });
+    }));
+
+    let conversation: ReturnType<typeof useAskConversation> | undefined;
+    function Probe() {
+      conversation = useAskConversation();
+      return null;
+    }
+    renderToString(createElement(Probe));
+    conversation!.startNewConversation();
+    const pending = conversation!.ask('첫 질문');
+    await vi.waitFor(() => expect(getAskConversationSnapshot().turns.at(-1)?.status).toBe('done'));
+    await conversation!.ask('둘째 질문');
+    await pending;
+
+    const turns = getAskConversationSnapshot().turns;
+    expect(turns.map((turn) => [turn.answer, turn.status, turn.error])).toEqual([
+      ['답변 1', 'done', null],
+      ['답변 2', 'done', null],
+    ]);
+    conversation!.startNewConversation();
   });
 
   it('팀을 보고 있으면 workspace_id 를 함께 보내 팀 공유 세션만 근거로 쓴다', async () => {

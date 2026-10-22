@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { RotateCcw, Sparkles, Square, Trash2 } from 'lucide-react';
+import { RotateCcw, Sparkles, Square, Trash2, TriangleAlert } from 'lucide-react';
 import type { AskTurn } from '../../../shared/hooks/useAskConversation';
+import { cleanAnswerText } from '../../../../lib/ask-answer';
 import type { Session } from '../../../../lib/types';
 
 interface AskConversationPanelProps {
@@ -46,7 +47,7 @@ export function AskConversationPanel({
   return (
     <main className="ask-conversation" aria-live="polite">
       <div className="ask-conversation__toolbar">
-        <span>질문과 답변은 누적 표시되지만, 각 질문은 독립적으로 처리돼요</span>
+        <span>최근 질문 3개를 이어서 이해해요. 새 주제는 새 대화로 시작하세요</span>
         <div>
           {isStreaming && (
             <button type="button" onClick={onCancel}>
@@ -68,9 +69,24 @@ export function AskConversationPanel({
                 <Sparkles size={14} /> Orbit AI
               </div>
               <p>
-                {turn.answer}
+                {cleanAnswerText(turn.answer, turn.sources.length)}
                 {turn.status === 'streaming' && <span className="ask-turn__cursor" />}
               </p>
+              {turn.verificationIssues.length > 0 && (
+                <div className="ask-turn__verify" role="note">
+                  <strong>
+                    <TriangleAlert size={13} /> 다른 대상의 값일 수 있어요
+                  </strong>
+                  <ul>
+                    {turn.verificationIssues.map((issue) => (
+                      <li key={issue.value}>
+                        <b>{issue.value}</b>
+                        {` · 기록에서는 ${issue.recordSubject}의 값`}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {turn.tabCandidates.length > 0 && (
                 <div className="ask-tab-candidates" aria-label="이동할 탭 후보">
                   {turn.tabCandidates.map((tab) => (

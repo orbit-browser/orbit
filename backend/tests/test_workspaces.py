@@ -106,6 +106,7 @@ def _session(session_id="s1", user_id=_OWNER, status="active"):
         updated_at=_NOW,
         last_activity_at=None,
         folder_id="private-folder",
+        folder_assigned_by="user",
     )
 
 

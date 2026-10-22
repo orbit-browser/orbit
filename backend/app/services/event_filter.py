@@ -35,7 +35,9 @@ _SENSITIVE_DOMAIN_PATTERNS = [
         r"(^|\.)(kftc|kfcc|suhyup-bank)\.(or\.kr|co\.kr)$",
         r"(^|\.)(mirae(asset)?|samsungfund|kbfg|nhqv|kiwoom|ebestsec|shinhaninvest)\.com$",
         r"(^|\.)(kbcard|shinhancard|samsungcard|hyundaicard|lottecard)\.com$",
-        r"\.go\.kr$",
+        r"(^|\.)gov\.kr$",
+        r"(^|\.)(hometax|wetax|minwon|epeople|efine|iros)\.go\.kr$",
+        r"(^|\.)ecfs\.scourt\.go\.kr$",
         r"(^|\.)(paypal|stripe|tosspayments|inicis|kakaopay|payco)\.com$",
         r"(^|\.)toss\.im$",
         r"(^|\.)kcp\.co\.kr$",
@@ -163,12 +165,15 @@ def _looks_secret(segment: str) -> bool:
 
 
 def ai_safe_path(url: str) -> str:
-    """외부 AI(임베딩·LLM)에 보낼 URL 경로. 쿼리·프래그먼트는 없고, 민감 URL은 빈 문자열."""
+    """외부 AI(임베딩·LLM)에 보낼 URL 경로. 쿼리·프래그먼트는 없고, 민감 URL과 .go.kr URL은 빈 문자열."""
     try:
-        path = urlsplit(url).path
+        parts = urlsplit(url)
+        path = parts.path
     except ValueError:
         return ""
-    if is_sensitive_url(url):
+    # .go.kr 공지 본문은 수집하지만(민감 도메인 아님) 그 경로는 외부 AI에 보내지 않는다 —
+    # 민원·신청 페이지 경로에 접수 번호 같은 개인 식별 조각이 섞여도 사이트마다 형식이 달라 가려낼 수 없다.
+    if is_sensitive_url(url) or _decoded(parts.hostname or "").rstrip(".").endswith(".go.kr"):
         return ""
     return "/".join(segment for segment in path.split("/") if not _looks_secret(segment))
 

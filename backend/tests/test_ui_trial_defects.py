@@ -138,6 +138,9 @@ def _displayed(chunks):
         "Notion pages were opened [1].",
         "해당 세션에서 확인되지 않은 수치는 말씀드릴 수 없어요",
         "세부 비교표 기록은 없지만 Blender 페이지는 방문했어요 [1]",
+        # 답변 규칙 4의 거절 문구 (origin #19·#25 프롬프트와 합칠 때 맞춘 것)
+        "5070 최저가 정보는 기록에서 찾지 못했어요.",
+        "그 정보는 기록에서 찾지 못했어요.",
     ],
 )
 def test_grounded_limitation_is_preserved(answer):

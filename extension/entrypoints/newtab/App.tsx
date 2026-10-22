@@ -7,7 +7,7 @@ import { RecentExploration } from './components/sections/RecentExploration';
 import type { ExplorationEntry } from './components/sections/RecentExploration';
 import { ContinueExploring } from './components/sections/ContinueExploring';
 import { EmptyStateActions } from './components/sections/EmptyStateActions';
-import { useAtlasData } from './hooks/useAtlasData';
+import { useAtlasData, useFolderSuggestions } from './hooks/useAtlasData';
 import { useRecommendations } from './hooks/useRecommendations';
 import { navigateToAtlas } from './lib/navigation';
 import { getNavState, useSharedNavState } from './lib/nav-state';
@@ -26,6 +26,7 @@ export default function App() {
   const sessions = atlasQuery.data?.sessions ?? [];
   const folders = atlasQuery.data?.folders ?? [];
   const unfiled = atlasQuery.data?.unfiled ?? [];
+  const suggestions = useFolderSuggestions(atlasQuery.data, atlasQuery.dataUpdatedAt, !scopeId);
   const recommendationQuery = useRecommendations();
   // 홈 Ask 도 지금 보고 있는 범위를 근거로 답한다(사이드패널과 같다). 범위가 바뀌면 훅이 대화를 비운다.
   const {
@@ -101,6 +102,7 @@ export default function App() {
         sessions={sessions}
         folders={folders}
         unfiled={unfiled}
+        suggestions={suggestions}
         open={nav.open}
         onClose={toggleNav}
         escapeEnabled

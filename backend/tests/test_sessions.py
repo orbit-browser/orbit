@@ -74,6 +74,7 @@ def _session_row(title="원래 이름", alias=None):
         updated_at=now,
         last_activity_at=None,
         folder_id=None,
+        folder_assigned_by=None,
     )
 
 

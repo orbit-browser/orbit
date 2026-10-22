@@ -29,7 +29,7 @@ from .api.tab_actions import router as tab_actions_router
 from .api.workspaces import router as workspaces_router
 from .config import settings
 from .db.session import init_db
-from .db.vector import init_collection
+from .db.vector import backfill_user_ids, init_collection
 from .services.embedding_sync import backfill_owner_payload
 from .services.sync_pipeline import periodic_sync_loop
 
@@ -38,7 +38,9 @@ from .services.sync_pipeline import periodic_sync_loop
 async def lifespan(app: FastAPI):
     await init_db()
     await init_collection()
+    # 두 갈래가 따로 만든 백필이다. 앞은 소유자를 채우고, 뒤는 남은 고아 포인트를 지운다. 둘 다 멱등이다.
     await backfill_owner_payload()
+    await backfill_user_ids()
     await recover_pending_sessions()
 
     periodic_task: asyncio.Task | None = None

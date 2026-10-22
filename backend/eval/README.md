@@ -23,3 +23,19 @@ python -m eval.run_retrieval_eval
 ```
 
 `search_score_threshold` 기본값 조정 근거는 `docs/DecisionLog.md` 2026-08-05 항목 참고.
+
+## Ask AI 답변 품질 평가
+
+`ask_cases.json`(6개 주제 34개 이벤트, 페이지 본문 포함 + 질문 20개: 사실·비교·요약·할 일·
+교차 세션·부정)을 **실행 중인 백엔드**에 UI와 같은 경로(`/assistant/route` → `/ask/stream`)로
+보내 채점한다(실 LLM·임베딩 호출). 데이터는 별도 평가 사용자(`google_sub=ask-eval`)에 쌓인다.
+
+```
+python -m eval.run_ask_eval seed                       # 최초 1회: 인제스트 + 세션화 대기
+python -m eval.run_ask_eval ask --out ask_result.json  # 질문·채점
+```
+
+다른 주소의 백엔드는 `--base http://127.0.0.1:8001`. 모델을 바꿔 세션 요약부터 다시 만들려면
+새 평가 사용자로 seed한다(`--user ask-eval-k2`, ask에도 같은 값). 지표는 기대 사실 포함률(`a|b`는 대안 표기),
+완전 정답 수, 부정 질문 거절 수(문구 기반 근사), 범위 밖 인용 수, 평균 지연이다.
+기준선과 개선 결과는 `docs/WorkLog.md` 2026-10-19 항목 참고.

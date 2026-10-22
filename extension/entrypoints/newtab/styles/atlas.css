@@ -795,6 +795,90 @@ body.atlas-resizing {
   color: var(--text-primary);
 }
 
+/* 서버 자동 분류로 들어온 세션 — "폴더에서 빼기"가 되돌리기다. */
+.atlas-row__auto {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--bg-sunken);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+/* 미정리 세션 아래 폴더 제안 한 줄. 세션 제목 시작선(여백 4 + caret 16 + gap 7)에 맞춘다.
+   칩·"제안 모두 넣기"는 사이드패널 병합 제안의 "모두 병합"처럼 평소엔 얇은 중립 테두리, 올리면 액센트다. */
+.atlas-suggest {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: -1px 0 4px 27px;
+}
+
+.atlas-suggest__accept {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.atlas-suggest__accept:hover:not(:disabled) {
+  border-color: var(--accent-muted);
+  background: var(--accent-softer);
+  color: var(--text-primary);
+}
+
+.atlas-suggest__dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.atlas-suggest__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-suggest__dismiss {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.atlas-suggest__dismiss:hover:not(:disabled) {
+  background: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.atlas-suggest button:disabled,
+.atlas-nav__section-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .atlas-folder__children {
   margin-left: 15px;
   padding-left: 10px;
@@ -826,6 +910,33 @@ body.atlas-resizing {
 .atlas-nav__section-count {
   font-variant-numeric: tabular-nums;
   font-weight: 500;
+}
+
+.atlas-nav__section-tail {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.atlas-nav__section-action {
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.atlas-nav__section-action:hover:not(:disabled) {
+  border-color: var(--accent-muted);
+  color: var(--accent);
 }
 
 /* 검색 결과에서 이 세션이 어느 폴더에 있는지 — 계층을 무시한 결과라 출처를 밝혀 준다. */

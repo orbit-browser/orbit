@@ -5,7 +5,14 @@ import { FolderAssignDialog } from './FolderAssignDialog';
 import { loadSeenSessions, markSessionSeen } from '../../lib/seen-sessions';
 import { useSessionSync } from '../../hooks/useSessionSync';
 import { useFolderMutations } from '../../hooks/useFolders';
-import { sortSessions, type FolderNode, type SessionNode, type SessionSort } from './data';
+import {
+  groupSuggestionsByFolder,
+  sortSessions,
+  type FolderNode,
+  type SessionNode,
+  type SessionSort,
+  type SuggestionNode,
+} from './data';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
@@ -17,6 +24,8 @@ interface AtlasNavigatorProps {
   unfiled: SessionNode[];
   /** 폴더 소속과 무관한 전체 세션 — 검색과 일괄 추가 후보에 쓴다. */
   sessions: SessionNode[];
+  /** 미정리 세션별 폴더 제안. */
+  suggestions: SuggestionNode[];
   query: string;
   onQueryChange: (value: string) => void;
   focusedFolderId: string | null;
@@ -72,6 +81,7 @@ export function AtlasNavigator({
   folders,
   unfiled,
   sessions,
+  suggestions,
   query,
   onQueryChange,
   focusedFolderId,
@@ -102,7 +112,8 @@ export function AtlasNavigator({
 
   // 사이드패널에서 병합하면 새로고침 없이 여기 목록이 따라 바뀐다.
   const { absorbingId, survivingId } = useSessionSync();
-  const { create, rename, remove, assign, unassign, renameSessionAlias } = useFolderMutations();
+  const { create, rename, remove, assign, unassign, dismissSuggestion, renameSessionAlias } =
+    useFolderMutations();
 
   /** 드롭 대상 강조 — 'unfiled' 는 폴더에서 빼는 자리. */
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -144,6 +155,11 @@ export function AtlasNavigator({
   const folderNameById = useMemo(
     () => new Map(folders.map((folder) => [folder.id, folder.name])),
     [folders],
+  );
+
+  const suggestionBySession = useMemo(
+    () => new Map(suggestions.map((suggestion) => [suggestion.sessionId, suggestion])),
+    [suggestions],
   );
 
   /**
@@ -274,6 +290,20 @@ export function AtlasNavigator({
     );
   };
 
+  /** 제안 수락 — 한 건이든 "모두 넣기"든 폴더마다 배정 요청을 한 번씩 보낸다. */
+  const acceptSuggestions = (items: SuggestionNode[]) =>
+    runFolderAction(
+      () =>
+        Promise.all(
+          [...groupSuggestionsByFolder(items)].map(([folderId, sessionIds]) =>
+            assign.mutateAsync({ folderId, sessionIds }),
+          ),
+        ),
+      '세션을 옮기지 못했어요',
+    );
+
+  const suggestionBusy = assign.isPending || dismissSuggestion.isPending;
+
   const handleResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const startX = event.clientX;
@@ -296,6 +326,8 @@ export function AtlasNavigator({
   /** 세션 한 줄과 그 아래 페이지들. 폴더 안이든 미정리든 같은 모양으로 그린다. */
   const renderSession = (session: SessionNode, visiblePageIds: Set<string> | null) => {
     const isOpen = visiblePageIds !== null || expandedSessionIds.has(session.id);
+    // 팀 화면은 읽기 전용이다 — 폴더 제안은 내 개인 정리라 남의 공유 세션에 붙이지 않는다.
+    const suggestion = readOnly ? undefined : suggestionBySession.get(session.id);
     const visiblePages = visiblePageIds
       ? session.pages.filter((page) => visiblePageIds.has(page.id))
       : session.pages;
@@ -366,6 +398,14 @@ export function AtlasNavigator({
               <Highlight text={session.title} query={query} />
             </span>
           )}
+          {session.folderId && session.folderAssignedBy === 'auto' && (
+            <span
+              className="atlas-row__auto"
+              title="Orbit이 비슷한 세션을 보고 자동으로 넣었어요. 폴더에서 빼면 다시 넣지 않아요."
+            >
+              자동
+            </span>
+          )}
           <span className="atlas-row__meta">{session.pages.length}p</span>
           {/* 대표 아이콘은 오른쪽 끝 — 제목이 길어져도 자리가 흔들리지 않는다 */}
           <span className="atlas-row__trailing">
@@ -422,6 +462,50 @@ export function AtlasNavigator({
             )}
           </span>
         </div>
+
+        {/* 행 바깥에 두어 끌기·선택과 섞이지 않는다 */}
+        {suggestion && (
+          <div className="atlas-suggest">
+            <button
+              type="button"
+              className="atlas-suggest__accept"
+              aria-label={`${session.title} 세션을 ${suggestion.folderName}에 넣기`}
+              title={
+                suggestion.similarTitles.length > 0
+                  ? `비슷한 세션: ${suggestion.similarTitles.join(', ')}`
+                  : undefined
+              }
+              disabled={suggestionBusy}
+              onClick={(event) => {
+                event.stopPropagation();
+                void acceptSuggestions([suggestion]);
+              }}
+            >
+              <span
+                className="atlas-suggest__dot"
+                style={{ background: suggestion.folderHue }}
+                aria-hidden
+              />
+              <span className="atlas-suggest__label">{suggestion.folderName}에 넣기</span>
+            </button>
+            <button
+              type="button"
+              className="atlas-suggest__dismiss"
+              aria-label="제안 닫기"
+              title="제안 닫기"
+              disabled={suggestionBusy}
+              onClick={(event) => {
+                event.stopPropagation();
+                void runFolderAction(
+                  () => dismissSuggestion.mutateAsync(session.id),
+                  '제안을 닫지 못했어요',
+                );
+              }}
+            >
+              <i className="ph ph-x" />
+            </button>
+          </div>
+        )}
 
         {isOpen && (
           <div
@@ -689,7 +773,20 @@ export function AtlasNavigator({
                 }}
               >
                 {readOnly ? '공유된 세션' : '정리 안 됨'}
-                <span className="atlas-nav__section-count">{unfiled.length}</span>
+                <span className="atlas-nav__section-tail">
+                  {!readOnly && suggestions.length >= 2 && (
+                    <button
+                      type="button"
+                      className="atlas-nav__section-action"
+                      aria-label={`제안 모두 넣기 (${suggestions.length}개)`}
+                      disabled={suggestionBusy}
+                      onClick={() => void acceptSuggestions(suggestions)}
+                    >
+                      제안 모두 넣기
+                    </button>
+                  )}
+                  <span className="atlas-nav__section-count">{unfiled.length}</span>
+                </span>
               </div>
             )}
 

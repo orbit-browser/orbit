@@ -2,6 +2,27 @@ from pydantic import BaseModel, Field, field_validator
 
 from .assistant import AssistantRetrievalIntent
 
+# 후속 질문 해석에 쓰는 이전 답변 길이 상한. 클라이언트가 긴 답변을 그대로 보내도 거부하지 않고 자른다.
+MAX_HISTORY_ANSWER_CHARS = 4000
+
+
+class AskHistoryTurn(BaseModel):
+    """후속 질문을 해석하기 위한 이전 질문·답변 한 턴. 서버는 저장하지 않는다."""
+
+    query: str = Field(min_length=1, max_length=2000)
+    answer: str = ""
+    source_session_ids: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("answer")
+    @classmethod
+    def truncate_answer(cls, value: str) -> str:
+        return value.strip()[:MAX_HISTORY_ANSWER_CHARS]
+
+    @field_validator("source_session_ids")
+    @classmethod
+    def drop_blank_ids(cls, value: list[str]) -> list[str]:
+        return [session_id for session_id in value if session_id.strip()][:5]
+
 
 class AskStreamRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
@@ -10,6 +31,8 @@ class AskStreamRequest(BaseModel):
     intent: AssistantRetrievalIntent = "search_memory"
     # 팀 워크스페이스 id. 주면 그 팀에 공유된 세션만 근거로 쓴다.
     workspace_id: str | None = Field(default=None, min_length=1)
+    # 최근 대화(오래된 순, 최대 3턴). 비어 있으면 기존과 같은 독립 단일턴이다.
+    history: list[AskHistoryTurn] = Field(default_factory=list, max_length=3)
 
     @field_validator("query")
     @classmethod
@@ -18,3 +41,11 @@ class AskStreamRequest(BaseModel):
         if not stripped:
             raise ValueError("query must not be blank")
         return stripped
+
+
+class AskVerificationIssue(BaseModel):
+    """답변이 한 대상의 값이라고 말한 값이 기록에서는 비슷한 다른 대상의 값인 경우 (`verification` SSE 이벤트)."""
+
+    value: str
+    answer_subject: str
+    record_subject: str

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { RotateCcw, Sparkles } from 'lucide-react';
+import { RotateCcw, Sparkles, TriangleAlert } from 'lucide-react';
+import { cleanAnswerText } from '../../../lib/ask-answer';
 import { useAskConversation } from '../../shared/hooks/useAskConversation';
 import { useActiveWorkspace } from '../../../lib/useWorkspaces';
 import { SessionCard } from '../components/SessionCard';
@@ -64,7 +65,7 @@ export function AskView() {
         ) : (
           <>
             <p className="text-center text-[11px] text-orbit-muted/70">
-              각 질문은 이전 답변을 참조하지 않아요
+              앞선 질문을 이어서 물어볼 수 있어요
             </p>
             {turns.map((turn) => (
               <article key={turn.id} className="space-y-3">
@@ -77,11 +78,28 @@ export function AskView() {
                     <Sparkles size={12} className="text-orbit-primary" /> Orbit AI
                   </div>
                   <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-orbit-text">
-                    {turn.answer}
+                    {cleanAnswerText(turn.answer, turn.sources.length)}
                     {turn.status === 'streaming' && (
                       <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-orbit-primary align-middle" />
                     )}
                   </p>
+
+                  {turn.verificationIssues.length > 0 && (
+                    <div className="mt-3 rounded-lg bg-orbit-primary-soft px-3 py-2 text-xs leading-5" role="note">
+                      <p className="flex items-center gap-1.5 font-semibold text-orbit-text">
+                        <TriangleAlert size={12} className="shrink-0 text-orbit-primary" />
+                        다른 대상의 값일 수 있어요
+                      </p>
+                      <ul className="mt-1 space-y-0.5 text-orbit-muted">
+                        {turn.verificationIssues.map((issue) => (
+                          <li key={issue.value}>
+                            <strong className="font-semibold text-orbit-text">{issue.value}</strong>
+                            {` · 기록에서는 ${issue.recordSubject}의 값`}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {turn.tabCandidates.length > 0 && (
                     <div className="mt-3 space-y-2" aria-label="이동할 탭 후보">

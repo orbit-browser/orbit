@@ -160,8 +160,18 @@ def api(db, monkeypatch):
         return ["private", "bob-private", "absorbed", "other-team", "departed-share",
                 "eve-private", "shared", "bob-shared"]
 
-    async def rank(_query, rows):
-        return ask_service.select_context_events(rows)
+    async def scored_vector_results(*args, **kwargs):
+        # Ask 후보 검색(candidate_floor) 경로. 마찬가지로 Qdrant 필터를 무시한다.
+        return [(session_id, 0.9) for session_id in await vector_results()]
+
+    async def score(_query, rows):
+        # 임베딩 없이 모든 본문 조각을 근거로 둔다 — 범위 판정은 SQL만 한다.
+        scored: dict[str, list] = {}
+        for session_event, event in rows:
+            scored.setdefault(session_event.session_id, []).append(
+                (0.9, session_event.sequence_order, 0, event, event.content_excerpt or "")
+            )
+        return scored
 
     async def answer(_system, prompt):
         yield prompt, "test-model"
@@ -171,7 +181,8 @@ def api(db, monkeypatch):
 
     monkeypatch.setattr(search, "embed", embed)
     monkeypatch.setattr(search, "search_similar", vector_results)
-    monkeypatch.setattr(ask_service, "rank_context_events", rank)
+    monkeypatch.setattr(search, "search_similar_with_scores", scored_vector_results)
+    monkeypatch.setattr(ask_service, "score_passages", score)
     monkeypatch.setattr(ask, "chat_completion_stream_with_meta", answer)
     monkeypatch.setattr(sessions, "delete_point", no_delete)
 
@@ -336,6 +347,7 @@ def test_team_scope_rechecks_access_after_embedding(api, db, monkeypatch, endpoi
     monkeypatch.setattr(search, "embed", revoke_before_retrieval)
     if endpoint == "keyword":
         monkeypatch.setattr(search, "search_similar", no_vector_matches)
+        monkeypatch.setattr(search, "search_similar_with_scores", no_vector_matches)
     user = "bob" if revocation == "viewer" else "alice"
     if endpoint in {"ask", "find_sessions"}:
         response = api("POST", "/ask/stream", user=user, json={

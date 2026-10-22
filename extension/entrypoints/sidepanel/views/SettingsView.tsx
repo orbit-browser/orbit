@@ -279,6 +279,30 @@ export function SettingsView() {
               );
             }}
           />
+          <SettingRow
+            label="폴더 자동 정리"
+            description={
+              serverSettingsError
+                ? '서버 설정을 불러오지 못했어요'
+                : '새 세션이 기존 폴더와 확실히 비슷하면 자동으로 넣고, 애매하면 “정리 안 됨” 목록에서 제안해요'
+            }
+            checked={serverSettings?.autoFolderEnabled ?? false}
+            disabled={serverSettingsLoading || serverSettingsError || updateServerSettings.isPending}
+            onChange={(autoFolderEnabled) => {
+              updateServerSettings.mutate(
+                { autoFolderEnabled },
+                {
+                  onSuccess: (settings) =>
+                    showToast(
+                      settings.autoFolderEnabled
+                        ? '폴더 자동 정리를 켰어요'
+                        : '폴더 자동 정리를 껐어요',
+                    ),
+                  onError: () => showToast('폴더 자동 정리 설정을 저장하지 못했어요'),
+                },
+              );
+            }}
+          />
         </div>
       </section>
 

@@ -2,14 +2,15 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from app.api import ask
-from app.schemas.ask import AskStreamRequest
+from app.schemas.ask import AskStreamRequest, AskVerificationIssue
 from app.schemas.session import SessionDetail, SessionSummary
 from app.services.ask_service import (
     AskContext,
     build_event_passage,
     build_answer_prompt,
-    rank_context_events,
     select_context_events,
 )
 from app.services import ask_service
@@ -29,6 +30,16 @@ def _source(session_id="session-1", title="보험 비교") -> SessionDetail:
         created_at="2026-08-01T00:00:00+00:00",
         updated_at="2026-08-01T01:00:00+00:00",
     )
+
+
+async def rank_context_events(query, rows, budgets=None):
+    scored = await ask_service.score_passages(query, rows)
+    return {
+        session_id: ask_service._pick_evidence(
+            entries, (budgets or {}).get(session_id, ask_service.MIN_SESSION_BUDGET_CHARS)
+        )
+        for session_id, entries in scored.items()
+    }
 
 
 def test_select_context_events_caps_each_session_and_prefers_score():
@@ -109,7 +120,7 @@ def test_rank_context_events_prefers_question_semantics_over_stay_time(monkeypat
 
     selected = asyncio.run(rank_context_events("Zustand의 장점은?", rows))
 
-    assert selected["session-1"][0].title == "Zustand 상태 관리"
+    assert selected["session-1"][0].event.title == "Zustand 상태 관리"
 
 
 def test_answer_prompt_contains_only_current_question_and_numbered_sources():
@@ -128,6 +139,14 @@ def test_answer_prompt_contains_only_current_question_and_numbered_sources():
     assert "질문:\n결론은?" in prompt
     assert "[1] 세션: 보험 비교" in prompt
     assert "가격 정보" in prompt
+
+
+@pytest.fixture(autouse=True)
+def _no_answer_verification(monkeypatch):
+    async def none(_prompt, _answer):
+        return []
+
+    monkeypatch.setattr(ask, "find_conflations", none)
 
 
 class _ConnectedRequest:
@@ -159,6 +178,28 @@ def test_answer_events_streams_sources_deltas_and_done(monkeypatch):
     assert events[-1][1]["model"] == "model-a"
 
 
+def test_answer_events_sends_verification_issues_after_done(monkeypatch):
+    async def fake_stream(_system, _prompt):
+        yield "막차는 21:31입니다 [1].", "model-a"
+
+    seen: list[tuple[str, str]] = []
+
+    async def conflated(prompt, answer):
+        seen.append((prompt, answer))
+        return [AskVerificationIssue(value="21:31", answer_subject="청량리 출발 막차", record_subject="서울역 출발 KTX 847")]
+
+    monkeypatch.setattr(ask, "chat_completion_stream_with_meta", fake_stream)
+    monkeypatch.setattr(ask, "find_conflations", conflated)
+
+    events = asyncio.run(_collect_events(AskContext(sources=[_source()], prompt="prompt")))
+
+    assert [event for event, _data in events] == ["sources", "delta", "done", "verification"]
+    assert events[3][1] == {
+        "issues": [{"value": "21:31", "answer_subject": "청량리 출발 막차", "record_subject": "서울역 출발 KTX 847"}]
+    }
+    assert seen == [("prompt", "막차는 21:31입니다 [1].")]
+
+
 def test_answer_events_without_sources_returns_grounded_empty_message():
     events = asyncio.run(_collect_events(AskContext(sources=[], prompt="prompt")))
     assert [event for event, _data in events] == ["sources", "delta", "done"]
@@ -184,7 +225,7 @@ def test_answer_events_for_session_discovery_skips_generation(monkeypatch):
 def test_source_count_follows_retrieval_intent(monkeypatch):
     limits: list[int] = []
 
-    async def fake_search(_query, limit, _rerank, _db, _user_id, _shared_ids=None, _workspace_id=None):
+    async def fake_search(_query, limit, _rerank, _db, _user_id, _shared_ids=None, _workspace_id=None, **_kwargs):
         limits.append(limit)
         return []
 
@@ -193,7 +234,7 @@ def test_source_count_follows_retrieval_intent(monkeypatch):
         body = AskStreamRequest(query="질문", intent=intent)
         asyncio.run(ask._resolve_sources(body, SimpleNamespace(), "user-1"))
 
-    assert limits == [5, 1, 3]
+    assert limits == [5, 1, ask_service.MAX_CANDIDATE_SOURCES]
 
 
 def test_prepare_context_falls_back_when_event_embedding_fails(monkeypatch):
@@ -213,11 +254,11 @@ def test_prepare_context_falls_back_when_event_embedding_fails(monkeypatch):
     async def fake_load(_db, _session_ids, _user_id, _workspace_id=None):
         return {source.session_id: SimpleNamespace(tabs=[])}, [row]
 
-    async def fail_rank(_query, _rows):
+    async def fail_rank(*_args):
         raise RuntimeError("embedding unavailable")
 
     monkeypatch.setattr(ask_service, "_load_context_records", fake_load)
-    monkeypatch.setattr(ask_service, "rank_context_events", fail_rank)
+    monkeypatch.setattr(ask_service, "score_passages", fail_rank)
 
     context = asyncio.run(
         ask_service.prepare_ask_context(
@@ -240,3 +281,322 @@ def test_answer_events_marks_partial_stream_error(monkeypatch):
         "error",
         {"code": "stream_interrupted", "partial": True, "retryable": True},
     )
+
+
+def test_split_passages_covers_whole_text_in_bounded_chunks():
+    text = "머리말 " * 300 + "필요서류: 주민등록등본, 임대차계약서 사본, 재직증명서."
+
+    passages = ask_service.split_passages(text)
+
+    assert len(passages) > 1
+    assert all(len(p) <= ask_service.PASSAGE_CHARS for p in passages)
+    assert "재직증명서" in passages[-1]
+    assert ask_service.split_passages("   ") == []
+
+
+def test_rank_context_events_picks_relevant_passage_deep_in_page(monkeypatch):
+    long_page = SimpleNamespace(
+        url="https://blog.example.com/loan",
+        title="전세대출 필요서류",
+        domain="blog.example.com",
+        search_query=None,
+        content_excerpt="메뉴 로그인 공지 " * 200 + "\n필요서류: 주민등록등본, 임대차계약서 사본, 재직증명서.",
+        active_duration_ms=1000,
+    )
+    rows = [(SimpleNamespace(session_id="s1", relevance_score=1.0, sequence_order=0), long_page)]
+
+    async def fake_embed(_query: str):
+        return [1.0, 0.0]
+
+    async def fake_embed_many(passages: list[str], *, model: str | None = None):
+        return [[1.0, 0.0] if "필요서류:" in p else [0.0, 1.0] for p in passages]
+
+    monkeypatch.setattr(ask_service, "embed", fake_embed)
+    monkeypatch.setattr(ask_service, "embed_many", fake_embed_many)
+
+    selected = asyncio.run(rank_context_events("필요서류?", rows, {"s1": 800}))
+
+    passages = selected["s1"][0].passages
+    assert any("재직증명서" in p for p in passages)
+    assert sum(len(p) for p in passages) <= 800
+
+
+def test_rank_context_events_dedupes_repeated_visits(monkeypatch):
+    def visit(order: int):
+        return (
+            SimpleNamespace(session_id="s1", relevance_score=1.0, sequence_order=order),
+            SimpleNamespace(
+                url="https://example.com/same",
+                title="같은 페이지",
+                domain="example.com",
+                search_query=None,
+                content_excerpt="같은 본문",
+                active_duration_ms=100,
+            ),
+        )
+
+    async def fake_embed(_query: str):
+        return [1.0]
+
+    async def fake_embed_many(passages: list[str], *, model: str | None = None):
+        return [[1.0] for _ in passages]
+
+    monkeypatch.setattr(ask_service, "embed", fake_embed)
+    monkeypatch.setattr(ask_service, "embed_many", fake_embed_many)
+
+    selected = asyncio.run(rank_context_events("질문", [visit(0), visit(1)]))
+
+    assert len(selected["s1"]) == 1
+
+
+def test_answer_prompt_includes_today_period_visit_time_and_citation_range():
+    from datetime import datetime, timezone
+
+    source = _source()
+    event = SimpleNamespace(
+        url="https://hotel.example.com/room?token=secret",
+        title="그랜드 하버 호텔",
+        domain="hotel.example.com",
+        search_query="제주 호텔",
+        visited_at=datetime(2026, 10, 13, 12, 20, tzinfo=timezone.utc),
+    )
+    evidence = {source.session_id: [ask_service.PageEvidence(event, ["체크인 15:00"])]}
+
+    prompt = build_answer_prompt(
+        "체크인 몇 시?",
+        [source],
+        {},
+        evidence,
+        {source.session_id: "2026-10-13(화) 21:05~21:37"},
+        now=datetime(2026, 10, 19, 3, 0, tzinfo=timezone.utc),
+    )
+
+    assert "오늘: 2026-10-19(월)" in prompt
+    assert "[1] 세션: 보험 비교 (2026-10-13(화) 21:05~21:37)" in prompt
+    assert "10/13(화) 21:20 방문" in prompt
+    assert "검색어: 제주 호텔" in prompt
+    assert "체크인 15:00" in prompt
+    assert "근거 번호: [1]" in prompt
+    assert "secret" not in prompt
+
+
+def _scored(session_id: str, score: float):
+    event = SimpleNamespace(
+        url=f"https://example.com/{session_id}",
+        title=session_id,
+        domain="example.com",
+        search_query=None,
+    )
+    return {session_id: [(score, 0, 0, event, "본문")]}
+
+
+def test_select_sources_keeps_second_topic_within_margin_and_drops_unrelated():
+    sources = [_source("loan", "전세대출"), _source("rtx", "그래픽카드"), _source("job", "채용 공고")]
+    scored = {**_scored("loan", 0.46), **_scored("rtx", 0.26), **_scored("job", 0.33)}
+
+    selected = ask_service.select_sources(sources, scored)
+
+    assert [s.session_id for s in selected] == ["loan", "job"]
+
+
+def test_select_sources_drops_weak_secondary_even_within_margin():
+    sources = [_source("job", "채용 공고"), _source("baseball", "야구 뉴스")]
+    scored = {**_scored("job", 0.38), **_scored("baseball", 0.26)}
+
+    selected = ask_service.select_sources(sources, scored)
+
+    assert [s.session_id for s in selected] == ["job"]
+
+
+def test_select_sources_keeps_near_tie_below_floor():
+    sources = [_source("review", "면접 후기"), _source("postings", "채용 공고"), _source("trip", "제주 여행")]
+    scored = {**_scored("review", 0.304), **_scored("postings", 0.300), **_scored("trip", 0.226)}
+
+    selected = ask_service.select_sources(sources, scored)
+
+    assert [s.session_id for s in selected] == ["review", "postings"]
+
+
+def test_select_sources_keeps_unscorable_legacy_sessions():
+    sources = [_source("legacy", "탭 스냅샷"), _source("loan", "전세대출")]
+
+    selected = ask_service.select_sources(sources, _scored("loan", 0.5))
+
+    assert {s.session_id for s in selected} == {"legacy", "loan"}
+
+
+def _scored_source(session_id, vector_score):
+    source = _source(session_id, session_id)
+    source.vector_score = vector_score
+    return source
+
+
+def test_has_evidence_accepts_strong_passage_when_session_scores_are_low():
+    # 여정 단위로 커진 세션은 세부 질문의 세션 점수가 낮다(0.20) — 본문 조각이 강하면 근거로 쓴다
+    trip = _scored_source("trip", 0.20)
+
+    assert ask_service.has_evidence([trip], _scored("trip", 0.49)) is True
+    assert ask_service.has_evidence([trip], _scored("trip", 0.35)) is False
+    assert ask_service.has_evidence([_scored_source("trip", 0.30)], _scored("trip", 0.1)) is True
+    # 직전 턴 출처처럼 후보 검색 밖에서 온 세션은 관련성을 따지지 않는다
+    assert ask_service.has_evidence([trip, _source("previous")], {}) is True
+
+
+def test_prepare_context_returns_no_sources_without_evidence(monkeypatch):
+    async def fake_load(_db, session_ids, _user_id, _workspace_id=None):
+        # _load_context_records는 읽을 수 있는 세션을 모두 돌려준다(팀 공유 해제 세션만 빠진다).
+        return {session_id: SimpleNamespace(tabs=[]) for session_id in session_ids}, []
+
+    async def fake_score(_query, _rows):
+        return _scored("weak", 0.27)
+
+    monkeypatch.setattr(ask_service, "_load_context_records", fake_load)
+    monkeypatch.setattr(ask_service, "score_passages", fake_score)
+
+    context = asyncio.run(
+        ask_service.prepare_ask_context(SimpleNamespace(), "제주 렌터카?", [_scored_source("weak", 0.21)], "u1")
+    )
+
+    assert context.sources == [] and context.prompt == ""
+
+
+def test_prepare_context_fallback_skips_weak_candidates(monkeypatch):
+    async def fake_load(_db, session_ids, _user_id, _workspace_id=None):
+        # _load_context_records는 읽을 수 있는 세션을 모두 돌려준다(팀 공유 해제 세션만 빠진다).
+        return {session_id: SimpleNamespace(tabs=[]) for session_id in session_ids}, []
+
+    async def fail_rank(*_args):
+        raise RuntimeError("embedding unavailable")
+
+    monkeypatch.setattr(ask_service, "_load_context_records", fake_load)
+    monkeypatch.setattr(ask_service, "score_passages", fail_rank)
+
+    sources = [_scored_source("weak", 0.2), _scored_source("strong", 0.4)]
+    context = asyncio.run(ask_service.prepare_ask_context(SimpleNamespace(), "질문", sources, "u1"))
+
+    assert [s.session_id for s in context.sources] == ["strong"]
+
+
+def test_vector_score_is_not_serialized():
+    assert "vector_score" not in _scored_source("s", 0.5).model_dump()
+
+
+def test_prepare_context_numbers_only_selected_sources(monkeypatch):
+    sources = [_source("loan", "전세대출"), _source("rtx", "그래픽카드")]
+
+    async def fake_load(_db, session_ids, _user_id, _workspace_id=None):
+        # _load_context_records는 읽을 수 있는 세션을 모두 돌려준다(팀 공유 해제 세션만 빠진다).
+        return {session_id: SimpleNamespace(tabs=[]) for session_id in session_ids}, []
+
+    async def fake_score(_query, _rows):
+        return {**_scored("loan", 0.5), **_scored("rtx", 0.2)}
+
+    monkeypatch.setattr(ask_service, "_load_context_records", fake_load)
+    monkeypatch.setattr(ask_service, "score_passages", fake_score)
+
+    context = asyncio.run(
+        ask_service.prepare_ask_context(SimpleNamespace(), "금리?", sources, "user-1")
+    )
+
+    assert [s.session_id for s in context.sources] == ["loan"]
+    assert "근거 번호: [1]" in context.prompt
+    assert "그래픽카드" not in context.prompt
+
+
+def test_candidate_dedupe_prefers_visit_with_captured_content():
+    def visit(order: int, duration: int, excerpt: str):
+        return (
+            SimpleNamespace(session_id="s1", relevance_score=1.0, sequence_order=order),
+            SimpleNamespace(url="https://example.com/same", content_excerpt=excerpt, active_duration_ms=duration),
+        )
+
+    limited = ask_service._limit_event_candidates(
+        [visit(0, 600_000, ""), visit(1, 5_000, "필요서류: 재직증명서")]
+    )
+
+    assert [event.content_excerpt for _se, event in limited] == ["필요서류: 재직증명서"]
+
+
+def _turn(query="5070 최저가 얼마였지?", answer="RTX 5070 최저가는 665,000원입니다 [1].", ids=("gpu",)):
+    from app.schemas.ask import AskHistoryTurn
+
+    return AskHistoryTurn(query=query, answer=answer, source_session_ids=list(ids))
+
+
+def test_followup_query_is_unchanged_without_history(monkeypatch):
+    async def boom(*_args, **_kwargs):
+        raise AssertionError("대화가 없으면 재작성 LLM을 부르지 않는다")
+
+    monkeypatch.setattr(ask_service, "chat_completion", boom)
+
+    assert asyncio.run(ask_service.resolve_followup_query("그럼 9070은?", [])) == "그럼 9070은?"
+
+
+def test_followup_query_uses_rewritten_first_line(monkeypatch):
+    captured = {}
+
+    async def fake_completion(system, user, **kwargs):
+        captured["user"] = user
+        return '"RX 9070 최저가는 얼마였어?"\n설명: 지시어를 풀었습니다'
+
+    monkeypatch.setattr(ask_service, "chat_completion", fake_completion)
+
+    rewritten = asyncio.run(ask_service.resolve_followup_query("그럼 9070은?", [_turn()]))
+
+    assert rewritten == "RX 9070 최저가는 얼마였어?"
+    assert "5070 최저가 얼마였지?" in captured["user"]
+    assert "[1]" not in captured["user"]
+
+
+def test_followup_query_falls_back_to_previous_plus_current(monkeypatch):
+    async def failing(*_args, **_kwargs):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr(ask_service, "chat_completion", failing)
+
+    rewritten = asyncio.run(ask_service.resolve_followup_query("그럼 9070은?", [_turn()]))
+
+    assert rewritten == "5070 최저가 얼마였지? 그럼 9070은?"
+
+
+def test_answer_prompt_marks_history_as_reference_only():
+    source = _source()
+
+    prompt = build_answer_prompt("그럼 9070은?", [source], {}, {}, history=[_turn()])
+
+    assert "이전 대화 (지시어 해석용" in prompt
+    assert "사용자: 5070 최저가 얼마였지?" in prompt
+    assert "665,000원입니다." in prompt and "[1]." not in prompt.split("질문:")[0]
+    assert "질문:\n그럼 9070은?" in prompt
+
+
+def test_history_request_validation_truncates_answer_and_limits_turns():
+    import pytest as _pytest
+    from pydantic import ValidationError
+    from app.schemas.ask import AskStreamRequest
+
+    long = AskStreamRequest(query="그럼?", history=[{"query": "q", "answer": "가" * 9000}])
+    assert len(long.history[0].answer) == 4000
+    with _pytest.raises(ValidationError):
+        AskStreamRequest(query="그럼?", history=[{"query": "q"}] * 4)
+
+
+def test_pick_evidence_covers_each_page_before_second_passages():
+    def page(name):
+        return SimpleNamespace(url=f"https://jobs.example.com/{name}", title=name, domain="jobs.example.com", search_query=None)
+
+    neo, moa, light = page("neo"), page("moa"), page("light")
+    scored = [
+        (0.50, 0, 0, neo, "네오 요건" + "가" * 290),
+        (0.49, 0, 1, neo, "네오 복지" + "가" * 290),
+        (0.48, 0, 2, neo, "네오 절차" + "가" * 290),
+        (0.40, 1, 0, moa, "모아 연봉 5,500만원" + "가" * 280),
+        (0.30, 2, 0, light, "라이트 연봉 9,500만원" + "가" * 280),
+    ]
+
+    picked = ask_service._pick_evidence(scored, budget=1000)
+
+    text = " ".join(p for page_evidence in picked for p in page_evidence.passages)
+    assert [p.event.title for p in picked] == ["neo", "moa", "light"]
+    assert "모아 연봉" in text and "라이트 연봉" in text
+    assert sum(len(p) for page_evidence in picked for p in page_evidence.passages) <= 1000

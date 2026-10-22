@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 
 from ..ai.json_utils import extract_json
-from ..ai.llm import chat_completion_intent
+from ..ai.llm import chat_completion_intent, chat_completion_with_meta
 from .event_filter import ai_safe_path
 
 logger = logging.getLogger(__name__)
@@ -171,6 +171,16 @@ def _clamp_relevance(value: object) -> float:
     return min(max(relevance, 0.0), 1.0)
 
 
+def _parse_assignments(raw: str) -> list:
+    data = extract_json(raw)
+    if not isinstance(data, dict):
+        raise ValueError(f"의도 분석 응답이 dict가 아닙니다: {type(data)}")
+    assignments_raw = data.get("assignments", [])
+    if not isinstance(assignments_raw, list):
+        raise ValueError("assignments가 list가 아닙니다")
+    return assignments_raw
+
+
 async def analyze(group: list[dict], candidates: list[dict]) -> list[Assignment]:
     """이벤트 그룹에 대해 LLM 의도 분석을 수행하고 방어적으로 파싱한다.
 
@@ -178,27 +188,35 @@ async def analyze(group: list[dict], candidates: list[dict]) -> list[Assignment]
     - 미할당 이벤트는 hold로 fallback.
     - 알 수 없는 action은 hold로 대체.
     - target이 후보 목록 밖이면 create로 강등.
-    - LLM 호출/파싱 실패는 그룹 전체를 hold 처리한다.
+    - 응답 형식이 깨지면 A.X로 한 번 재시도하고, 그래도 실패하거나 호출 자체가 실패하면 그룹 전체를 hold 처리한다.
     """
     if not group:
         return []
 
+    hold_all = [Assignment(event_indices=list(range(len(group))), action="hold", relevance=0.0)]
+    prompt = _build_prompt(group, candidates)
     try:
         # 분류 작업 — temperature 0으로 실행 간 판정 변동을 줄인다(평가 재현성 포함)
         raw, model = await chat_completion_intent(
-            _SYSTEM_PROMPT, _build_prompt(group, candidates), max_tokens=1000, temperature=0.0
+            _SYSTEM_PROMPT, prompt, max_tokens=1000, temperature=0.0
         )
-        data = extract_json(raw)
-        if not isinstance(data, dict):
-            raise ValueError(f"의도 분석 응답이 dict가 아닙니다: {type(data)}")
-        assignments_raw = data.get("assignments", [])
-        if not isinstance(assignments_raw, list):
-            raise ValueError("assignments가 list가 아닙니다")
     except Exception as exc:
         logger.warning("의도 분석 실패 (%s) — 그룹 전체 hold 처리", exc)
-        return [
-            Assignment(event_indices=list(range(len(group))), action="hold", relevance=0.0)
-        ]
+        return hold_all
+    try:
+        assignments_raw = _parse_assignments(raw)
+    except Exception as exc:
+        # temperature 0이라 같은 공급자에 다시 물어도 같은 깨진 출력이 나와 그 주제가 영영 hold된다
+        # (2026-10-19 K-EXAONE이 JSON 중간 토큰을 깨뜨림). A.X 우선 경로로 한 번만 다시 시도한다.
+        logger.warning("의도 분석 응답 형식 오류 (%s, model=%s) — A.X로 재시도", exc, model)
+        try:
+            raw, model = await chat_completion_with_meta(
+                _SYSTEM_PROMPT, prompt, max_tokens=1000, temperature=0.0
+            )
+            assignments_raw = _parse_assignments(raw)
+        except Exception as retry_exc:
+            logger.warning("의도 분석 재시도 실패 (%s) — 그룹 전체 hold 처리", retry_exc)
+            return hold_all
 
     assigned: set[int] = set()
     result: list[Assignment] = []

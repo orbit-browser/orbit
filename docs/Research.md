@@ -9,9 +9,9 @@
 | Chrome Extension | WXT + React + MV3 | 사이드패널과 콘텐츠 추출 구현 완료 |
 | Backend | FastAPI + async SQLAlchemy | 비동기 API와 PostgreSQL 연동 구현 완료 |
 | 세션 검색 | Upstage 비대칭 임베딩 + Qdrant | 자연어 벡터 검색 구현 완료 |
-| 배치 의도 분석 | K-EXAONE primary, A.X-K1 fallback | 품질 대등·노이즈 제외 우세, 429는 즉시 폴백으로 흡수 |
-| 탭 클러스터링 | K-EXAONE primary, A.X-K1 fallback | 소표본 제목/URL 분류 실측에서 임베딩 방식보다 적합 |
-| 요약·리랭킹 | A.X-K1 primary, K-EXAONE fallback | 한국어 요약 우세, 상호 폴백으로 공급자 장애 대응 |
+| 배치 의도 분석 | K-EXAONE primary, A.X-K2 fallback | 품질 대등·노이즈 제외 우세, 429는 즉시 폴백으로 흡수 |
+| 탭 클러스터링 | K-EXAONE primary, A.X-K2 fallback | 소표본 제목/URL 분류 실측에서 임베딩 방식보다 적합 |
+| 요약·리랭킹 | A.X-K2 primary, K-EXAONE fallback | 한국어 요약 우세(A.X-K1 기준 실측), 상호 폴백으로 공급자 장애 대응 |
 | 상태 관리 | TanStack Query + Zustand | 서버 상태와 로컬 UI 상태 분리 |
 
 ## 프로젝트 내 실측 결과

@@ -27,3 +27,11 @@ def test_leading_trailing_chatter():
 def test_truncated_json_raises():
     with pytest.raises(json.JSONDecodeError):
         extract_json('{"a": 1, "b": [1, 2')
+
+
+def test_extract_json_allows_raw_control_characters_inside_strings():
+    raw = '{"assignments": [{"action": "create", "reason": "제주 숙소\n비교\t중"}]}'
+
+    data = extract_json(raw)
+
+    assert data["assignments"][0]["reason"] == "제주 숙소\n비교\t중"

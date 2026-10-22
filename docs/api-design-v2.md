@@ -161,7 +161,7 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
     "highlights": ["리뷰 3건 비교", "커뮤니티 반응 확인"],
     "todos": ["최저가 재확인"],
     "next_actions": ["쇼핑몰에서 결제"],
-    "model": "A.X-K1",
+    "model": "A.X-K2",
     "created_at": "2026-08-03T05:30:00Z"
   },
   {
@@ -172,7 +172,7 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
     "highlights": [],
     "todos": [],
     "next_actions": [],
-    "model": "A.X-K1",
+    "model": "A.X-K2",
     "created_at": "2026-08-03T05:14:00Z"
   }
 ]
@@ -236,7 +236,7 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
 ### 8.1 `POST /ask/stream` — 탐색 기록 기반 스트리밍 답변
 
 새 탭과 사이드패널의 Ask AI가 사용하는 SSE 엔드포인트다. `EventSource`가 아닌 POST
-`fetch` 스트림이다. 각 요청은 이전 질문·답변을 받거나 저장하지 않는 독립 단일턴이다.
+`fetch` 스트림이다. 후속 질문을 위해 최근 대화(`history`)를 요청에 함께 받을 수 있지만 서버는 저장하지 않는다.
 
 **Request**
 
@@ -246,20 +246,32 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
   "session_id": null,
   "rerank": true,
   "intent": "search_memory",
-  "workspace_id": null
+  "workspace_id": null,
+  "history": [
+    {"query": "보험 비교한 거 정리해줘", "answer": "A사, B사, C사를 비교했어요 [1].", "source_session_ids": ["s1"]}
+  ]
 }
 ```
 
 - `query`: 공백 제외 1~2,000자.
-- `session_id`: 지정하면 해당 세션만 근거로 사용한다. 생략하면 기존 벡터 검색으로 최대 3개를 찾는다.
-- `rerank`: 검색 후보의 LLM 재정렬 여부. 기본 `true`.
+- `session_id`: 지정하면 해당 세션만 근거로 사용한다. 생략하면 벡터 검색으로 후보를 찾고 본문 근거로 최대 3개를 고른다.
+- `rerank`: 검색 후보의 LLM 재정렬 여부. 기본 `true`. `find_sessions`·`search_session`에만 적용한다.
+  `search_memory`는 본문 근거 점수로 출처를 다시 고르므로 LLM 재정렬을 쓰지 않는다.
 - `intent`: `find_sessions`, `search_memory`, `search_session` 중 하나. 기본은 하위 호환을 위한
   `search_memory`다. `find_sessions`는 최대 5개 세션을 반환하고 답변 LLM을 호출하지 않으며,
   `search_session`은 지정 세션 또는 가장 가까운 세션 1개만 사용한다.
 - `workspace_id`: 팀 워크스페이스 id(§14). 주면 그 팀에 공유된 세션만 근거로 쓰고, `session_id`도
   그 팀에 공유된 세션이어야 한다. 멤버가 아니면 `404`.
 
-클라이언트는 여러 질문과 답변을 UI에 누적 표시할 수 있지만, 그 목록은 다음 요청 본문에 포함하지 않는다.
+- `history`: 선택, 오래된 순 최대 3턴. 각 턴은 `query`(1~2,000자), `answer`(4,000자 초과분은 서버가 자름),
+  `source_session_ids`(최대 5개). 비우거나 생략하면 기존과 같은 독립 단일턴이다. 클라이언트는 답변이 끝난
+  Ask 턴만 보낸다(탭 이동 결과·오류 턴 제외).
+
+`history`가 있으면 서버는 LLM으로 마지막 질문을 단독 검색 질문으로 바꿔("그럼 9070은?" → "RX 9070 최저가는?")
+벡터 검색과 본문 조각 점수에 쓴다. 실패하면 직전 질문과 이어 붙인 문장으로 검색한다. 직전 턴의
+`source_session_ids`는 지금 읽을 수 있는 활성 세션(개인은 요청자 소유, 팀은 그 팀의 현재 공유 세션)만 불러와 새 검색 후보 뒤에 두고, 최종 출처는 같은 근거 점수 규칙으로 고른다.
+답변 프롬프트에는 원래 질문과 이전 대화(근거 번호 제거, 답변 600자)를 "지시어 해석용"으로만 넣으며,
+재작성한 검색 질문은 넣지 않는다.
 
 **Response (`text/event-stream`)**
 
@@ -271,12 +283,15 @@ event: delta
 data: {"text":"가장 낮은 선택지는 A사였습니다 [1]."}
 
 event: done
-data: {"model":"A.X-K1"}
+data: {"model":"A.X-K2"}
+
+event: verification
+data: {"issues":[{"value":"21:31","answer_subject":"청량리에서 출발하는 강릉행 KTX 막차","record_subject":"서울역 출발 KTX 847 (막차)"}]}
 ```
 
-이벤트 순서는 `sources` → `delta` 0개 이상 → (`replace` 0개 또는 1개) → `done` 또는 `error`다. 오류 이벤트는
+이벤트 순서는 `sources` → `delta` 0개 이상 → (`replace` 0개 또는 1개) → `done` 또는 `error`이고, `done` 뒤에
+`verification`이 0~1개 올 수 있다. 오류 이벤트는
 `{"code":"stream_interrupted|generation_failed","partial":true|false,"retryable":true}` 형식이다.
-검색/DB 오류처럼 스트림 시작 전 실패는 기존 HTTP 오류 계약을 따른다.
 
 소스 카드는 즉시 전송하고, 생성 답변도 토큰 단위 `delta`로 바로 흘려 보낸다. 생성이 끝난 뒤
 답변을 검사해, 소스가 있는데 방문 기록 자체를 부정하는 문장(근거 번호 없는 "기록에 없습니다" 등)이거나
@@ -286,14 +301,29 @@ data: {"model":"A.X-K1"}
 한계 표현과 "…기록은 없지만 … [1]" 같은 양보 표현은 대체하지 않는다. 생성이 중간에 끊기면 이미 보낸 본문이
 있을 때 오류의 `partial`이 `true`다.
 
-답변 컨텍스트는 관련 세션 최대 3개의 요약과 세션별 질문 관련 이벤트 최대 4개의
-`content_excerpt`로 제한한다. 세션별 기존 relevance 상위 12개를 후보로 제한한 뒤 질문에는
-`embedding-query`, 이벤트 passage에는 `embedding-passage`를 사용한다. 임베딩 장애 시에는 기존
-relevance×체류 시간 순위로 fallback한다. 미할당 이벤트는 포함하지 않으며, 페이지 본문 안의 지시문은
-신뢰하지 않는 데이터로 취급한다. 답변은 근거 세션을 `[1]`, `[2]`처럼 표시한다.
+`verification`은 비슷한 대상 혼동 검증 결과다. 답변이 끝나면(`done`) 서버가 같은 답변 프롬프트와 답변을 A.X-K2에
+다시 보내, 답변의 값마다 답변이 말한 대상(`answer_subject`)·기록 원문·원문의 대상(`record_subject`)을 적게 한다.
+원문에 그 값이 실제로 있으면서 대상이 다른 값만 최대 3개 보낸다(계산값과 원문 없는 값은 제외). 답변은 고치지 않으며 클라이언트는 답변 아래에 경고로 보여 준다. 첫 문장에서 못 찾았다고 답한 경우,
+`find_sessions`, 검증 호출의 실패·타임아웃(15초)·형식 오류·EXAONE 폴백이면 이벤트를 보내지 않는다(서버 로그만).
+클라이언트는 `done`에서 다음 질문을 받을 수 있고, 그 사이 새 질문으로 스트림을 끊으면 경고만 받지 못한다.
+검색/DB 오류처럼 스트림 시작 전 실패는 기존 HTTP 오류 계약을 따른다.
 
-모델은 A.X-K1 스트리밍을 우선 사용한다. 첫 토큰 전에 연결·rate limit·지원 상태 오류가 나면
-EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
+`search_memory`의 출처 선택: 벡터 검색으로 후보를 최대 5개(점수 하한 0.15) 받는다. 후보 세션이 모두
+기본 임계값(`SEARCH_SCORE_THRESHOLD`, 0.28)에 못 미치고 본문 조각 최고점도 0.40 미만이면 근거 없음으로
+끝낸다(여정 단위로 커진 세션은 세부 질문의 세션 점수가 낮아 본문 조각으로도 판단한다). 후보 세션의
+페이지 본문을 700자 조각으로 나눠 질문과의 유사도를 매기고, 근거 점수 1위 세션과 0.05 이내이거나,
+0.15 이내이면서 0.30 이상인 세션만 최대 3개 남긴다. `sources` 이벤트의 순서가 답변의 `[n]` 번호다.
+
+답변 컨텍스트는 출처 세션의 요약, 세션 기간, 세션별 질문과 가까운 본문 조각(전체 16,000자를 세션
+수로 나눈 예산, 세션당 최소 4,000자·페이지 10개)과 각 페이지의 방문 시각·검색어, 오늘 날짜(KST)로
+구성한다. 조각은 관련 높은 페이지마다 가장 가까운 조각을 하나씩 먼저 넣고 남은 예산을 점수 순으로 채운다. 세션별 relevance×체류 시간 상위 20개(같은 URL은 1개)를 후보로 두고, 질문에는
+`embedding-query`, 조각에는 `embedding-passage`를 사용한다. 임베딩은 (모델, 문장) 단위로 프로세스 메모리
+LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 질문은 Upstage를 다시 호출하지 않는다. 임베딩 장애 시에는 relevance×체류 시간
+상위 4개 페이지의 본문 앞 1,200자로 fallback한다. 미할당 이벤트는 포함하지 않으며, 페이지 본문 안의
+지시문은 신뢰하지 않는 데이터로 취급한다. 답변은 근거 세션을 `[1]`, `[2]`처럼 표시한다.
+
+모델은 A.X-K2 스트리밍을 우선 사용한다. 첫 토큰 전에 연결·rate limit·키 권한(401/403)·지원 상태
+오류가 나면 EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
 `stream_interrupted`를 보낸다.
 
 ### 8.2 `POST /assistant/route` — Ask AI 통합 의도 판별
@@ -444,17 +474,19 @@ EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델�
 
 ## 13. 사용자 폴더 (`/folders`)
 
-사용자가 직접 만드는 세션 그룹. **자동 분류가 아니다** — 서버가 이름을 지어내거나
-소속을 추론하지 않는다. 세션은 폴더 하나에만 속한다(단일 소속).
+사용자가 직접 만드는 세션 그룹. 서버는 폴더를 만들거나 이름을 짓지 않는다. 사용자 폴더 안에서만 새 세션을
+확실할 때 자동 배정하고 애매하면 제안한다(§13.4). 세션은 폴더 하나에만 속한다(단일 소속).
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | `GET` | `/folders` | 폴더 목록. `position`, `created_at` 순. `session_count`는 병합으로 흡수된 세션(`status='merged'`)을 제외한 수 |
 | `POST` | `/folders` | 생성. 이름만 받고 색(`hue`)과 `position`은 서버가 정한다(팔레트 순환, 항상 맨 뒤) |
 | `PATCH` | `/folders/{folder_id}` | 부분 갱신 — `name` / `hue` / `position` 중 보낸 것만 반영 |
-| `DELETE` | `/folders/{folder_id}` | 폴더만 삭제. **소속 세션은 지우지 않고** `folder_id`를 NULL로 되돌린다 |
-| `POST` | `/folders/{folder_id}/sessions` | 세션 일괄 배정(최대 200건). 다른 폴더에 있던 세션도 이동한다 |
-| `DELETE` | `/folders/{folder_id}/sessions/{session_id}` | 폴더에서 빼 미정리로 되돌린다 |
+| `DELETE` | `/folders/{folder_id}` | 폴더만 삭제. **소속 세션은 지우지 않고** `folder_id`·`folder_assigned_by`를 NULL로 되돌린다(다시 제안될 수 있음) |
+| `POST` | `/folders/{folder_id}/sessions` | 세션 일괄 배정(최대 200건). 다른 폴더에 있던 세션도 이동한다. `folder_assigned_by='user'` |
+| `DELETE` | `/folders/{folder_id}/sessions/{session_id}` | 폴더에서 빼 미정리로 되돌린다. `folder_assigned_by='user'`(자동 배정 되돌리기 포함) |
+| `GET` | `/folders/suggestions` | 미정리 세션의 폴더 제안(§13.4) |
+| `POST` | `/folders/suggestions/{session_id}/dismiss` | 제안 닫기 — 미정리로 두고 `folder_assigned_by='user'`. 204, 남의·병합된 세션은 404 |
 
 ### 13.1 일괄 배정의 부분 성공
 
@@ -477,6 +509,29 @@ EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델�
 
 `folder_id: str | null` 필드를 추가한다(§11 superset 정책). 폴더 기능을 모르는
 클라이언트는 이 필드를 무시하면 그대로 동작한다.
+
+`folder_assigned_by: "user" | "auto" | null` — 폴더 소속을 정한 주체. `auto`면 자동 분류가 넣은 것이라
+클라이언트가 '자동' 표시를 붙인다. `null`은 아직 아무도 정하지 않은 세션이다(기능 이전에 폴더에 넣은 세션도 `null`).
+
+### 13.4 자동 분류와 제안
+
+- 대상 폴더는 사용자가 만든 폴더뿐이다. 근거는 그 폴더에 **사용자가 넣은** 세션들의 벡터다
+  (`folder_assigned_by`가 `user`이거나 `null`이고 요약·임베딩이 성공한 소속 세션, 최근 활동 순 최대 500개). 자동 배정 세션은 근거에서 뺀다.
+- 폴더 점수는 그 폴더 근거 세션 중 가장 비슷한 2개 세션 벡터 유사도의 평균이다.
+- **자동 배정**: 동기화 배치 끝에, 그 배치에서 만들어지거나 바뀐 세션 중 미정리이면서 `folder_assigned_by`가
+  `null`이고 요약·임베딩이 성공한 세션에 대해(재요약 실패 세션은 벡터가 낡아 제외), 1위 폴더 점수 ≥ 0.47이고 2위 폴더와 차이 ≥ 0.12이고 근거 세션이 2개 이상이면
+  `folder_id`를 넣고 `folder_assigned_by='auto'`로 둔다. `GET/PATCH /settings`의 `auto_folder_enabled`
+  (기본 `true`)로 끈다. 실패해도 배치는 성공으로 끝난다.
+- **제안** (`GET /folders/suggestions`): 미정리이면서 `folder_assigned_by`가 `null`이고 요약·임베딩이 끝난 세션
+  (최근 활동 순 최대 50개) 중 1위 폴더 점수 ≥ 0.40인 세션. 자동 기준을 넘더라도 배치 밖의 기존 세션은 제안으로만
+  보여 준다. 점수 내림차순. 벡터 조회·검색 실패 시 `503`. 클라이언트는 Atlas 데이터와 따로 불러와 실패하면 제안 없이 그린다.
+
+```json
+[{"session_id": "s1", "folder_id": "f1", "score": 0.4322, "similar_session_ids": ["s7", "s9"]}]
+```
+
+- 수락은 일반 배정(`POST /folders/{id}/sessions`)이다. 사용자가 옮기거나 빼거나 제안을 닫은 세션은
+  `folder_assigned_by='user'`라 자동 분류와 제안이 다시 다루지 않는다.
 
 
 ## 14. 팀 워크스페이스 (`/workspaces`) — 1단계 세션 공유형
@@ -527,7 +582,7 @@ EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델�
   id이며 **`GET /sessions` 목록과 `GET /sessions/{id}`에서 소유자에게만** 채워진다. 다른 응답(PATCH·
   merge·retry·검색·Ask)과 팀원이 받은 응답에서는 항상 빈 배열이라, 팀원은 그 세션이 다른 팀에도
   공유됐는지 알 수 없다.
-- 팀원이 받은 응답(공유 세션 단건, 팀 목록, 팀 범위 검색·Ask 근거)은 `folder_id`도 `null`이다 —
+- 팀원이 받은 응답(공유 세션 단건, 팀 목록, 팀 범위 검색·Ask 근거)은 `folder_id`와 `folder_assigned_by`도 `null`이다 —
   폴더는 소유자의 개인 정리 정보다.
 - `GET /sessions/{id}`, `/sessions/{id}/events`, `/sessions/{id}/versions`: 읽기 권한을 "소유자 또는 그
   세션이 공유된 팀의 멤버"로 넓힌다. 병합으로 흡수된 세션은 팀원에게 `404`다(팀 목록·검색에서 빠지는

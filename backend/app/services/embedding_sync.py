@@ -51,7 +51,9 @@ async def embed_and_upsert(session_id: str, title: str, summary: SessionSummary)
                 )
             ).first()
         if row is None:
-            return  # 그 사이 삭제된 세션 — 고아 포인트를 만들지 않는다
+            # 그 사이 삭제된 세션 — 고아 포인트를 만들지 않는다
+            logger.warning("세션이 없어 Qdrant upsert 생략 (session_id=%s)", session_id)
+            return
         user_id, tabs = row
         embed_text = build_embedding_text(title, summary, tabs or [])
         vector = await embed(embed_text, model=settings.embedding_passage_model)

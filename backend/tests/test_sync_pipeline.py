@@ -206,6 +206,7 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
     monkeypatch.setattr(sync_pipeline, "_set_status", fake_set_status)
     monkeypatch.setattr(sync_pipeline, "refresh_session_ai", fake_refresh)
     monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
+    _no_auto_folder(monkeypatch)
     monkeypatch.setattr(sync_pipeline, "invalidate_recommendations", fake_invalidate_recommendations)
     monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
 
@@ -216,6 +217,54 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
     assert calls["invalidate"] == ["u1"]
     # 감사 필드는 그룹별 모델 카운트 요약(성공 그룹 1개 → "model-x:1")
     assert calls["complete"] == [("batch-1", 2, "model-x:1")]
+
+
+def _no_auto_folder(monkeypatch):
+    async def disabled(_user_id):
+        return False
+
+    monkeypatch.setattr(sync_pipeline, "is_auto_folder_enabled", disabled)
+
+    async def no_recommendations(_user_id):
+        return None
+
+    monkeypatch.setattr(sync_pipeline, "invalidate_recommendations", no_recommendations)
+
+
+def test_process_batch_auto_files_touched_sessions_and_merge_survivors(monkeypatch):
+    filed: list[tuple[str, set[str]]] = []
+
+    async def fake_process_group(_group, _batch_id, touched, _user_id):
+        touched.update({"new", "absorbed"})
+        return []
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    async def enabled(_user_id):
+        return True
+
+    async def fake_auto_merge(_user_id):
+        return {"survivor"}
+
+    async def fake_auto_file(user_id, session_ids):
+        filed.append((user_id, set(session_ids)))
+        return 1
+
+    monkeypatch.setattr(sync_pipeline, "dedupe_events", lambda events: (events, []))
+    monkeypatch.setattr(sync_pipeline, "group_by_time_gap", lambda events, **_k: [events])
+    monkeypatch.setattr(sync_pipeline, "_process_group", fake_process_group)
+    monkeypatch.setattr(sync_pipeline, "refresh_session_ai", noop)
+    monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", enabled)
+    monkeypatch.setattr(sync_pipeline, "_run_auto_merge", fake_auto_merge)
+    monkeypatch.setattr(sync_pipeline, "is_auto_folder_enabled", enabled)
+    monkeypatch.setattr(sync_pipeline, "auto_file_sessions", fake_auto_file)
+    monkeypatch.setattr(sync_pipeline, "invalidate_recommendations", noop)
+    monkeypatch.setattr(sync_pipeline, "_complete_batch", noop)
+
+    asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}], "u1"))
+
+    assert filed == [("u1", {"new", "absorbed", "survivor"})]
 
 
 def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
@@ -241,6 +290,7 @@ def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
     monkeypatch.setattr(sync_pipeline, "group_by_time_gap", lambda *a, **k: [])
     monkeypatch.setattr(sync_pipeline, "_set_status", fake_set_status)
     monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
+    _no_auto_folder(monkeypatch)
     monkeypatch.setattr(sync_pipeline, "invalidate_recommendations", fake_invalidate_recommendations)
     monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
 
@@ -395,6 +445,7 @@ def test_fetch_candidates_falls_back_when_vector_search_fails(monkeypatch):
         raise RuntimeError("qdrant down")
 
     monkeypatch.setattr(sync_pipeline, "search_similar_with_scores", failing_search)
+    monkeypatch.setattr(sync_pipeline, "score_sessions", failing_search)
 
     recent_session = SimpleNamespace(
         id="sess-recent",
@@ -468,6 +519,34 @@ def test_fetch_candidates_threads_vector_scores(monkeypatch):
 
     assert candidates[0]["session_id"] == "sess-v"
     assert candidates[0]["score"] == 0.63
+
+
+def test_fetch_candidates_scores_recent_only_sessions(monkeypatch):
+    async def search(*_a, **_k):
+        return []
+
+    scored_ids = []
+
+    async def score(_vector, session_ids, *, user_id):
+        scored_ids.append((list(session_ids), user_id))
+        return {"sess-recent": 0.21}
+
+    monkeypatch.setattr(sync_pipeline, "search_similar_with_scores", search)
+    monkeypatch.setattr(sync_pipeline, "score_sessions", score)
+
+    now = datetime.now(timezone.utc)
+    recent_session = SimpleNamespace(
+        id="sess-recent", title="최근 무관 세션", summary={}, keywords=[], last_activity_at=now, created_at=now
+    )
+    db = _QueuedDB([_ScalarsResult(["sess-recent"]), _ScalarsResult([recent_session])])
+    monkeypatch.setattr(sync_pipeline, "AsyncSessionLocal", lambda: _FakeSessionLocalCtx(db))
+
+    candidates = asyncio.run(sync_pipeline._fetch_candidates([0.1, 0.2], "u1"))
+
+    assert scored_ids == [(["sess-recent"], "u1")]
+    assert candidates[0]["score"] == 0.21
+    # 점수가 붙었으니 게이트가 하한(0.35) 미달 append를 막는다
+    assert sync_pipeline._append_blocked(candidates[0]) is True
 
 
 # ── _process_group ──────────────────────────────────────────────
@@ -580,3 +659,18 @@ def test_process_group_hard_splits_multitopic_into_two_llm_calls(monkeypatch):
     assert order == ["fetch", "analyze", "fetch", "analyze", "apply", "apply"]
     assert touched == {"sess-a", "sess-b"}
     assert result == ["A.X-K1", "A.X-K1"]
+
+
+def test_fetch_candidates_passes_user_id_to_vector_search(monkeypatch):
+    seen: dict = {}
+
+    async def search(_vector, **kwargs):
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(sync_pipeline, "search_similar_with_scores", search)
+    db = _QueuedDB([_ScalarsResult([])])
+    monkeypatch.setattr(sync_pipeline, "AsyncSessionLocal", lambda: _FakeSessionLocalCtx(db))
+
+    asyncio.run(sync_pipeline._fetch_candidates([0.1], "u1"))
+    assert seen["user_id"] == "u1"

@@ -9,7 +9,13 @@ import {
   findBestOpenTab,
   parseOpenTabNavigationIntent,
 } from '../../../lib/tab-actions';
-import type { AssistantRetrievalIntent, OpenTabItem, Session } from '../../../lib/types';
+import type {
+  AskHistoryTurn,
+  AskVerificationIssue,
+  AssistantRetrievalIntent,
+  OpenTabItem,
+  Session,
+} from '../../../lib/types';
 
 export type AskTurnStatus = 'streaming' | 'done' | 'error' | 'cancelled';
 
@@ -21,6 +27,8 @@ export interface AskTurn {
   status: AskTurnStatus;
   model: string | null;
   error: string | null;
+  /** 서버 검증이 기록에서는 비슷한 다른 대상의 값으로 본 답변 속 값들. 답변은 그대로 두고 경고로만 보여 준다. */
+  verificationIssues: AskVerificationIssue[];
   tabCandidates: OpenTabItem[];
   tabCandidateError: string | null;
 }
@@ -32,6 +40,23 @@ interface AskConversationState {
 }
 
 const EMPTY_TURNS: AskTurn[] = [];
+const MAX_HISTORY_TURNS = 3;
+const TAB_ACTION_MODELS = new Set(['local-tab-action', 'semantic-tab-action']);
+
+/** 후속 질문용 최근 대화 — 답변이 끝난 Ask 턴만 보낸다. 탭 이동 결과는 대화 맥락이 아니다. */
+export function buildAskHistory(turns: AskTurn[]): AskHistoryTurn[] {
+  return turns
+    .filter((turn) =>
+      turn.status === 'done' && turn.answer.trim() !== '' && !TAB_ACTION_MODELS.has(turn.model ?? ''),
+    )
+    .slice(-MAX_HISTORY_TURNS)
+    .map((turn) => ({
+      query: turn.query,
+      answer: turn.answer,
+      sourceSessionIds: turn.sources.map((session) => session.id),
+    }));
+}
+
 let turnSequence = 0;
 let activeController: AbortController | null = null;
 let activeTurnId: string | null = null;
@@ -83,11 +108,10 @@ function cancelActiveTurn() {
   activeController = null;
   activeTurnId = null;
   if (turnId) {
-    updateTurn(turnId, (turn) => ({
-      ...turn,
-      status: 'cancelled',
-      error: '답변 생성을 중단했어요.',
-    }));
+    // 답변이 끝난 뒤 검증 경고를 기다리던 턴은 답변 그대로 둔다(경고만 받지 못한다).
+    updateTurn(turnId, (turn) => (turn.status === 'streaming'
+      ? { ...turn, status: 'cancelled', error: '답변 생성을 중단했어요.' }
+      : turn));
   }
   useAskConversationStore.setState({ isStreaming: false });
 }
@@ -268,6 +292,7 @@ export function useAskConversation({
 
     if (useAskConversationStore.getState().workspaceId !== scopeId) resetConversation(scopeId);
     if (activeController) cancelActiveTurn();
+    const history = buildAskHistory(useAskConversationStore.getState().turns);
     const id = nextTurnId();
     const controller = new AbortController();
     activeController = controller;
@@ -283,6 +308,7 @@ export function useAskConversation({
           status: 'streaming',
           model: null,
           error: null,
+          verificationIssues: [],
           tabCandidates: [],
           tabCandidateError: null,
         },
@@ -308,13 +334,14 @@ export function useAskConversation({
         return;
       }
 
-      // 이전 질문·답변을 보내지 않는다. 화면의 누적 목록은 표시용일 뿐 각 요청은 독립 단일턴이다.
+      // 최근 대화를 함께 보내 "그중", "그럼 9070은?" 같은 후속 질문을 해석하게 한다.
       for await (const event of streamAsk({
         query,
         rerank,
         sessionId,
         intent: routed.intent,
         workspaceId,
+        history,
       }, controller.signal)) {
         if (controller.signal.aborted) return;
         if (event.type === 'sources') {
@@ -323,9 +350,13 @@ export function useAskConversation({
           updateTurn(id, (turn) => ({ ...turn, answer: turn.answer + event.text }));
         } else if (event.type === 'replace' && event.text) {
           updateTurn(id, (turn) => ({ ...turn, answer: event.text }));
+        } else if (event.type === 'verification') {
+          updateTurn(id, (turn) => ({ ...turn, verificationIssues: event.issues }));
         } else if (event.type === 'done') {
           terminalEvent = true;
           updateTurn(id, (turn) => ({ ...turn, status: 'done', model: event.model }));
+          // 서버는 done 뒤에 검증 경고(verification)를 보낼 수 있다. 스트림은 계속 읽되 다음 질문은 받는다.
+          if (activeTurnId === id) useAskConversationStore.setState({ isStreaming: false });
         } else if (event.type === 'error') {
           terminalEvent = true;
           updateTurn(id, (turn) => ({
@@ -343,7 +374,8 @@ export function useAskConversation({
         }));
       }
     } catch (error) {
-      if (!controller.signal.aborted) {
+      // done 뒤(검증 경고 대기 중)에 연결이 끊기면 경고만 잃는다. 끝난 답변을 오류로 바꾸지 않는다.
+      if (!controller.signal.aborted && !terminalEvent) {
         updateTurn(id, (turn) => ({
           ...turn,
           status: 'error',

@@ -27,3 +27,4 @@ venv/
 .vscode/*
 !.vscode/extensions.json
 *.log
+backend/eval/local/

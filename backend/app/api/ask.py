@@ -15,10 +15,15 @@ from ..schemas.ask import AskStreamRequest
 from ..schemas.session import SessionDetail
 from ..services.ask_service import (
     ASK_SYSTEM_PROMPT,
+    CANDIDATE_FLOOR,
+    MAX_CANDIDATE_SOURCES,
+    MAX_SOURCES,
     AskContext,
     grounded_answer,
     prepare_ask_context,
+    resolve_followup_query,
 )
+from ..services.answer_verifier import find_conflations
 from ..services.workspaces import session_scope_clause
 from .deps import current_user_id
 from .search import _search_sessions_by_vector
@@ -34,15 +39,39 @@ def encode_sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
+async def _previous_sources(
+    body: AskStreamRequest, db: AsyncSession, user_id: str
+) -> list[SessionDetail]:
+    """직전 답변의 출처 세션(최대 MAX_SOURCES개). id는 클라이언트가 보낸 값이므로 반드시 지금 읽을 수
+    있는 활성 세션만 남긴다 — 개인은 소유 세션, 팀은 현재 유효한 공유 세션(session_scope_clause)."""
+    ids = list(dict.fromkeys(body.history[-1].source_session_ids))[:MAX_SOURCES] if body.history else []
+    if not ids:
+        return []
+    result = await db.execute(
+        select(SessionModel).where(
+            SessionModel.id.in_(ids),
+            session_scope_clause(user_id, body.workspace_id),
+            SessionModel.status != "merged",
+        )
+    )
+    by_id = {session.id: session for session in result.scalars().all()}
+    include_private = body.workspace_id is None
+    return [
+        _to_detail(by_id[session_id], include_private=include_private) for session_id in ids if session_id in by_id
+    ]
+
+
 async def _resolve_sources(
     body: AskStreamRequest,
     db: AsyncSession,
     user_id: str,
     shared_ids: list[str] | None = None,
+    retrieval_query: str | None = None,
 ) -> list[SessionDetail]:
     """개인은 소유 세션, 팀은 현재 유효한 공유 세션만 답변 근거로 고른다.
 
     shared_ids 는 벡터 후보를 좁힐 뿐, SQL 권한 판정에는 쓰지 않는다.
+    retrieval_query는 후속 질문을 단독 질문으로 바꾼 검색용 질문이다(없으면 원래 질문).
     """
     if body.session_id:
         # 소유권 확인을 거친다 — 남의 세션 id 로 그 내용을 요약해 받아갈 수 있으면 안 된다.
@@ -59,12 +88,34 @@ async def _resolve_sources(
             raise HTTPException(status_code=404, detail="Session not found")
         return [_to_detail(session, include_private=body.workspace_id is None)]
 
-    limit = (
-        5 if body.intent == "find_sessions" else 1 if body.intent == "search_session" else 3
+    query = retrieval_query or body.query
+    scope = {"shared_ids": shared_ids, "workspace_id": body.workspace_id}
+    if body.intent == "find_sessions":
+        return await _search_sessions_by_vector(query, 5, body.rerank, db, user_id, **scope)
+    if body.intent == "search_session":
+        return await _search_sessions_by_vector(query, 1, body.rerank, db, user_id, **scope)
+    # 후보를 넓게 받고 최종 출처는 prepare_ask_context가 본문 근거 점수로 다시 고른다.
+    # 요약 60자만 보는 LLM 리랭크는 그 재정렬과 겹치고 첫 토큰을 ~1.2초 늦춰 쓰지 않는다.
+    retrieved = await _search_sessions_by_vector(
+        query,
+        MAX_CANDIDATE_SOURCES,
+        False,
+        db,
+        user_id,
+        **scope,
+        candidate_floor=CANDIDATE_FLOOR,
     )
-    return await _search_sessions_by_vector(
-        body.query, limit, body.rerank, db, user_id, shared_ids, body.workspace_id
-    )
+    # "그중 제일 싼 건?"의 대상은 직전 답변의 출처에 있다. 새 검색 결과 뒤에 붙여 함께 근거 점수로 고른다.
+    # 앞에 두면 직전 턴이 세션 찾기(5개)였을 때 후보 상한에 걸려 새 검색 결과가 전부 잘린다.
+    seen = {source.session_id for source in retrieved}
+    previous = await _previous_sources(body, db, user_id)
+    previous_ids = {source.session_id for source in previous}
+    for source in retrieved:
+        if source.session_id in previous_ids:
+            # 새 검색에도 잡힌 직전 출처는 관련성 기준을 면제한다(지시어의 대상). 점수가 붙은 채로 두면
+            # 세션 점수 0.28 미만·본문 조각 0.40 미만일 때 대화의 출처가 사라진다.
+            source.vector_score = None
+    return retrieved + [source for source in previous if source.session_id not in seen]
 
 
 async def _answer_events(
@@ -113,6 +164,13 @@ async def _answer_events(
         if checked != answer:
             yield encode_sse("replace", {"text": checked})
         yield encode_sse("done", {"model": model})
+        # 답변을 먼저 끝내(다음 질문을 막지 않도록) 같은 근거로 비슷한 다른 대상의 값을 가져왔는지 검증한다.
+        # 검증은 2~3초 걸린다. 걸린 값만 done 뒤에 경고로 보낸다.
+        if await request.is_disconnected():
+            return
+        issues = await find_conflations(context.prompt, "".join(parts))
+        if issues:
+            yield encode_sse("verification", {"issues": [issue.model_dump() for issue in issues]})
     except asyncio.CancelledError:
         logger.info("Ask stream cancelled")
         raise
@@ -138,9 +196,17 @@ async def stream_answer(
     user_id: str = Depends(current_user_id),
 ) -> StreamingResponse:
     shared_ids = await team_shared_ids(db, user_id, body.workspace_id)
-    sources = await _resolve_sources(body, db, user_id, shared_ids)
+    retrieval_query = await resolve_followup_query(body.query, body.history)
+    sources = await _resolve_sources(body, db, user_id, shared_ids, retrieval_query)
     context = await prepare_ask_context(
-        db, body.query, sources, user_id, body.intent, body.workspace_id
+        db,
+        body.query,
+        sources,
+        user_id,
+        body.intent,
+        body.workspace_id,
+        history=body.history,
+        retrieval_query=retrieval_query,
     )
     return StreamingResponse(
         _answer_events(request, context),

@@ -24,7 +24,7 @@ export interface ExplorationEvent {
   /** 같은 탭의 직전 이벤트 id (체이닝용, 첫 방문이면 null) */
   previousEventId: string | null;
   activeDurationMs: number;
-  /** Readability 추출 본문 발췌, 최대 4000자. 미부착 시 null */
+  /** 페이지 본문(Readability, 실패 시 iframe·화면 텍스트 폴백), 최대 MAX_CONTENT_EXCERPT_LENGTH자. 미부착 시 null */
   contentExcerpt: string | null;
   /** ISO 8601 — 로컬 큐에 처음 적재된 시각 */
   createdAt: string;
@@ -104,4 +104,5 @@ export function domainFromUrl(rawUrl: string): string {
   }
 }
 
-export const MAX_CONTENT_EXCERPT_LENGTH = 4000;
+/** 실측(55페이지): 16,000자면 94%가 온전히 남는다. 백엔드 `_MAX_EXCERPT_LEN`·DB `VARCHAR(16000)`과 같은 값. */
+export const MAX_CONTENT_EXCERPT_LENGTH = 16000;

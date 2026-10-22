@@ -61,7 +61,7 @@ def _to_detail(
     *,
     include_private: bool = True,
 ) -> SessionDetail:
-    """include_private=False 면 소유자 개인 정보(폴더, 공유된 팀)를 뺀다 — 팀원에게 주는 응답용."""
+    """include_private=False 면 소유자 개인 정보(폴더·폴더 배정 주체, 공유된 팀)를 뺀다 — 팀원에게 주는 응답용."""
     tabs = [
         TabItemResponse(
             id=t.get("tab_id", ""),
@@ -94,6 +94,7 @@ def _to_detail(
             session.last_activity_at.isoformat() if session.last_activity_at else None
         ),
         folder_id=session.folder_id if include_private else None,
+        folder_assigned_by=session.folder_assigned_by if include_private else None,
         shared_workspace_ids=(shared_workspace_ids or []) if include_private else [],
     )
 

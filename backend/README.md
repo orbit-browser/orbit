@@ -1,7 +1,7 @@
 # Orbit Backend
 
 FastAPI 기반 이벤트 인제스트 + 세션 API + AI 파이프라인. Extension이 보낸 방문 이벤트를
-받아 배치로 세션화하고, 국내 LLM(SKT A.X-K1 ↔ LG K-EXAONE 상호 폴백)으로 의도 분석과
+받아 배치로 세션화하고, 국내 LLM(SKT A.X-K2 ↔ LG K-EXAONE 상호 폴백)으로 의도 분석과
 요약을 수행하며, Upstage embedding-passage/embedding-query + Qdrant로 자연어 검색을
 제공합니다. "지금 열린 탭 저장" 스냅샷 경로도 그대로 유지합니다.
 
@@ -38,7 +38,7 @@ backend/
    │  ├─ recommender/        # 추천 세션 스코어링 + LLM 리랭킹
    │  └─ google_auth.py, auth_tokens.py, users.py, app_settings.py
    ├─ ai/
-   │  ├─ llm.py           # A.X-K1 / K-EXAONE 클라이언트 + 단계별 상호 폴백, 전역 레이트 리미터
+   │  ├─ llm.py           # A.X / K-EXAONE 클라이언트 + 단계별 상호 폴백, 전역 레이트 리미터
    │  ├─ embedding.py     # embedding-query/embedding-passage 클라이언트 (4096차원, 비대칭 임베딩)
    │  ├─ clusterer.py     # 스냅샷 경로에서 탭을 주제별로 그루핑
    │  ├─ reranker.py      # 검색 결과를 쿼리 관련성 순으로 재정렬
@@ -58,7 +58,7 @@ eval/                     # 골든셋 평가 하네스 — 세션 분류·검색
 docker compose up -d postgres qdrant   # 루트에서
 cd backend
 pip install -e ".[dev]"                # 또는 uv sync
-# backend/.env 를 직접 작성한다 (backend/.env.example 은 없다).
+cp .env.example .env                   # 값 채우기
 # AXK1_API_KEY, FRIENDLI_API_KEY, UPSTAGE_API_KEY 3종이 모두 필요하며,
 # 구글 로그인용 GOOGLE_CLIENT_ID / JWT_SECRET 은 루트 README 참고.
 uvicorn app.main:app --reload
@@ -116,23 +116,27 @@ Qdrant 검색 장애는 503으로 반환하며 내부 예외 상세는 API 응�
 
 | 역할 | Primary | Fallback | 구현 |
 |---|---|---|---|
-| 배치 의도 분석 (append/create/hold/discard) | `K-EXAONE` | `A.X-K1` | `llm.chat_completion_intent` |
-| 탭 클러스터링 (스냅샷 경로) | `K-EXAONE` | `A.X-K1` | `llm.chat_completion_light` |
-| 세션 요약 | `A.X-K1` | `K-EXAONE` | `llm.chat_completion(_with_meta)` |
-| 검색·추천 리랭킹 | `A.X-K1` | `K-EXAONE` | `llm.chat_completion` |
-| Ask 답변 스트리밍 | `A.X-K1` | `K-EXAONE` | `llm.chat_completion_stream_with_meta` |
+| 배치 의도 분석 (append/create/hold/discard) | `K-EXAONE` | `A.X-K2` | `llm.chat_completion_intent` |
+| 탭 클러스터링 (스냅샷 경로) | `K-EXAONE` | `A.X-K2` | `llm.chat_completion_light` |
+| 세션 요약 | `A.X-K2` | `K-EXAONE` | `llm.chat_completion(_with_meta)` |
+| 검색·추천 리랭킹 | `A.X-K2` | `K-EXAONE` | `llm.chat_completion` |
+| Ask 답변 스트리밍 | `A.X-K2` | `K-EXAONE` | `llm.chat_completion_stream_with_meta` |
 | 검색 쿼리 임베딩 | `embedding-query` | — | 4096차원, Qdrant cosine 검색 |
 | 저장 문서(요약) 임베딩 | `embedding-passage` | — | 비대칭 임베딩 — 쿼리/문서에 서로 다른 모델 |
 
 - 의도 분석만 EXAONE 우선 방향이 반대인 이유: 공정 재평가에서 품질은 대등했고
-  노이즈 제외는 EXAONE이 우세했다. serverless rate limit(429)이나 지연은
-  `max_retries=0` + 12초 타임아웃으로 즉시 A.X-K1에 넘겨 흡수한다.
-- `A.X-K1`은 3 RPS 제한이 있어 모든 LLM 호출을 전역 최소 간격 리미터로 직렬화한다.
-- `K-EXAONE`(`LGAI-EXAONE/K-EXAONE-236B-A23B`)은 FriendliAI serverless로 호출하며,
+  노이즈 제외는 EXAONE이 우세했다(당시 A.X-K1 기준). rate limit(429)이나 지연은
+  `max_retries=0` + 12초 타임아웃으로 즉시 A.X에 넘겨 흡수한다.
+- A.X 게이트웨이는 3 RPS 제한이 있어 모든 LLM 호출을 전역 최소 간격 리미터로 직렬화한다.
+- `K-EXAONE`은 FriendliAI dedicated endpoint(`EXAONE_MODEL` = endpoint ID)로 호출하며,
   hybrid reasoning 모델이라 `chat_template_kwargs.enable_thinking=false`를 항상 보낸다.
   끄지 않으면 출력 토큰을 추론 트레이스가 소진해 content가 비어 온다.
 - Ask 스트리밍은 첫 토큰 전 실패에만 폴백한다. 토큰을 이미 보낸 뒤 끊기면 다른 모델로
   이어붙일 수 없어 `StreamInterruptedError`로 호출자에게 부분 실패를 알린다.
+- 폴백 대상 상태 코드는 401·403·404·429·5xx다(`llm._should_fallback`). 401/403은 그 공급자의
+  키·모델 권한 문제라 다른 공급자는 정상일 수 있다. 400·422 같은 요청 오류는 그대로 던진다.
+- Ask 출처·컨텍스트 선택 규칙은 `docs/api-design-v2.md` §8.1, 품질 평가는
+  `python -m eval.run_ask_eval`(eval/README.md).
 
 세션 저장 흐름: 저장 요청 → 규칙 기반 제목으로 즉시 DB 저장(`summary_status=pending`) 및 응답 →
 백그라운드에서 LLM 요약 생성(`summary_status=done|failed`) → 요약 텍스트를 embedding-passage로

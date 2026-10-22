@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.embedding import embed
 from ..ai.reranker import rerank as llm_rerank
+from ..config import settings
 from ..db.models import (
     ExplorationEvent,
     SESSION_DISPLAY_TITLE,
@@ -15,7 +16,7 @@ from ..db.models import (
     SessionEvent,
 )
 from ..db.session import get_db
-from ..db.vector import search_similar
+from ..db.vector import search_similar, search_similar_with_scores
 from ..schemas.event import MemorySearchEventItem, MemorySearchResponse
 from ..schemas.session import SessionDetail
 from ..services.workspaces import session_scope_clause
@@ -42,10 +43,14 @@ async def _search_sessions_by_vector(
     user_id: str,
     shared_ids: list[str] | None = None,
     workspace_id: str | None = None,
+    *,
+    candidate_floor: float | None = None,
 ) -> list[SessionDetail]:
     """기존 세션 벡터 검색 경로 — scope 무관하게(sessions/memory 둘 다) 그대로 재사용.
 
     shared_ids 는 Qdrant 후보 필터, workspace_id 는 SQL 권한 범위다.
+    candidate_floor를 주면 그 점수 이상의 세션을 vector_score와 함께 후보로 돌려준다. 관련성 판단
+    (세션 점수 또는 본문 조각 점수)과 최종 선택은 Ask가 본문 근거로 한다(ask_service.prepare_ask_context).
     """
     if shared_ids is not None and not shared_ids:
         return []  # 공유된 세션이 없는 팀 — 임베딩을 부를 필요가 없다
@@ -67,10 +72,22 @@ async def _search_sessions_by_vector(
         logger.error("검색 임베딩 응답 형식 오류")
         raise HTTPException(status_code=502, detail="Embedding service returned an invalid response")
 
+    scores: dict[str, float] = {}
     try:
-        session_ids = await search_similar(
-            query_vector, limit=fetch_limit, user_id=user_id, session_ids=shared_ids
-        )
+        if candidate_floor is None:
+            session_ids = await search_similar(
+                query_vector, limit=fetch_limit, user_id=user_id, session_ids=shared_ids
+            )
+        else:
+            scored = await search_similar_with_scores(
+                query_vector,
+                user_id=user_id,
+                limit=fetch_limit,
+                score_threshold=candidate_floor,
+                session_ids=shared_ids,
+            )
+            scores = dict(scored)
+            session_ids = [session_id for session_id, _score in scored]
     except Exception:
         logger.exception("Qdrant 검색 실패")
         raise HTTPException(status_code=503, detail="Vector search service unavailable")
@@ -89,11 +106,12 @@ async def _search_sessions_by_vector(
 
     # Qdrant 유사도 순서(높은 순)를 유지
     # 팀 범위 결과에는 소유자 개인 정보(폴더·공유된 팀)를 싣지 않는다.
+    readable_ids = [sid for sid in session_ids if sid in sessions_by_id]
     candidates = [
-        _to_detail(sessions_by_id[sid], include_private=workspace_id is None)
-        for sid in session_ids
-        if sid in sessions_by_id
+        _to_detail(sessions_by_id[sid], include_private=workspace_id is None) for sid in readable_ids
     ]
+    for candidate, sid in zip(candidates, readable_ids):
+        candidate.vector_score = scores.get(sid)
 
     if rerank and candidates:
         candidates = await llm_rerank(q.strip(), candidates)

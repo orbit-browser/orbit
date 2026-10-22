@@ -3,7 +3,7 @@
 
 export interface PageContent {
   title: string;
-  /** Readability가 추출한 순수 텍스트 (임베딩 입력용, 최대 8000자) */
+  /** 정규화한 본문 텍스트 (Readability, 실패 시 iframe·화면 텍스트 폴백, 최대 MAX_CONTENT_EXCERPT_LENGTH자) */
   textContent: string;
   /** 짧은 발췌문 (UI 미리보기 / LLM 요약용) */
   excerpt: string;
@@ -89,6 +89,8 @@ export interface Session {
   summaryStatus: 'pending' | 'done' | 'failed';
   /** 사용자가 넣은 폴더. 없으면 미정리(단일 소속). */
   folderId?: string;
+  /** 폴더 소속을 누가 정했는지. 'auto' 면 서버 자동 분류다. 정한 적 없으면 undefined. */
+  folderAssignedBy?: 'user' | 'auto';
   /**
    * 이 세션이 공유된 팀 id. 목록·단건 조회에서 소유자에게만 채워진다 — 다른 응답과 팀원이 받은
    * 응답에서는 비어 있다. 공유 배지는 목록 응답을 기준으로 그린다.
@@ -173,6 +175,15 @@ export interface Folder {
   updatedAt: string;
 }
 
+/** 미정리 세션을 넣을 만한 폴더 — 자동으로 넣기엔 애매해 사용자에게 묻는다. */
+export interface FolderSuggestion {
+  sessionId: string;
+  folderId: string;
+  score: number;
+  /** 그 폴더 안에서 이 세션과 가장 비슷한 세션들 — 제안 근거로 보여 준다. */
+  similarSessionIds: string[];
+}
+
 /** 폴더 일괄 배정 결과 — 건너뛴 세션을 그대로 돌려준다. */
 export interface FolderAssignResult {
   folderId: string;
@@ -197,6 +208,8 @@ export interface MergeSuggestion {
 export interface ServerSettings {
   /** 다음 동기화부터 명백한 중복만 자동 병합한다. 기본값은 false. */
   autoMergeEnabled: boolean;
+  /** 새 세션이 기존 폴더와 확실히 비슷하면 자동으로 넣고, 애매하면 제안한다. */
+  autoFolderEnabled: boolean;
 }
 
 // ── Timeline / Memory 검색 (M4, docs/api-design-v2.md §3, §6, §8) ──────────
@@ -254,6 +267,13 @@ export interface MemorySearchResult {
 
 // ── Ask AI 스트리밍 ───────────────────────────────────────────────────
 
+/** 후속 질문 해석용 이전 턴. 서버는 저장하지 않는다. */
+export interface AskHistoryTurn {
+  query: string;
+  answer: string;
+  sourceSessionIds: string[];
+}
+
 export interface AskStreamRequest {
   query: string;
   sessionId?: string;
@@ -261,6 +281,15 @@ export interface AskStreamRequest {
   intent?: AssistantRetrievalIntent;
   /** 주면 그 팀에 공유된 세션만 근거로 쓴다. */
   workspaceId?: string;
+  /** 최근 대화(오래된 순, 최대 3턴). 비우면 독립 질문으로 처리된다. */
+  history?: AskHistoryTurn[];
+}
+
+/** 답변이 한 대상의 값이라고 말한 값이 기록에서는 비슷한 다른 대상의 값인 경우 (`verification` 이벤트). */
+export interface AskVerificationIssue {
+  value: string;
+  answerSubject: string;
+  recordSubject: string;
 }
 
 export type AskStreamEvent =
@@ -268,6 +297,7 @@ export type AskStreamEvent =
   | { type: 'delta'; text: string }
   /** 서버가 생성 뒤 검사에서 근거와 모순을 찾았을 때 이미 보낸 본문 전체를 바꾼다. */
   | { type: 'replace'; text: string }
+  | { type: 'verification'; issues: AskVerificationIssue[] }
   | { type: 'done'; model: string | null }
   | {
       type: 'error';

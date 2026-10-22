@@ -21,4 +21,6 @@ def extract_json(raw: str) -> dict:
         if match:
             raw = match.group().strip()
 
-    return json.loads(raw)
+    # strict=False: 문자열 안의 날것 줄바꿈·탭을 허용한다. K-EXAONE이 reason 등에 개행을 그대로 넣어
+    # 의도 분석이 매번 실패(그룹 hold)하고 해당 주제의 세션이 만들어지지 않았다(2026-10-19).
+    return json.loads(raw, strict=False)

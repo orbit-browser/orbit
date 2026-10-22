@@ -10,8 +10,10 @@ const SENSITIVE_DOMAIN_PATTERNS: RegExp[] = [
   // 증권/카드/보험
   /(^|\.)(mirae(asset)?|samsungfund|kbfg|nhqv|kiwoom|ebestsec|shinhaninvest)\.com$/i,
   /(^|\.)(kbcard|shinhancard|samsungcard|hyundaicard|lottecard)\.com$/i,
-  // 정부/공공
-  /\.go\.kr$/i,
+  // 정부/공공 — 공지·안내 페이지는 수집하고, 로그인 후 개인 기록을 다루는 서비스만 제외한다(2026-10-20 결정)
+  /(^|\.)gov\.kr$/i, // 정부24
+  /(^|\.)(hometax|wetax|minwon|epeople|efine|iros)\.go\.kr$/i, // 홈택스·위택스·민원24·국민신문고·교통민원24·인터넷등기소
+  /(^|\.)ecfs\.scourt\.go\.kr$/i, // 전자소송
   // 결제
   /(^|\.)(paypal|stripe|tosspayments|inicis|kakaopay|payco)\.com$/i,
   /(^|\.)toss\.im$/i,

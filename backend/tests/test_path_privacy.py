@@ -72,7 +72,8 @@ def test_ask_prompt_source_urls_drop_query_fragment_and_sensitive_paths():
         SimpleNamespace(title="환급", domain="hometax.go.kr", content_excerpt="", url=GO_KR + "?id=1"),
         SimpleNamespace(title="", domain="", content_excerpt="", url=RESET_TOKEN),
     ]
-    prompt = ask_service.build_answer_prompt("질문", [_detail()], {}, {"s1": events})
+    evidence = {"s1": [ask_service.PageEvidence(event, []) for event in events]}
+    prompt = ask_service.build_answer_prompt("질문", [_detail()], {}, evidence)
     assert "(https://react.dev/learn/thinking-in-react)" in prompt
     assert "(https://www.hometax.go.kr)" in prompt
     assert "(https://shop.example.com/account/reset-password)" in prompt
@@ -185,3 +186,17 @@ def test_secret_segment_survives_encoding_tricks(segment):
 def test_ingest_strips_excerpt_for_trailing_dot_sensitive_host():
     from app.api import events
     assert events.is_sensitive_url("https://hometax.go.kr./websquare/refund")
+
+
+from app.services import event_filter
+
+
+def test_go_kr_notice_is_collected_but_its_path_never_reaches_external_ai():
+    """origin #24: .go.kr 공지 본문은 수집한다(민감 아님). 로컬 규칙: 외부 AI로 가는 .go.kr URL 경로는 지운다."""
+    notice = "https://www.bokjiro.go.kr/ssis-tbu/cms/pc/customer/notice/130"
+    assert event_filter.is_sensitive_url(notice) is False
+    assert event_filter.ai_safe_path(notice) == ""
+    assert event_filter.ai_safe_url(notice) == "https://www.bokjiro.go.kr"
+    assert event_filter.ai_safe_path("https://soco.seoul.go.kr./youth/bbs/BMSR00013/view.do") == ""
+    # .go.kr 이 아닌 일반 사이트의 경로는 그대로 쓴다
+    assert event_filter.ai_safe_path("https://react.dev/learn/thinking-in-react") == "/learn/thinking-in-react"

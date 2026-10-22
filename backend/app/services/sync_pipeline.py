@@ -19,13 +19,14 @@ from ..ai.embedding import embed_many
 from ..config import settings
 from ..db.models import ExplorationEvent, Session as SessionModel, SyncBatch, SyncBatchEvent
 from ..db.session import AsyncSessionLocal
-from ..db.vector import delete_point, search_similar_with_scores
+from ..db.vector import delete_point, score_sessions, search_similar_with_scores
 from ..services import intent_analyzer
 from ..services.event_filter import is_system_url
 from ..services.intent_analyzer import Assignment
 from ..services.noise_filter import domain_counts, has_topic_evidence, split_noise
 from ..services.grouper import dedupe_events, group_by_time_gap
-from ..services.app_settings import is_auto_merge_enabled
+from ..services.app_settings import is_auto_folder_enabled, is_auto_merge_enabled
+from ..services.folder_classifier import auto_file_sessions
 from ..services.merge_service import auto_merge_duplicates
 from ..services.recommender.service import invalidate as invalidate_recommendations
 from ..services.session_updater import apply_assignments, refresh_session_ai
@@ -113,7 +114,7 @@ def _sessions_to_candidates(
                 "keywords": s.keywords or [],
                 # LLM이 "이어지는 탐색"인지 판단할 때 참고할 경과일 — 프롬프트에 표기됨
                 "last_activity_days_ago": max(0, (now - last_activity).days) if last_activity else None,
-                # 벡터 매치 점수(append 게이팅용). 최근-only 후보는 매치가 아니므로 None.
+                # 유사도 점수(append 게이팅용). 임베딩 전 세션이거나 Qdrant 실패면 None.
                 "score": scores.get(s.id),
             }
         )
@@ -265,6 +266,15 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
         )
         recent_ids = list(recent_result.scalars().all())
 
+        # 최근 후보도 같은 벡터로 점수를 매긴다. 점수가 없으면 append 게이트가 유사도 판정을 건너뛰어,
+        # 방금 끝난 무관한 세션(예: 강아지 접종 → 로봇청소기)에 LLM append가 그대로 통과했다(실데이터 평가).
+        unscored = [sid for sid in recent_ids if sid not in scores_by_id]
+        if unscored:
+            try:
+                scores_by_id.update(await score_sessions(vector, unscored, user_id=user_id))
+            except Exception as exc:
+                logger.warning("최근 후보 점수 계산 실패(%s) — 해당 후보는 recency로만 게이트", exc)
+
         combined_ids: list[str] = []
         seen: set[str] = set()
         for session_id in [*vector_ids, *recent_ids]:
@@ -301,7 +311,8 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
 def _append_blocked(candidate: dict) -> bool:
     """append 게이트 — 후보가 유사도 하한 미달이거나 시간 근접을 벗어나면 True(강등 대상)."""
     score = candidate.get("score")
-    # 최근 활동은 주제 일치의 증거가 아니다. 검색 실패/누락도 기존 세션 오염을 막아야 한다.
+    # 최근 활동은 주제 일치의 증거가 아니다. 점수가 없는 후보(임베딩 전 세션·Qdrant 실패)도 기존 세션
+    # 오염을 막기 위해 강등한다. 최근 후보는 _fetch_candidates가 score_sessions로 점수를 매겨 둔다.
     if (
         not isinstance(score, (int, float))
         or not math.isfinite(score)
@@ -312,6 +323,29 @@ def _append_blocked(candidate: dict) -> bool:
     if isinstance(days_ago, int) and days_ago > settings.append_max_age_days:
         return True
     return False
+
+
+def _merge_split_topic(assignments: list[Assignment]) -> list[Assignment]:
+    """한 서브클러스터 안에서 LLM이 여러 세션으로 나눈 것을 하나로 합친다(순수 함수).
+
+    서브클러스터는 임베딩상 한 주제로 묶인 이벤트다. 실데이터(2026-10-19)에서 선분리는 여정 6개를
+    정확히 나눴지만, LLM(K-EXAONE·A.X 모두)이 그 안을 다시 KTX·숙소·관광지처럼 세부 항목별 세션으로
+    쪼갰다. create끼리, 또는 create와 append(대상 하나)를 묶는다. 서로 다른 기존 세션에 이어 붙이는
+    판단은 LLM이 주제를 구분한 근거가 있으므로 건드리지 않는다. hold·discard도 그대로 둔다.
+    병합 뒤 append는 _gate_appends가 다시 검사한다(대상 유사도 미달이면 create로 강등).
+    """
+    sessions = [a for a in assignments if a.action in ("append", "create")]
+    if len(sessions) <= 1:
+        return assignments
+    if len({a.target for a in sessions if a.action == "append"}) > 1:
+        return assignments
+    keeper = next((a for a in sessions if a.action == "append"), sessions[0])
+    merged = replace(
+        keeper,
+        event_indices=sorted(i for a in sessions for i in a.event_indices),
+        relevance=max(a.relevance for a in sessions),
+    )
+    return [merged, *(a for a in assignments if a.action not in ("append", "create"))]
 
 
 def _gate_appends(assignments: list[Assignment], candidates: list[dict]) -> list[Assignment]:
@@ -404,7 +438,7 @@ async def _process_group(
         centroid = _centroid([embeddings[i] for i in idx_group])
         candidates = await _fetch_candidates(centroid, user_id)
         assignments = await intent_analyzer.analyze(cluster_events, candidates)
-        assignments = _gate_appends(assignments, candidates)
+        assignments = _gate_appends(_merge_split_topic(assignments), candidates)
         assignments = _guard_discards(assignments, cluster_events, counts)
         pending.append((cluster_events, assignments))
         models_used.extend(a.model for a in assignments if a.model)
@@ -433,8 +467,8 @@ def _summarize_models(counts: dict[str, int]) -> str | None:
     return ",".join(parts)[:50]
 
 
-async def _run_auto_merge(user_id: str) -> None:
-    """자동 병합 실행(배치 후, opt-in). 병합된 생존 세션 재요약 + 흡수 세션 Qdrant 포인트 삭제.
+async def _run_auto_merge(user_id: str) -> set[str]:
+    """자동 병합 실행(배치 후, opt-in). 병합된 생존 세션 재요약 + 흡수 세션 Qdrant 포인트 삭제. 생존 세션 id를 돌려준다.
 
     실패해도 배치 자체는 성공으로 마무리한다(자동 병합은 부가 기능 — 배치 완료를 막지 않는다).
     """
@@ -443,7 +477,7 @@ async def _run_auto_merge(user_id: str) -> None:
             merged_pairs = await auto_merge_duplicates(db, user_id)
     except Exception as exc:
         logger.warning("자동 병합 실패: %s", exc)
-        return
+        return set()
     for survivor_id, absorbed_id in merged_pairs:
         try:
             await delete_point(absorbed_id)
@@ -452,6 +486,7 @@ async def _run_auto_merge(user_id: str) -> None:
             logger.warning("자동 병합 후처리 실패(survivor=%s): %s", survivor_id, exc)
     if merged_pairs:
         logger.info("자동 병합 %d건 완료", len(merged_pairs))
+    return {survivor_id for survivor_id, _ in merged_pairs}
 
 
 async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> None:
@@ -484,7 +519,12 @@ async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> No
         # opt-in 자동 병합(기본 OFF) — 그 사용자의 토글(user_settings, DB) 우선, 없으면 env 기본값.
         # '명백한 중복'만 배치 후 자동 병합(merge-design §2, DecisionLog 2026-08-07).
         if await is_auto_merge_enabled(user_id):
-            await _run_auto_merge(user_id)
+            # 생존 세션도 이번 배치에서 바뀐 세션이다(흡수된 세션은 merged라 분류 대상이 아니다).
+            touched |= await _run_auto_merge(user_id)
+
+        # 새로 만들어지거나 바뀐 미정리 세션을 사용자 폴더에 확실할 때만 넣는다(§13.4). 애매하면 제안으로 남는다.
+        if await is_auto_folder_enabled(user_id):
+            await auto_file_sessions(user_id, touched)
 
         # 세션이 바뀌었으므로 추천을 낡은 것으로 표시한다 — 다음 새 탭에서 재계산된다.
         await invalidate_recommendations(user_id)

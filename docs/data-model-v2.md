@@ -3,6 +3,7 @@
 > 근거: 계획서 B-2. 신규 테이블 5개 + 기존 `sessions` 확장. 원본 이벤트(사실)와 AI 해석(세션)을 분리한다 — 이벤트가 Memory의 기본 단위이고, 세션은 그 위의 파생 뷰다.
 > 현재 스키마는 `docs/current-state-audit.md` §4 참고. 마이그레이션 절차는 `docs/migration-plan.md` 참고. DDL은 Postgres 16 기준이며, 실제 구현은 SQLAlchemy 모델(`backend/app/db/models.py`)로 옮겨진다 — 아래는 그 계약을 고정하기 위한 DDL 수준 정의다.
 > 구현 노트: 아래 DDL의 `UUID` 컬럼은 실제 모델에서 기존 코드베이스 컨벤션(`sessions.id = String(36)`, Qdrant point id 문자열)에 맞춰 **`VARCHAR(36)` UUID 문자열**로 구현한다. 값 형식은 UUID로 동일하며, JSON 직렬화·비교 시 `uuid.UUID`↔`str` 변환 계층을 없애기 위한 선택이다.
+> Qdrant 구현 노트: `orbit_sessions` 포인트 payload는 `session_id`, `user_id`(세션 소유자), `title`, `overview`, `purpose`를 갖는다. 모든 벡터 검색은 `user_id` payload 필터를 적용하고 `init_collection()`이 `user_id` keyword 인덱스를 보장한다. 기동 시 `backfill_user_ids()`가 `user_id` 없는 기존 포인트를 SQL의 세션 소유자로 채우고 세션이 없는 포인트는 삭제한다(멱등).
 
 ## 1. `exploration_events` — Memory의 원자 단위
 
@@ -25,7 +26,7 @@ CREATE TABLE exploration_events (
     previous_event_id   UUID,   -- 소프트 참조(FK 없음): 대상이 필터 제외/미동기화일 수 있어 FK 시 배치 인제스트가 깨짐
     referrer_url        TEXT,
     event_type          VARCHAR(20)  NOT NULL DEFAULT 'visit',  -- visit | spa_nav (§4 확장 설계)
-    content_excerpt      VARCHAR(5000),
+    content_excerpt      VARCHAR(16000),
     content_hash        VARCHAR(64),                    -- 중복 병합 키(§5)
     sync_status         VARCHAR(20)  NOT NULL DEFAULT 'pending', -- pending|processing|processed|discarded
     hold_count          INTEGER      NOT NULL DEFAULT 0,
@@ -40,7 +41,8 @@ CREATE INDEX ix_exploration_events_normalized_url ON exploration_events (normali
 ```
 
 - PK가 클라이언트 생성 UUID인 이유: 인제스트 삽입을 `ON CONFLICT (id) DO NOTHING`으로 멱등 처리하기 위함(전송 후 SW가 죽어도 재전송이 중복 레코드를 만들지 않음).
-- `content_excerpt` 5000자 캡은 요약 프롬프트(`services/summarizer.py`의 `_MAX_CHARS_PER_TAB=2000`)보다 넉넉하게 잡아 원본을 보존하고, 실제 LLM 전송 시점에 별도로 자른다(§target-architecture.md §6 "LLM 전송 전 제외" 참고).
+- `content_excerpt` 16,000자 캡(2026-10-19, 이전 5,000자 — 확장은 4,000자에서 잘랐다)은 확장 `MAX_CONTENT_EXCERPT_LENGTH`, 인제스트 `_MAX_EXCERPT_LEN`과 같은 값이다. 실제 사이트 55페이지를 공백 정규화 후 재 보니 중앙값 3,574자·p90 11,760자였고, 4,000자에서는 57%만 온전히 남아 예방접종 가격·FAQ 같은 뒷부분 사실이 빠졌다. 16,000자면 94%가 온전히 남고(12,000자 91%), 평균 저장 길이는 4,824자, Ask의 700자 조각은 페이지당 평균 7.4개다. 요약·Ask 프롬프트는 LLM 전송 시점에 따로 자른다(§target-architecture.md §6 "LLM 전송 전 제외" 참고). 기존 DB는 기동 마이그레이션(`db/migrations.py` `_VARCHAR_WIDTHS`)이 현재 길이가 작을 때만 `ALTER COLUMN ... TYPE VARCHAR(16000)`으로 넓힌다(Postgres varchar 확장은 테이블을 다시 쓰지 않는다).
+- 본문은 확장 content script가 Readability로 뽑고, 500자 미만이면 same-origin iframe 문서의 Readability(네이버 블로그) → 화면 전체 텍스트(`innerText`) 순으로 폴백한다. 공백·빈 줄은 접어서 저장한다(`extension/lib/page-text.ts`).
 - `event_type`은 Stage 1에서 `visit`/`spa_nav` 두 값만 쓰지만, 문자열 컬럼으로 열어 두어 Stage 2·3(북마크/PDF/GitHub/ChatGPT) 소스별 고유 이벤트 유형을 스키마 변경 없이 추가할 수 있게 한다(§4).
 
 ### 1.1 상태 전이도 (`sync_status`)
@@ -201,7 +203,8 @@ Stage 1(이번 MVP)은 `source='browser'` 고정, `event_type ∈ {visit, spa_na
 
 ## 9. `folders` — 사용자 폴더 (신규 테이블)
 
-사용자가 직접 만드는 세션 그룹. 자동 클러스터링이 아니라 수동 정리 수단이다.
+사용자가 직접 만드는 세션 그룹. 폴더 자체는 사용자만 만들고, 새 세션은 사용자 폴더 안에서 확실할 때만 자동
+배정된다(§9.4).
 
 ```sql
 CREATE TABLE folders (
@@ -217,9 +220,10 @@ CREATE INDEX ix_folders_user_position ON folders (user_id, position);
 
 ALTER TABLE sessions ADD COLUMN folder_id VARCHAR(36);  -- NULL = 미정리
 CREATE INDEX ix_sessions_folder_id ON sessions (folder_id);
+ALTER TABLE sessions ADD COLUMN folder_assigned_by VARCHAR(10);  -- user | auto | NULL(미결정)
 ```
 
-신규 테이블이라 `create_all`이 생성하고, `sessions.folder_id`만 §3의 멱등 ALTER
+신규 테이블이라 `create_all`이 생성하고, `sessions.folder_id`·`folder_assigned_by`만 §3의 멱등 ALTER
 러너(`app/db/migrations.py`)가 추가한다.
 
 ### 9.1 단일 소속
@@ -241,6 +245,18 @@ CREATE INDEX ix_sessions_folder_id ON sessions (folder_id);
 병합으로 흡수된 세션(`status='merged'`)은 목록에서 빠지므로 폴더 소속을 따로
 정리하지 않는다. 생존 세션의 폴더는 그대로 유지되고, `session_count` 집계에서만
 흡수된 세션을 제외한다.
+
+### 9.4 `folder_assigned_by` — 소속을 정한 주체
+
+| 값 | 의미 | 바뀌는 경우 |
+|---|---|---|
+| `NULL` | 아무도 정하지 않음. 기능 이전에 폴더에 넣은 세션도 여기에 해당(사용자가 넣은 것으로 본다) | 새 세션, 폴더 삭제로 미정리가 된 세션 |
+| `user` | 사용자가 정함 | 폴더 배정·폴더에서 빼기·제안 닫기 |
+| `auto` | 자동 분류가 넣음 | 배치 끝 자동 배정 |
+
+자동 분류와 제안은 `folder_id`와 `folder_assigned_by`가 모두 NULL인 세션만 다룬다. 사용자가 뺀 세션은
+`folder_id=NULL, folder_assigned_by='user'`로 남아 다시 들어가지 않는다. 자동 배정 세션은 다른 세션을
+분류하는 근거에서 빠진다 — 잘못 넣은 세션이 다음 판단을 끌고 가지 않게 한다.
 
 
 ## 10. 팀 워크스페이스 (신규 테이블 3개)
@@ -302,7 +318,7 @@ FK에 ON DELETE가 없다(`session_events`와 같다). 정리를 빠뜨리면 �
 ```sql
 CREATE TABLE user_settings (
   user_id    VARCHAR(64) NOT NULL,
-  key        VARCHAR(64) NOT NULL,       -- 현재 'auto_merge_enabled' 만 사용
+  key        VARCHAR(64) NOT NULL,       -- 'auto_merge_enabled', 'auto_folder_enabled'
   value      JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL,
   PRIMARY KEY (user_id, key)
@@ -320,4 +336,6 @@ CREATE TABLE user_settings (
 좁힌다. **보안 경계는 그대로 SQL 조건**이다.
 
 기동 시 `user_id`가 없는 기존 포인트를 세션 테이블에서 찾아 채운다(멱등, 실패 시 다음 기동에 재시도).
-DB에 없는 세션의 포인트는 그대로 두며, 소유자 필터에 걸리지 않으므로 검색에 나오지 않는다.
+두 갈래가 따로 만든 백필 두 개가 차례로 돈다. 앞(`embedding_sync.backfill_owner_payload`)은 소유자를 채우고,
+뒤(`vector.backfill_user_ids`)는 그래도 남은 DB에 없는 세션의 고아 포인트를 지운다. Ask 후보 검색(점수 포함)도
+팀 범위에서는 공유 세션 id로만 좁힌다 — user 필터를 같이 걸면 다른 멤버가 공유한 세션이 빠진다.

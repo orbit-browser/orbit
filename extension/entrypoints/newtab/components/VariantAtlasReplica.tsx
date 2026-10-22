@@ -13,7 +13,7 @@ import {
   stepNavRow,
   type NavRow,
 } from './atlas/data';
-import { useAtlasData } from '../hooks/useAtlasData';
+import { useAtlasData, useFolderSuggestions } from '../hooks/useAtlasData';
 import { useActiveWorkspace } from '../../../lib/useWorkspaces';
 import { EmptyStateActions } from './sections/EmptyStateActions';
 import { readAtlasTarget } from '../lib/navigation';
@@ -30,6 +30,8 @@ export function VariantAtlasReplica() {
   const sessions = useMemo(() => atlasQuery.data?.sessions ?? [], [atlasQuery.data]);
   const folders = atlasQuery.data?.folders ?? [];
   const unfiled = useMemo(() => atlasQuery.data?.unfiled ?? [], [atlasQuery.data]);
+  // 폴더 제안은 개인 범위에서만 받는다 — 팀 화면은 읽기 전용이고 폴더가 없다.
+  const suggestions = useFolderSuggestions(atlasQuery.data, atlasQuery.dataUpdatedAt, !readOnly);
   const { nav, patch, toggleIn, expandIn } = useSharedNavState();
   const searchRef = useRef<HTMLInputElement>(null);
   const initializedRef = useRef(false);
@@ -338,6 +340,7 @@ export function VariantAtlasReplica() {
         folders={sortedFolders}
         unfiled={sortedUnfiled}
         sessions={sessions}
+        suggestions={suggestions}
         query={nav.query}
         onQueryChange={(query) => patch({ query })}
         focusedFolderId={focusedFolder?.id ?? null}
