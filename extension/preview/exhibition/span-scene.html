@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Orbit 현수막 — 실제 화면 장면</title>
+    <!-- 현수막 글꼴(index.html 과 같다). 시스템 글꼴이 PDF 에 묻히면 export.mjs 글꼴 검사가 막는다 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..800&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+KR:wght@300..900&amp;display=swap" rel="stylesheet" />
+    <style>
+      /* 결선 현수막 ?variant=span 이 iframe 으로 띄우는 크롬 창 한 장. 색은 제품 토큰(exhibition.css :root)과 같다. */
+      :root {
+        --bg-page: #fefaf6;
+        --bg-card: #ffffff;
+        --text-primary: #2b2521;
+        --text-secondary: #7d7069;
+        --text-tertiary: #9c8f86;
+        --border-default: rgba(170, 116, 90, 0.23);
+        --frame: color-mix(in srgb, var(--text-secondary) 16%, var(--bg-page));
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: transparent; overflow: hidden; }
+      body { font: 13px/1.3 'Inter', 'Noto Sans KR', system-ui, sans-serif; color: var(--text-primary); }
+      .scene { position: relative; display: flex; flex-direction: column; overflow: hidden; border-radius: 18px; background: var(--frame); }
+      .scene__tabs { display: flex; align-items: flex-end; gap: 10px; height: 46px; padding: 0 14px; }
+      .scene__lights { display: flex; gap: 8px; align-self: center; margin-right: 10px; }
+      .scene__lights i { width: 12px; height: 12px; border-radius: 50%; background: color-mix(in srgb, var(--text-secondary) 38%, var(--bg-page)); }
+      .scene__tab { display: flex; align-items: center; gap: 9px; width: 250px; height: 36px; padding: 0 14px; border-radius: 11px 11px 0 0; background: var(--bg-card); font-size: 13px; }
+      .scene__tab img { width: 16px; height: 16px; }
+      .scene__tab span { flex: 1; }
+      .scene__tab .ph, .scene__new .ph { color: var(--text-secondary); font-size: 14px; }
+      .scene__new { align-self: center; padding: 4px; }
+      .scene__bar { display: flex; align-items: center; gap: 16px; height: 44px; padding: 0 14px; background: var(--bg-card); border-bottom: 1px solid var(--border-default); }
+      .scene__bar > .ph { color: var(--text-secondary); font-size: 18px; }
+      .scene__omni { flex: 1; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 14px; border-radius: 16px; background: var(--frame); color: var(--text-tertiary); }
+      .scene__ext { display: flex; align-items: center; gap: 14px; }
+      .scene__ext img { width: 18px; height: 18px; }
+      .scene__avatar { width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, var(--text-secondary) 30%, var(--bg-page)); }
+      .scene__body { flex: 1; display: flex; min-height: 0; background: var(--bg-card); }
+      .scene__body iframe { display: block; height: 100%; border: 0; background: var(--bg-page); }
+      #newtab { flex: 1; min-width: 0; }
+      .scene__side { display: flex; flex-direction: column; flex: none; border-left: 1px solid var(--border-default); }
+      .scene__sidehead { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-bottom: 1px solid var(--border-default); background: var(--bg-card); font-weight: 600; }
+      .scene__sidehead img { width: 18px; height: 18px; }
+      .scene__sidehead .ph { color: var(--text-secondary); font-size: 15px; }
+      .scene__sidehead b { flex: 1; font-weight: 600; }
+      #sidepanel { flex: 1; width: 100%; }
+    </style>
+  </head>
+  <body>
+    <div class="scene" id="scene">
+      <div class="scene__tabs">
+        <span class="scene__lights"><i></i><i></i><i></i></span>
+        <span class="scene__tab"><img src="/orbit-mark-32.png" alt="" /><span>새 탭</span><i class="ph ph-x"></i></span>
+        <span class="scene__new"><i class="ph ph-plus"></i></span>
+      </div>
+      <div class="scene__bar">
+        <i class="ph ph-arrow-left"></i>
+        <i class="ph ph-arrow-right"></i>
+        <i class="ph ph-arrow-clockwise"></i>
+        <span class="scene__omni"><i class="ph ph-magnifying-glass"></i></span>
+        <span class="scene__ext"><img src="/orbit-mark-32.png" alt="" /><i class="ph ph-puzzle-piece"></i><span class="scene__avatar"></span></span>
+      </div>
+      <div class="scene__body">
+        <iframe id="newtab" title="새 탭"></iframe>
+        <div class="scene__side">
+          <div class="scene__sidehead"><img src="/orbit-mark-32.png" alt="" /><b>Orbit</b><i class="ph ph-push-pin"></i><i class="ph ph-x"></i></div>
+          <iframe id="sidepanel" title="사이드패널"></iframe>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./span-scene.ts"></script>
+  </body>
+</html>

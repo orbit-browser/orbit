@@ -8,9 +8,11 @@ import { StrictMode, useEffect, useLayoutEffect, useRef, useState, type RefObjec
 import { createRoot } from 'react-dom/client';
 import { BOOTH, PANELS, WALLS, type PanelDef } from './booth';
 import { GALLERY_SESSION_IDS, loadShots } from './content';
+import { Chapters, STEPS } from './frame';
 import { EdgeBanner } from './panel-edge';
 import { ChaosBanner } from './panel-chaos';
 import { OrbitBanner } from './panel-orbit';
+import { SPAN_CHAPTERS, SpanBanner } from './panel-span';
 import { TeamBanner } from './panel-team';
 import { TechBanner } from './panel-tech';
 import { UseBanner } from './panel-use';
@@ -31,6 +33,8 @@ interface Options {
   still: boolean;
   session: number;
   page: number;
+  /** 'span' 이면 가운데 벽 세 장이 실제 화면 시안(panel-span.tsx)이다. 지금 인쇄판은 그대로 둔다 */
+  variant: '' | 'span';
 }
 
 const MM_PX = 96 / 25.4;
@@ -55,6 +59,7 @@ const initial: Options = {
   still: flag('still', false),
   session: int('session', 0, GALLERY_SESSION_IDS.length - 1),
   page: int('page', 2, 50),
+  variant: params.get('variant') === 'span' ? 'span' : '',
 };
 
 function toQuery(options: Options): string {
@@ -67,6 +72,7 @@ function toQuery(options: Options): string {
   if (options.still) query.set('still', '1');
   if (options.session !== 0) query.set('session', String(options.session));
   query.set('page', String(options.page));
+  if (options.variant) query.set('variant', options.variant);
   return query.toString();
 }
 
@@ -86,7 +92,10 @@ interface PanelProps {
   scaleRef: RefObject<number>;
 }
 
+const SPAN_PARTS = { chaos: 0, orbit: 1, tech: 2 } as const;
+
 function Panel({ panel, options, set, interactive, scaleRef }: PanelProps) {
+  if (options.variant === 'span' && panel.id in SPAN_PARTS) return <SpanBanner part={SPAN_PARTS[panel.id as keyof typeof SPAN_PARTS]} />;
   switch (panel.id) {
     case 'edge-left':
       return <EdgeBanner side="left" />;
@@ -108,7 +117,7 @@ function Panel({ panel, options, set, interactive, scaleRef }: PanelProps) {
     case 'tech':
       return <TechBanner />;
     case 'team':
-      return <TeamBanner />;
+      return <TeamBanner latency={options.variant === 'span'} />;
     case 'edge-right':
       return <EdgeBanner side="right" />;
   }
@@ -152,7 +161,7 @@ function Viewer() {
   scaleRef.current = scale;
 
   const printPanels = panels.map((panel) => PANELS.indexOf(panel) + 1).join(',');
-  const printHref = `?print=1&panel=${booth ? 'all' : printPanels}&session=${options.session}&page=${options.page}`;
+  const printHref = `?print=1&panel=${booth ? 'all' : printPanels}&session=${options.session}&page=${options.page}${options.variant ? `&variant=${options.variant}` : ''}`;
   const interactive = !options.still;
   const render = (panel: PanelDef) => <Panel key={panel.id} panel={panel} options={options} set={set} interactive={interactive} scaleRef={scaleRef} />;
 
@@ -173,26 +182,29 @@ function Viewer() {
         <Toggle label="안전 여백" value={options.safe} onChange={(safe) => set({ safe })} />
         <Toggle label="애니메이션" value={options.motion} onChange={(motion) => set({ motion })} disabled={options.still} />
         <Toggle label="인쇄용 정적 모드" value={options.still} onChange={(still) => set({ still })} />
+        <Toggle label="실제 화면 시안" value={options.variant === 'span'} onChange={(on) => set({ variant: on ? 'span' : '' })} />
         <a className="ex-toolbar__print" href={printHref} target="_blank" rel="noreferrer">
           인쇄용 화면 열기
         </a>
       </header>
       <main className="ex-viewport" ref={viewportRef}>
         <div className="ex-canvas" style={{ width: contentWidth * scale + pad * 2, height: contentHeight * scale + pad * 2 }}>
-          <div className="ex-board" style={{ transform: `scale(${scale})`, gap: booth ? BOOTH.corner : options.gap, left: pad, top: pad }}>
-            {booth
-              ? walls.map((wall) => (
-                  <section key={wall.wall} className="ex-wall" aria-label={wall.label}>
-                    <span className="ex-wall__label">
-                      {wall.label} · {wall.panels.map((panel) => panel.width).join(' + ')}mm
-                    </span>
-                    <div className="ex-wall__row" style={{ gap: options.gap }}>
-                      {wall.panels.map(render)}
-                    </div>
-                  </section>
-                ))
-              : panels.map(render)}
-          </div>
+          <Chapters.Provider value={options.variant === 'span' ? SPAN_CHAPTERS : STEPS}>
+            <div className="ex-board" style={{ transform: `scale(${scale})`, gap: booth ? BOOTH.corner : options.gap, left: pad, top: pad }}>
+              {booth
+                ? walls.map((wall) => (
+                    <section key={wall.wall} className="ex-wall" aria-label={wall.label}>
+                      <span className="ex-wall__label">
+                        {wall.label} · {wall.panels.map((panel) => panel.width).join(' + ')}mm
+                      </span>
+                      <div className="ex-wall__row" style={{ gap: options.gap }}>
+                        {wall.panels.map(render)}
+                      </div>
+                    </section>
+                  ))
+                : panels.map(render)}
+            </div>
+          </Chapters.Provider>
         </div>
       </main>
     </div>
@@ -227,13 +239,15 @@ function PrintSheet() {
   const picked = panel === 'all' ? PANELS : panel.split(',').map((value) => PANELS[Number(value) - 1]).filter(Boolean);
   const scaleRef = useRef(1);
   return (
-    <div className="ex-print">
-      {picked.map((def) => (
-        <div className={`ex-print__page${def.width === 455 ? ' ex-print__page--narrow' : ''}`} key={def.id}>
-          <Panel panel={def} options={initial} set={() => {}} interactive={false} scaleRef={scaleRef} />
-        </div>
-      ))}
-    </div>
+    <Chapters.Provider value={initial.variant === 'span' ? SPAN_CHAPTERS : STEPS}>
+      <div className="ex-print">
+        {picked.map((def) => (
+          <div className={`ex-print__page${def.width === 455 ? ' ex-print__page--narrow' : ''}`} key={def.id}>
+            <Panel panel={def} options={initial} set={() => {}} interactive={false} scaleRef={scaleRef} />
+          </div>
+        ))}
+      </div>
+    </Chapters.Provider>
   );
 }
 
@@ -249,6 +263,20 @@ async function fontsMissing(): Promise<string[]> {
   ];
   const loaded = await Promise.all(probes.map(([, font, text]) => document.fonts.load(font, text).catch(() => [])));
   return probes.filter((_, index) => loaded[index].length === 0).map(([family]) => family);
+}
+
+/**
+ * 실제 화면 시안의 장면(iframe)이 다 그려질 때까지 — 장면이 실제 새 탭·사이드패널을 눌러 상태를 만든다(span-scene.ts).
+ * ponytail: 강조 표시는 장면 메시지를 받은 다음 렌더에 붙어 한 박자(300ms) 더 기다린다. 늦으면 표시 쪽 신호로 바꾼다.
+ */
+async function spanScenesSettled() {
+  const frames = [...document.querySelectorAll<HTMLIFrameElement>('iframe.ex-span__scene')];
+  if (frames.length === 0) return;
+  const start = performance.now();
+  while (frames.some((frame) => !frame.contentDocument?.documentElement.dataset.spanReady) && performance.now() - start < 60_000) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300));
 }
 
 /** 글꼴과 이미지가 다 들어온 뒤 표시 — 내보내기 스크립트와 검증이 이 표시를 기다린다. */
@@ -274,6 +302,7 @@ async function markReady() {
           }),
     ),
   );
+  await spanScenesSettled();
   document.documentElement.dataset.ready = '1';
 }
 

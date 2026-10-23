@@ -248,10 +248,12 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
     const query = String(body.query ?? '');
     const scoped = scopeSessions(db, workspaceId);
     const sources = (scoped.filter((s) => matches(s, query)).length ? scoped.filter((s) => matches(s, query)) : scoped).slice(0, 2);
-    const answer = sources.length
-      ? `${sources.map((s) => `「${s.alias ?? s.title}」`).join('와 ')} 기록을 찾았어요. ${sources[0].summary.overview} `
-        + (sources[0].summary.highlights[0] ? `특히 ${sources[0].summary.highlights[0]}.` : '')
-      : '이 범위에서는 관련 기록을 찾지 못했어요.';
+    const found = `${sources.map((s) => `「${s.alias ?? s.title}」`).join('와 ')} 기록을 찾았어요.`;
+    const answer = !sources.length
+      ? '이 범위에서는 관련 기록을 찾지 못했어요.'
+      : sources[0].answer
+        ? `${found} ${sources[0].answer}`
+        : `${found} ${sources[0].summary.overview} ` + (sources[0].summary.highlights[0] ? `특히 ${sources[0].summary.highlights[0]}.` : '');
     const chunks = answer.match(/.{1,18}/gsu) ?? [answer];
     return sse([
       { event: 'sources', data: { sessions: sources.map((s) => toBackendSession(db, s, !workspaceId)) }, delayMs: 350 },

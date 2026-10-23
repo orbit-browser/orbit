@@ -8,42 +8,45 @@
 import { sessionById } from './content';
 import { BannerFrame, Favicon } from './frame';
 
+// 문구는 부스 앞에서 소리 내어 읽었을 때 사람 말이 되게 쓴다(마케팅팀장 문구 원칙, 2026-10-23).
+// 제목은 "~한다" 선언 대신 설명하는 사람의 말투로, 같은 주장은 그대로 둔다.
 const STEPS = [
   {
-    title: '수집을 켠다',
+    title: '수집을 켭니다',
     text: '처음에는 꺼져 있습니다. 켜고 끄는 것은 언제든 내가 합니다.',
     ui: <OptIn />,
   },
   {
-    title: '평소처럼 탐색한다',
-    text: '방문은 먼저 내 브라우저에 쌓이고, 정해 둔 때에 한꺼번에 정리됩니다. 방문마다 AI를 부르지 않습니다.',
+    title: '평소처럼 웹을 봅니다',
+    text: '봤던 페이지는 먼저 내 브라우저에 쌓였다가, 정해 둔 때에 한꺼번에 정리됩니다. 페이지마다 AI를 부르지 않습니다.',
     ui: <TimelineMini />,
   },
   {
-    title: '세션이 생긴다',
-    text: 'AI가 같은 일을 하던 방문을 묶고 제목과 요약, 다음 할 일을 씁니다.',
+    title: 'AI가 하던 일별로 묶어 둡니다',
+    text: '묶은 세션마다 제목과 요약, 다음 할 일까지 씁니다.',
     ui: <SessionCard />,
   },
   {
-    title: '말로 찾고, 다시 연다',
-    text: '새 탭에서 기억나는 말로 찾고, 찾은 세션의 페이지를 탭으로 한 번에 다시 엽니다.',
+    title: '생각나는 대로 찾아서 다시 엽니다',
+    text: '새 탭에 그때 하던 일을 적으면 그 세션이 나옵니다. 그 안의 페이지는 탭으로 한\u00a0번에 다시 열립니다.',
     ui: <SearchBox />,
   },
 ];
 
 const PRINCIPLES = [
   // lib/settings.ts collectionEnabled: false
-  ['처음엔 꺼져 있다', '수집은 내가 켤 때만 시작하고, 언제든 끌 수 있습니다.'],
+  ['내가 켜야 시작합니다', '설치만 해서는 아무것도 모으지 않습니다. 켠 다음에도 언제든 끌 수 있습니다.'],
   // lib/sensitive-domains.ts · backend app/api/events.py is_sensitive_url
-  ['민감한 페이지는 본문 없이', '은행·로그인 같은 페이지는 제목과 주소만 남깁니다. 확장과 서버가 두 번 거릅니다.'],
+  ['민감한 페이지는 본문을 남기지 않습니다', '은행·로그인 같은 페이지는 제목과 주소만 남깁니다. 확장과 서버가 두 번 거릅니다.'],
   // lib/events/queue.ts (IndexedDB) · lib/sync/engine.ts
-  ['먼저 내 브라우저에', '보내기 전까지 방문은 기기 안의 큐에만 있습니다.'],
+  ['먼저 내 브라우저에 쌓입니다', '서버로 보내기 전까지는 기기 안의 큐에만 있습니다.'],
   // wxt.config.ts permissions — history 없음
-  ['권한은 최소로', '방문은 webNavigation 으로 알아챕니다. 브라우저 방문 기록 권한은 쓰지 않습니다.'],
+  // "방문 기록을 읽지 않는다"로 넓히지 않는다 — topSites(자주 간 사이트) 권한은 있다
+  ['브라우저 방문 기록 권한은 받지 않습니다', '페이지를 옮길 때마다 webNavigation으로 알아챕니다.'],
   // backend app/services/event_filter.py normalize_url
-  ['추적 꼬리표는 지운다', 'utm·gclid·fbclid 같은 추적 파라미터는 저장하기 전에 지웁니다.'],
+  ['추적 꼬리표는 지우고 저장합니다', '주소 끝에 붙는 utm·gclid·fbclid 같은 값입니다.'],
   // backend tab_action_resolver.py (low_confidence → ask) · config auto_merge_enabled False
-  ['AI가 혼자 실행하지 않는다', '확신이 낮으면 탭을 옮기지 않고 후보만 보여 줍니다. 자동 병합은 기본으로 꺼져 있습니다.'],
+  ['확실하지 않으면 AI가 먼저 묻습니다', '탭을 옮기지 않고 후보만 보여 줍니다. 세션 자동 병합도 처음엔 꺼져 있습니다.'],
 ];
 
 export function UseBanner() {
@@ -51,15 +54,15 @@ export function UseBanner() {
     <BannerFrame step={0} label="현수막 — USE">
       <section className="ex-use__intro">
         <h1 className="ex-use__title">
-          켜 두면,
+          북마크 안 해도
           <br />
-          기억합니다.
+          찾을 수 있어요.
         </h1>
-        <p className="ex-use__sub">수집을 한 번 켜 두면, 평소처럼 탐색하는 동안 방문이 탐색 세션으로 묶입니다. 저장 버튼을 누를 필요가 없습니다.</p>
+        <p className="ex-use__sub">수집을 한 번 켜 두면, 평소처럼 웹을 보는 동안 열어 본 페이지가 알아서 세션으로 정리됩니다.</p>
         {/* 행동 유도 — 두 앞 띠와 같은 말 */}
         <p className="ex-cta">
           <i className="ph ph-arrow-right" />
-          지금 써 보세요 · 시연은 가운데 화면에서 · 설치 QR은 오른쪽 끝에
+          지금 써 보세요 · 시연은 가운데 노트북에서 · 설치 QR은 오른쪽 끝에
         </p>
       </section>
 

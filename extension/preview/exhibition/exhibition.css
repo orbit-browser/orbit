@@ -1740,6 +1740,15 @@ body {
   color: var(--text-secondary);
 }
 
+/* 실제 화면 시안의 검색 지연 한 줄 — 두 칸을 다 쓴다. 그 한 줄만큼 측정 구역을 올려 바닥글 선에 닿지 않게 한다 */
+.ex-method .ex-method__wide {
+  grid-column: 1 / -1;
+}
+
+.ex-measure:has(.ex-method__wide) {
+  top: 1590px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ex-motion-on .ex-chaos-card__float,
   .ex-orbit__gallery {
@@ -2701,4 +2710,221 @@ body {
   margin-top: 2px !important;
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* ═══════════════════════════════ 실제 화면 시안(?variant=span) ═══════════════════════════════ */
+
+/* 가운데 벽 세 장에 걸친 크롬 창 한 장 — 장마다 같은 창을 자기 자리만큼 옮겨 보인다(panel-span.tsx) */
+/*
+ * 장면 iframe 안의 입력에 초점이 가면 브라우저가 감싼 스크롤 상자를 움직여 그 입력을 보이려 한다(overflow: hidden 도
+ * 스크립트로는 스크롤된다) — 3번 장 전체가 옆으로 밀렸다. 잘라 내기만 하는 clip 으로 막는다.
+ */
+.ex-banner:has(.ex-span__window) {
+  overflow: clip;
+}
+
+.ex-span__window {
+  position: absolute;
+  z-index: 10;
+  overflow: clip;
+  border-radius: 17px;
+  background: var(--bg-page);
+  box-shadow: 0 0 0 1.5px var(--border-default), 0 40px 90px -40px rgba(120, 72, 48, 0.42);
+}
+
+.ex-span__scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  border: 0;
+  background: transparent;
+  transform-origin: 0 0;
+  /* 현수막 안에서는 그림이다 — 눌러서 장마다 다른 상태가 되지 않게 */
+  pointer-events: none;
+}
+
+.ex-span__error {
+  position: absolute;
+  top: 40%;
+  left: 10%;
+  right: 10%;
+  padding: 24px;
+  border-radius: 16px;
+  background: var(--bg-card);
+  color: #b8452b;
+  font: 600 26px/1.4 var(--kr);
+  text-align: center;
+}
+
+.ex-span__question {
+  position: absolute;
+  top: 160px;
+  left: 46px;
+  z-index: 60;
+  font: 800 100px/1.12 var(--kr);
+  letter-spacing: -0.055em;
+}
+
+.ex-span__brand,
+.ex-span__real {
+  position: absolute;
+  top: 160px;
+  left: 44px;
+  right: 50px;
+  z-index: 60;
+}
+
+.ex-span__word {
+  font: 640 210px/0.86 'Inter', var(--sans);
+  font-optical-sizing: auto;
+  letter-spacing: -0.058em;
+}
+
+.ex-span__word span {
+  color: var(--accent);
+}
+
+.ex-span__promise {
+  margin: 18px 0 0 6px !important;
+  font: 700 52px/1.2 var(--kr);
+  letter-spacing: -0.045em;
+}
+
+.ex-span__real h1 {
+  margin-left: 6px !important;
+  font: 800 80px/1.16 var(--kr);
+  letter-spacing: -0.05em;
+}
+
+/* 강조 표시 — 상자·원·화살표·돋보기는 벽 좌표 한 층(장마다 옮겨 그린다) */
+.ex-span__marks {
+  position: absolute;
+  top: 0;
+  z-index: 40;
+  width: 2930px;
+  height: 2380px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.ex-span__box {
+  fill: var(--accent-softer);
+  stroke: var(--accent);
+  stroke-width: 5;
+}
+
+.ex-span__ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 5;
+}
+
+.ex-span__leader {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+}
+
+.ex-span__arrowhead {
+  fill: var(--accent);
+}
+
+.ex-span__lens {
+  position: absolute;
+  z-index: 45;
+  overflow: clip;
+  border-radius: 50%;
+  background: var(--bg-page);
+  box-shadow: 0 0 0 6px var(--accent), 0 30px 70px -24px rgba(120, 72, 48, 0.45);
+}
+
+.ex-span__label {
+  position: absolute;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  column-gap: 18px;
+  align-items: start;
+}
+
+.ex-span__no {
+  grid-row: span 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font: 700 30px/1 var(--sans);
+}
+
+.ex-span__label strong {
+  font: 800 32px/1.25 var(--kr);
+  letter-spacing: -0.04em;
+}
+
+.ex-span__label span {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font: 500 20px/1.5 var(--kr);
+  letter-spacing: -0.015em;
+}
+
+/*
+ * 아래 숫자 — 기술 현수막의 시험 숫자를 장마다 하나씩 크게. 창 아래(PROOF_TOP, panel-span.tsx)부터 바닥글 위까지 칸을 채운다:
+ * 숫자는 칸 위에 붙어 세 장의 선이 한 줄로 맞고, 각주는 칸 아래에 붙는다(대표 피드백 2026-10-23 "아래가 비었다").
+ */
+.ex-span__proof {
+  position: absolute;
+  left: 50px;
+  right: 50px;
+  bottom: 170px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.ex-span__proof .ex-proven__stat {
+  padding-top: 30px;
+}
+
+.ex-span__proof .ex-proven__stat > strong {
+  font-size: 200px;
+}
+
+.ex-span__proof .ex-proven__stat > strong small {
+  font-size: 76px;
+}
+
+.ex-span__proof .ex-proven__stat > h3 {
+  margin: 20px 0 10px !important;
+  font-size: 48px;
+  text-wrap: balance;
+}
+
+/* 두 줄이 되면 끝줄에 "3개(12%)"만 남지 않게 고르게 나눈다 */
+.ex-span__proof .ex-proven__stat > p {
+  font-size: 25px;
+  text-wrap: balance;
+}
+
+.ex-span__proof .ex-fineprint {
+  margin-top: 40px !important;
+  font-size: 15px;
+}
+
+@media print {
+  /*
+   * zoom 이 iframe 의 조상에 걸리면 크롬이 iframe 내용을 PDF 에 그리지 않는다(2026-10-23 헤드리스 크롬에서 확인) —
+   * 실제 화면 시안 장만 transform 으로 키운다. 다른 장은 흐림·원근까지 실제 크기로 다시 그리도록 zoom 그대로다.
+   */
+  .ex-print__page:has(.ex-span__window) {
+    zoom: 1;
+    transform: scale(3.7795275591);
+    transform-origin: 0 0;
+  }
 }

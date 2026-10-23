@@ -60,15 +60,54 @@ export const PIPELINE = [
   {
     en: 'Retrieve',
     ko: '찾기',
-    where: '검색 · Ask · 복원',
+    where: '검색 · AI 질문 · 복원',
     // backend/app/api/search.py · services/ask_service.py · newtab/lib/restore.ts
     items: [
       ['의미 검색', '질문 벡터로 Qdrant 코사인 검색(임계 0.28) · 선택적 리랭킹'],
       ['권한 확인', '개인·팀 범위를 읽는 SQL 안에서 다시 판정'],
-      ['답과 복원', `Ask 근거 답변(스트리밍, ${MODELS.exaone}) · 탭으로 세션 복원`],
+      ['답과 복원', `AI 질문 근거 답변(스트리밍, ${MODELS.exaone}) · 탭으로 세션 복원`],
     ],
   },
 ];
+
+/** 시험으로 확인한 숫자 세 개 — 기술 현수막과 실제 화면 시안(?variant=span)이 같은 숫자·같은 말을 쓴다. */
+export const PROVEN_STATS = [
+  {
+    value: PROVEN.refusal.orbit.percent,
+    unit: '%',
+    title: '기록에 없으면 없다고 답했습니다',
+    detail: keepDots(`같은 조건 시험 ${PROVEN.refusal.orbit.total}번 중 ${PROVEN.refusal.orbit.hit}번 · Comet ${PROVEN.refusal.comet.percent}%`),
+  },
+  {
+    value: PROVEN.restorePrecision.orbit.percent,
+    unit: '%',
+    title: '다시 연 탭은 모두 그 작업 페이지였습니다',
+    detail: keepDots(`목표 9개 중 ${PROVEN.restorePrecision.orbit.total}개를 열었고 열린 페이지는 모두 그 작업 · Comet은 연 ${PROVEN.restorePrecision.comet.total}개 중 ${PROVEN.restorePrecision.comet.hit}개(${PROVEN.restorePrecision.comet.percent}%)`),
+  },
+  {
+    value: PROVEN.teamIsolation.leaks,
+    unit: '건',
+    title: '공유 안 한 세션이 팀원에게 보인 경우',
+    detail: keepDots(`계정 둘 격리 서버 시험 · 화면·API ${PROVEN.teamIsolation.paths}가지 경로, 응답 ${PROVEN.teamIsolation.responses}개에서 0건`),
+  },
+];
+
+export const PROVEN_NOTE = keepDots(
+  '직접 시험 · 빈 브라우저에 같은 공개 웹페이지 26개를 방문하고 같은 질문을 한 번씩(Orbit 2026-10-22 헤드리스 확장, Comet 2026-10-20 로그인한 에이전트·검색 모드) · 다시 열기는 찾은 작업의 페이지를 한 번에 열었을 때 그 작업의 페이지 비율로, Orbit은 세션 혼입 결함을 고친 뒤 같은 시험으로 다시 잰 값(Comet은 작업 1개) · 팀 시험은 2026-10-22 격리 서버에서 계정 둘로 공유·해제·내보내기 · 표본이 작아 전체 정확도를 뜻하지 않음.',
+);
+
+export function ProvenStat({ stat }: { stat: (typeof PROVEN_STATS)[number] }) {
+  return (
+    <article className="ex-proven__stat">
+      <strong>
+        {stat.value}
+        <small>{stat.unit}</small>
+      </strong>
+      <h3>{stat.title}</h3>
+      <p>{stat.detail}</p>
+    </article>
+  );
+}
 
 // 전면은 지연·규모에 집중한다. 골든/holdout 품질 전체는 metrics.json과 README에 보존한다.
 // C(1만 세션 골든 정답률)는 골든 질문으로 고친 뒤의 값이고 새 표현 질문에서는 100%가 아니라 앞면에서 뺀다.
@@ -83,7 +122,7 @@ export function TechBanner() {
           <br />
           Remembers<span>.</span>
         </h1>
-        <p className="ex-tech__sub">탐색의 흔적을 구조화된 기억으로.</p>
+        <p className="ex-tech__sub">페이지를 연 순간부터 다시 찾을 때까지</p>
       </section>
 
       <div className="ex-tech__body">
@@ -138,40 +177,16 @@ export function TechBanner() {
 
         <section className="ex-proven" aria-label="시험으로 확인한 숫자">
           <div className="ex-section-head">
-            <h2>Proven in Tests.</h2>
+            {/* 질문 두 개·작업 하나의 작은 시험이라 "Proven" 같은 센 말은 쓰지 않는다 — 각주의 "전체 정확도를 뜻하지 않음"과 맞춘다 */}
+            <h2>Test Results</h2>
             <span className="ex-status">직접 시험</span>
           </div>
           <div className="ex-proven__grid">
-            <article className="ex-proven__stat">
-              <strong>
-                {PROVEN.refusal.orbit.percent}
-                <small>%</small>
-              </strong>
-              <h3>없는 기록은, 없다고 답합니다</h3>
-              <p>{keepDots(`같은 조건 시험 ${PROVEN.refusal.orbit.total}번 중 ${PROVEN.refusal.orbit.hit}번 · Comet ${PROVEN.refusal.comet.percent}%`)}</p>
-            </article>
-            <article className="ex-proven__stat">
-              <strong>
-                {PROVEN.restorePrecision.orbit.percent}
-                <small>%</small>
-              </strong>
-              <h3>다시 열면, 그 작업의 페이지만</h3>
-              <p>{keepDots(`목표 9개 중 ${PROVEN.restorePrecision.orbit.total}개를 열었고 열린 페이지는 모두 그 작업 · Comet은 연 ${PROVEN.restorePrecision.comet.total}개 중 ${PROVEN.restorePrecision.comet.hit}개(${PROVEN.restorePrecision.comet.percent}%)`)}</p>
-            </article>
-            <article className="ex-proven__stat">
-              <strong>
-                {PROVEN.teamIsolation.leaks}
-                <small>건</small>
-              </strong>
-              <h3>공유하지 않은 팀 기록의 노출</h3>
-              <p>{keepDots(`계정 둘 격리 서버 시험 · 화면·API ${PROVEN.teamIsolation.paths}가지 경로, 응답 ${PROVEN.teamIsolation.responses}개에서 0건`)}</p>
-            </article>
+            {PROVEN_STATS.map((stat) => (
+              <ProvenStat key={stat.title} stat={stat} />
+            ))}
           </div>
-          <p className="ex-fineprint">
-            {keepDots(
-              '직접 시험 · 빈 브라우저에 같은 공개 웹페이지 26개를 방문하고 같은 질문을 한 번씩(Orbit 2026-10-22 헤드리스 확장, Comet 2026-10-20 로그인한 에이전트·검색 모드) · 다시 열기는 찾은 작업의 페이지를 한 번에 열었을 때 그 작업의 페이지 비율로, Orbit은 세션 혼입 결함을 고친 뒤 같은 시험으로 다시 잰 값(Comet은 작업 1개) · 팀 시험은 2026-10-22 격리 서버에서 계정 둘로 공유·해제·내보내기 · 표본이 작아 전체 정확도를 뜻하지 않음.',
-            )}
-          </p>
+          <p className="ex-fineprint">{PROVEN_NOTE}</p>
         </section>
 
       </div>

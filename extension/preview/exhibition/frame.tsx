@@ -2,7 +2,7 @@
  * 현수막이 함께 쓰는 틀 — 크기, 머리글·바닥글, 안전 여백, 브라우저 카드.
  * 단위는 현수막의 mm 다(1px = 1mm). 화면에서는 줄이고, 인쇄에서는 1mm 로 키운다(exhibition.css).
  */
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { createContext, useContext, useState, type CSSProperties, type ReactNode } from 'react';
 import { faviconFor, SHOT_FOCUS, shotFor, type ExhibitPage } from './content';
 
 export const BANNER = {
@@ -12,18 +12,26 @@ export const BANNER = {
 };
 
 /** 950 다섯 장의 진행 표시 — 부스 정면 순서 */
-const STEPS = ['USE', 'CHAOS', 'ORBIT', 'TECHNOLOGY', 'TEAM'] as const;
+export const STEPS = ['USE', 'CHAOS', 'ORBIT', 'TECHNOLOGY', 'TEAM'] as const;
+
+/**
+ * 머리글 번호와 바닥 진행 표시에 쓰는 장 이름 목록. 판마다 다르다 — 실제 화면 시안은 가운데 벽 세 장이 한 장(ORBIT)이라
+ * USE · ORBIT · TEAM 이다(main.tsx 가 판에 맞춰 넣는다).
+ */
+export const Chapters = createContext<readonly string[]>(STEPS);
 
 interface BannerFrameProps {
-  /** STEPS 안의 자리 — 머리글 번호(01–05)도 여기서 나온다. 벽 순서·바닥글 진행 표시와 같다 */
+  /** STEPS 안의 자리(장 이름). 머리글 번호와 바닥 진행 표시는 판의 장 목록(Chapters)에서 정한다 */
   step: number;
   label: string;
   children: ReactNode;
 }
 
 export function BannerFrame({ step, label, children }: BannerFrameProps) {
+  const chapters = useContext(Chapters);
+  const name = STEPS[step];
   return (
-    <article className={`ex-banner ex-banner--${STEPS[step].toLowerCase()}`} aria-label={label}>
+    <article className={`ex-banner ex-banner--${name.toLowerCase()}`} aria-label={label}>
       {children}
       <header className="ex-head">
         <div className="ex-head__brand">
@@ -32,17 +40,17 @@ export function BannerFrame({ step, label, children }: BannerFrameProps) {
           <span>Orbit</span>
         </div>
         <div className="ex-head__chapter">
-          <b>{String(step + 1).padStart(2, '0')}</b>
-          <span>{STEPS[step]}</span>
+          <b>{String(chapters.indexOf(name) + 1).padStart(2, '0')}</b>
+          <span>{name}</span>
         </div>
       </header>
       <footer className="ex-foot">
-        <span className="ex-foot__line">FROM CHAOS TO MEMORY</span>
+        <span className="ex-foot__line">PERSONAL EXPLORATION MEMORY</span>
         <ol className="ex-foot__steps">
-          {STEPS.map((name, index) => (
-            <li key={name} className={index === step ? 'is-on' : undefined}>
+          {chapters.map((chapter) => (
+            <li key={chapter} className={chapter === name ? 'is-on' : undefined}>
               <i />
-              {name}
+              {chapter}
             </li>
           ))}
         </ol>

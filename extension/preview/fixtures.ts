@@ -33,6 +33,8 @@ export interface PreviewSession {
   last_activity_at: string;
   folder_id: string | null;
   events: PreviewEvent[];
+  /** 미리보기 대역의 AI 질문 답(해요체 한 말투). 없으면 요약에서 만든다(api-mock.ts). 백엔드 세션에는 없는 칸이다. */
+  answer?: string;
 }
 
 export interface PreviewFolder {
@@ -84,6 +86,7 @@ interface SessionSeed {
   highlights: string[];
   todos?: string[];
   next?: string[];
+  answer?: string;
   pages: PageSeed[];
   status?: 'pending' | 'done' | 'failed';
 }
@@ -100,6 +103,8 @@ const SESSIONS: SessionSeed[] = [
     highlights: ['김포→제주 오전 편이 왕복 9만 원대로 가장 저렴', '렌터카는 완전자차 포함 3일 14만 원', '서귀포 숙소 2곳 후보'],
     todos: ['숙소 1곳 확정', '렌터카 예약'],
     next: ['애월 카페 동선 확인', '우도 배편 시간표 보기'],
+    // 결선 현수막 실제 화면 시안이 크게 짚는 답 — 요약(평서체)을 이어 붙이면 말투가 셋 섞여 따로 둔다(디자인팀장 검토 2026-10-23)
+    answer: '항공권·렌터카·숙소를 비교하고 동선을 정리한 세션이에요. 김포→제주 오전 편이 왕복 9만 원대로 가장 쌌어요.',
     pages: [
       ['제주 항공권 최저가 - 네이버 항공권', 'https://flight.naver.com/flights/domestic/GMP-CJU', 6],
       ['제주 렌터카 가격비교 | 카모아', 'https://carmore.kr/home/', 4],
@@ -178,6 +183,8 @@ const SESSIONS: SessionSeed[] = [
     overview: '도톤보리·우메다 근처 맛집을 예약 가능 여부와 함께 정리했다.',
     purpose: '오사카 2박 일정의 저녁 식당 정하기',
     highlights: ['타베로그 3.5 이상만 추림', '야키니쿠 한 곳은 온라인 예약 필수'],
+    // 결선 현수막 실제 화면 시안의 두 번째 질문에 대한 답 — 제주 답과 같은 해요체(대표 피드백 2026-10-23)
+    answer: '도톤보리·우메다 근처 맛집을 예약 가능 여부와 함께 모아 둔 세션이에요. 야키니쿠 한 곳은 온라인 예약이 필수였어요.',
     pages: [
       ['大阪 ランキング - 食べログ', 'https://tabelog.com/osaka/rstLst/', 9],
       ['오사카 현지인 맛집 12곳', 'https://blog.naver.com/osaka_eat/2231', 7],
@@ -332,6 +339,7 @@ function buildSession(seed: SessionSeed): PreviewSession {
     last_activity_at: iso(seed.hoursAgo),
     folder_id: seed.folder,
     events,
+    ...(seed.answer ? { answer: seed.answer } : {}),
   };
 }
 

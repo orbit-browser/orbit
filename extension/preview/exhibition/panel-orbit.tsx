@@ -29,7 +29,7 @@ export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, intera
         <h1 className="ex-orbit__word">
           Orbit<span>.</span>
         </h1>
-        <p className="ex-orbit__sub">당신의 탐색을 기억하다.</p>
+        <p className="ex-orbit__sub">봤던 페이지, 대신 기억해 둘게요.</p>
         <p className="ex-orbit__en">Personal Exploration Memory</p>
       </section>
 
@@ -82,25 +82,25 @@ export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, intera
   );
 }
 
-/** 문구는 지금 구현에 맞춘다 — 근거는 각 줄 옆의 코드 경로. */
+/** 문구는 지금 구현에 맞춘다 — 근거는 각 줄 옆의 코드 경로. 한국어 제목은 영어 이름의 번역이 아니라 쓰는 사람이 얻는 것으로. */
 const FEATURES = [
   {
     en: ['Automatic Session', 'Organization'],
-    ko: '흩어진 방문이 스스로 세션이 된다',
+    ko: '따로 정리하지 않아도 묶여 있습니다',
     // backend/app/services/sync_pipeline.py · intent_analyzer.py · summarizer.py
     text: '방문을 시간과 주제로 나눈 뒤, AI가 기존 세션에 이어 붙일지 새로 만들지 판단하고 제목과 요약을 씁니다.',
   },
   {
     en: ['Semantic', 'Search'],
-    ko: '기억나는 말로 찾는다',
+    ko: '제목을 몰라도 찾습니다',
     // backend/app/api/search.py (scope=memory)
     text: '“제주 렌터카 비교하던 거”처럼 물으면 뜻이 가까운 세션과 그 안의 방문 기록을 함께 찾아 줍니다.',
   },
   {
     en: ['Context', 'Restoration'],
-    ko: '멈춘 자리에서 다시 시작한다',
+    ko: '보던 탭을 한 번에 다시 엽니다',
     // extension/entrypoints/newtab/lib/restore.ts · 아틀라스 세부 정보의 "다음 할 일"
-    text: '세션의 페이지를 탭으로 한 번에 다시 열고, 요약과 다음 할 일로 하던 일을 이어 갑니다.',
+    text: '요약과 다음 할 일을 보며 하던 일을 이어 갑니다.',
   },
 ];
 
