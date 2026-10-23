@@ -1,6 +1,6 @@
 """LLM 공급자 순서 — 역할별 1순위·폴백 (DecisionLog 2026-10-23 최종 배정).
 
-의도 분석·탭 묶기: A.X-K2 → KT, 요약·리랭크: A.X-K2 → K-EXAONE, Ask 스트림: K-EXAONE → A.X-K2(test_llm_stream).
+의도 분석·탭 묶기: A.X-K2 → KT, 요약·리랭크: A.X-K2 → K-EXAONE, Ask 스트림: A.X-K2 → K-EXAONE(test_llm_stream).
 """
 
 import asyncio

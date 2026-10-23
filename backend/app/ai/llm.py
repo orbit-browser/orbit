@@ -173,20 +173,61 @@ async def chat_completion_stream_with_meta(
     temperature: float = 0.2,
     max_tokens: int = 900,
 ) -> AsyncIterator[tuple[str, str]]:
-    """Ask 답변 스트리밍. K-EXAONE 우선, 첫 토큰 전 실패 시 A.X fallback.
+    """Ask 답변 스트리밍. A.X 우선, 첫 토큰 전 실패 시 K-EXAONE fallback.
 
-    배정 근거: docs/DecisionLog.md 2026-10-23(R9 근거 일치 K2와 짝 차이 0, 첫 글자 p95 207ms 대 690ms).
+    배정 근거: docs/DecisionLog.md 2026-10-23(같은 코드·데이터 A/B — 실제 탐색 문항 정답 포함 A.X-K2 68/81·16/18,
+    K-EXAONE 63/81·14~15/18, 범위 밖 인용 0 대 2). K-EXAONE은 첫 글자가 빠르지만 비슷한 대상의 값을 더 자주 섞었다.
     일부 토큰을 이미 전송한 뒤 provider가 끊기면 다른 모델의 처음부터 다시 이어 붙일 수 없으므로
     `StreamInterruptedError`를 발생시켜 호출자가 partial 오류를 명시하게 한다.
     """
-    await _throttle("exaone")
+    await _throttle("ax")
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
 
-    primary_model = _exaone_model_label()
+    primary_model = settings.axk1_model
     yielded = False
+    try:
+        async for text in _stream_provider(
+            _ax_client(),
+            model=primary_model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ):
+            yielded = True
+            yield text, primary_model
+        if not yielded:
+            raise ValueError("A.X 빈 스트림")
+        return
+    except asyncio.CancelledError:
+        raise
+    except APIStatusError as exc:
+        if exc.status_code == 429:
+            _back_off("ax")
+        if yielded:
+            raise StreamInterruptedError(primary_model) from exc
+        if not _should_fallback(exc.status_code):
+            raise
+        logger.warning("A.X 스트림 %s 오류 — EXAONE fallback", exc.status_code)
+    except (RateLimitError, APIConnectionError, APITimeoutError, ValueError) as exc:
+        if yielded:
+            raise StreamInterruptedError(primary_model) from exc
+        logger.warning("A.X 스트림 시작 실패 (%s) — EXAONE fallback", exc)
+    except OpenAIError as exc:
+        if yielded:
+            raise StreamInterruptedError(primary_model) from exc
+        # 클라이언트 생성 실패(AXK1_API_KEY 없음). 위의 상태·연결 오류는 이미 앞에서 걸렸다.
+        logger.warning("A.X 클라이언트 오류 (%s) — EXAONE fallback", type(exc).__name__)
+    except Exception as exc:
+        if yielded:
+            raise StreamInterruptedError(primary_model) from exc
+        raise
+
+    fallback_model = _exaone_model_label()
+    fallback_yielded = False
+    await _throttle("exaone")
     try:
         async for text in _stream_provider(
             _friendli_client(),
@@ -196,55 +237,15 @@ async def chat_completion_stream_with_meta(
             max_tokens=max_tokens,
             extra_body=_EXAONE_EXTRA_BODY,
         ):
-            yielded = True
-            yield text, primary_model
-        if not yielded:
-            raise ValueError("EXAONE 빈 스트림")
-        return
-    except asyncio.CancelledError:
-        raise
-    except APIStatusError as exc:
-        if exc.status_code == 429:
-            _back_off("exaone")
-        if yielded:
-            raise StreamInterruptedError(primary_model) from exc
-        if not _should_fallback(exc.status_code):
-            raise
-        logger.warning("EXAONE 스트림 %s 오류 — A.X fallback", exc.status_code)
-    except (RateLimitError, APIConnectionError, APITimeoutError, ValueError) as exc:
-        if yielded:
-            raise StreamInterruptedError(primary_model) from exc
-        logger.warning("EXAONE 스트림 시작 실패 (%s) — A.X fallback", exc)
-    except OpenAIError as exc:
-        if yielded:
-            raise StreamInterruptedError(primary_model) from exc
-        # 클라이언트 생성 실패(FRIENDLI_API_KEY 없음). 위의 상태·연결 오류는 이미 앞에서 걸렸다.
-        logger.warning("EXAONE 클라이언트 오류 (%s) — A.X fallback", type(exc).__name__)
-    except Exception as exc:
-        if yielded:
-            raise StreamInterruptedError(primary_model) from exc
-        raise
-
-    fallback_model = settings.axk1_model
-    fallback_yielded = False
-    await _throttle("ax")
-    try:
-        async for text in _stream_provider(
-            _ax_client(),
-            model=fallback_model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        ):
             fallback_yielded = True
             yield text, fallback_model
         if not fallback_yielded:
-            raise ValueError("A.X 빈 스트림")
+            raise ValueError("EXAONE 빈 스트림")
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         if isinstance(exc, RateLimitError):
-            _back_off("ax")
+            _back_off("exaone")
         if fallback_yielded:
             raise StreamInterruptedError(fallback_model) from exc
         raise
