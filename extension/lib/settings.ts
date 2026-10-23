@@ -33,6 +33,11 @@ export interface OrbitSettings {
    * 안내와 함께 `<all_urls>` 선택 권한을 받는다(`enableTabSnapshots`).
    */
   tabSnapshotsEnabled: boolean;
+  /**
+   * 미리보기가 켜져 있을 때, 사진이 없는 지난 페이지를 로그인 없이 다시 열어 대표 이미지를 받는다
+   * (`lib/page-preview.ts`). 사이트에 요청 기록이 남으므로 따로 끌 수 있다.
+   */
+  pageImageFallbackEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: OrbitSettings = {
@@ -48,6 +53,7 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
   activeWorkspaceId: null,
   personalWorkspaceName: null,
   tabSnapshotsEnabled: false,
+  pageImageFallbackEnabled: true,
 };
 
 const STORAGE_KEY = 'orbit:settings';

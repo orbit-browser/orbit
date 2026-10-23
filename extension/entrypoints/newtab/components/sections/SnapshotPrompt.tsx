@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getSettings, subscribeSettings } from '../../../../lib/settings';
-import { enableTabSnapshots } from '../../../../lib/tab-snapshots';
+import { enableTabSnapshots, PAGE_IMAGE_NOTICE, SNAPSHOT_NOTICE } from '../../../../lib/tab-snapshots';
 
 type State = 'loading' | 'off' | 'asking' | 'denied' | 'on';
 
@@ -34,6 +34,10 @@ export function SnapshotPrompt({ placement }: { placement: 'home' | 'atlas' }) {
     <div className={`snapshot-prompt snapshot-prompt--${placement}`} role="region" aria-label="실제 페이지 미리보기">
       <span className="snapshot-prompt__text">
         <strong>실제 페이지 미리보기 켜기</strong> · 기기 안에만 저장돼요
+        {/* 보안 검토: 켜기 전에 실제 범위(목록 밖 사이트도 찍힘, 지난 페이지는 다시 열어 받음)를 같이 보인다. */}
+        <span className="snapshot-prompt__detail">
+          {SNAPSHOT_NOTICE} {PAGE_IMAGE_NOTICE}
+        </span>
         {state === 'denied' && (
           <span className="snapshot-prompt__note" role="status">
             {' '}— 권한을 받지 못해 켜지 않았어요. 다시 누르면 크롬이 한 번 더 물어요.

@@ -194,3 +194,10 @@ export async function handlePermissionRemoved(removed: chrome.permissions.Permis
   if (!removed.origins?.includes('<all_urls>')) return;
   await updateSettings({ tabSnapshotsEnabled: false });
 }
+
+/** 보안 검토 M2: 실제보다 좁게 읽히지 않게, 켜기 전에 이 문장을 보여 주고 켤 때 크롬 권한을 함께 묻는다. */
+export const SNAPSHOT_NOTICE =
+  '화면 사진은 기기 안에만 저장돼요. 메일·메신저·검색 결과·민감 사이트는 찍지 않지만, 목록에 없는 사이트의 화면은 찍힐 수 있어요.';
+
+/** 보안 검토 M3: 지난 기록의 대표 이미지 보충은 그 주소를 다시 연다. */
+export const PAGE_IMAGE_NOTICE = '지난 페이지는 로그인 없이 다시 열어 대표 이미지를 받아요(사이트에 요청 기록이 남아요).';

@@ -9,7 +9,13 @@ import { useActiveWorkspace } from '../../../../lib/useWorkspaces';
 import { useWorkspaceMembers, useWorkspaceMutations } from '../../../sidepanel/hooks/useWorkspaces';
 import type { SettingsPageId } from './settings-nav';
 import { TeamCollectSettings } from '../team/TeamCollectSettings';
-import { clearSnapshots, disableTabSnapshots, enableTabSnapshots } from '../../../../lib/tab-snapshots';
+import {
+  clearSnapshots,
+  disableTabSnapshots,
+  enableTabSnapshots,
+  PAGE_IMAGE_NOTICE,
+  SNAPSHOT_NOTICE,
+} from '../../../../lib/tab-snapshots';
 import { TAB_SNAPSHOTS_QUERY_KEY } from '../../../../lib/useTabSnapshots';
 
 /*
@@ -776,15 +782,12 @@ function ClearResult({ state }: { state: ClearState }) {
   );
 }
 
-/** 보안 검토 M2: 실제보다 좁게 읽히지 않게, 켜기 전에 이 문장을 보여 주고 켤 때 크롬 권한을 함께 묻는다. */
-export const SNAPSHOT_NOTICE =
-  '화면 사진은 기기 안에만 저장돼요. 메일·메신저·검색 결과·민감 사이트는 찍지 않지만, 목록에 없는 사이트의 화면은 찍힐 수 있어요.';
-
 /**
  * 탭 화면 미리보기 켜기·끄기와 지우기. 켜면 크롬이 모든 사이트 접근 권한(선택 권한)을 묻고, 받았을 때만 켠다.
  * 끄면 권한을 돌려주고 사진 표시를 멈춘 뒤 저장된 사진도 지울지 묻는다.
  */
-function TabSnapshotSection({ enabled }: { enabled: boolean }) {
+function TabSnapshotSection({ settings, patch }: Pick<PageProps, 'settings' | 'patch'>) {
+  const enabled = settings.tabSnapshotsEnabled;
   const { state, clear, disabled } = useClearSnapshots();
   const [note, setNote] = useState<'denied' | 'ask-clear' | 'still-granted' | null>(null);
   const toggle = (next: boolean) => {
@@ -803,6 +806,15 @@ function TabSnapshotSection({ enabled }: { enabled: boolean }) {
       >
         <Switch label="탭 화면 미리보기 저장" checked={enabled} onChange={toggle} />
       </Row>
+      {enabled && (
+        <Row nested label="지난 페이지 대표 이미지 받기" description={PAGE_IMAGE_NOTICE}>
+          <Switch
+            label="지난 페이지 대표 이미지 받기"
+            checked={settings.pageImageFallbackEnabled}
+            onChange={(pageImageFallbackEnabled) => patch({ pageImageFallbackEnabled })}
+          />
+        </Row>
+      )}
       {note === 'denied' && (
         <Row nested label="권한을 받지 못해 켜지 않았어요" description="다시 켜면 크롬이 한 번 더 물어요." />
       )}
@@ -842,7 +854,7 @@ function TabSnapshotSection({ enabled }: { enabled: boolean }) {
   );
 }
 
-function PrivacyPage({ settings, onNavigate }: PageProps) {
+function PrivacyPage({ settings, patch, onNavigate }: PageProps) {
   return (
     <>
       <PageHeader
@@ -876,7 +888,7 @@ function PrivacyPage({ settings, onNavigate }: PageProps) {
         </Row>
       </Section>
 
-      <TabSnapshotSection enabled={settings.tabSnapshotsEnabled} />
+      <TabSnapshotSection settings={settings} patch={patch} />
 
       <button
         type="button"

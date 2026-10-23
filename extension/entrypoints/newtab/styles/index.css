@@ -3517,6 +3517,14 @@ body {
   translate: -50% 0;
 }
 
+.snapshot-prompt__detail {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .snapshot-prompt__note {
   color: var(--text-muted);
 }

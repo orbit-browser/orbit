@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSession } from './auth';
 import { getSettings, subscribeSettings } from './settings';
-import { fillMissingPreviews } from './page-preview';
+import { FILL_PREVIEWS_MESSAGE, PREVIEW_SAVED_MESSAGE } from './page-preview';
 import { loadSnapshots, snapshotKey } from './tab-snapshots';
 
 export const TAB_SNAPSHOTS_QUERY_KEY = ['tab-snapshots'] as const;
@@ -41,14 +41,16 @@ export function useTabSnapshots(urls: readonly string[], enabled = true): Record
   const missingKey = missing.join('\n');
   useEffect(() => {
     if (!missingKey) return;
-    let alive = true;
-    void fillMissingPreviews(missingKey.split('\n'), (key, dataUrl) => {
-      if (alive) client.setQueryData<Record<string, string>>(queryKey, (old) => ({ ...old, [key]: dataUrl }));
-    });
-    return () => {
-      alive = false;
+    const wanted = new Set(missingKey.split('\n').map((url) => snapshotKey(url)));
+    const onMessage = (message: { type?: string; key?: string; dataUrl?: string }) => {
+      if (message?.type !== PREVIEW_SAVED_MESSAGE || !message.key || !message.dataUrl || !wanted.has(message.key)) return;
+      client.setQueryData<Record<string, string>>(queryKey, (old) => ({ ...old, [message.key!]: message.dataUrl! }));
     };
-    // missingKey 가 바뀔 때만 다시 줄을 세운다(queryKey 는 urls 에서 나온다).
+    chrome.runtime.onMessage.addListener(onMessage);
+    // 받는 줄은 서비스 워커 한 곳에 있다(새 탭이 여러 개여도 속도 제한이 하나).
+    chrome.runtime.sendMessage({ type: FILL_PREVIEWS_MESSAGE, urls: missingKey.split('\n') }).catch(() => undefined);
+    return () => chrome.runtime.onMessage.removeListener(onMessage);
+    // missingKey 가 바뀔 때만 다시 부탁한다(queryKey 는 urls 에서 나온다).
   }, [client, missingKey]);
   return enabled && data ? data : {};
 }
