@@ -22,13 +22,13 @@ const DEMO_TEAM = {
 
 const POINTS = [
   // ShareSessionDialog — 세션마다 공유/해제, 공유 뒤 추가되는 페이지도 보인다
-  ['세션 단위로 고른다', '공유는 세션마다 직접 합니다. 공유한 뒤 그 세션에 더해지는 페이지도 팀에 보입니다.'],
+  ['공유할 세션은 내가 고릅니다', '세션마다 따로 공유합니다. 공유한 뒤 그 세션에 더해지는 페이지도 팀에 보입니다.'],
   // TeamSettingsSection · backend api/workspaces.py invite-code
-  ['초대 코드로 들어온다', '코드를 새로 만들면 이전 코드는 더 이상 쓸 수 없습니다.'],
+  ['팀원은 초대 코드로 들어옵니다', '코드를 새로 만들면 이전 코드는 더 이상 쓸 수 없습니다.'],
   // backend api/search.py · api/ask.py workspace_id
-  ['팀 범위로 찾고 묻는다', '검색과 Ask가 그 팀에 공유된 세션 안에서만 답합니다.'],
+  ['팀에서 찾으면 공유된 세션만 나옵니다', '검색도 Ask도 그 팀에 공유된 세션 안에서만 답합니다.'],
   // newtab 아틀라스 팀 범위 — 페이지마다 공유한 사람 이름
-  ['누가 공유했는지 보인다', '페이지 카드마다 공유한 사람의 이름이 붙습니다.'],
+  ['누가 공유했는지 보입니다', '페이지 카드마다 공유한 사람의 이름이 붙습니다.'],
 ];
 
 /** backend/eval 의 골든셋 크기(2026-10-20 저장소 기준) */
@@ -51,11 +51,11 @@ export function TeamBanner() {
     <BannerFrame step={4} label="현수막 — TEAM">
       <section className="ex-team__intro">
         <h1 className="ex-team__title">
-          같이 본 페이지,
+          그 링크
           <br />
-          같이 찾습니다.
+          누가 올렸더라?
         </h1>
-        <p className="ex-team__sub">팀에는 내가 고른 세션만 공유됩니다. 개인 기록은 그대로 나만&nbsp;볼&nbsp;수&nbsp;있습니다.</p>
+        <p className="ex-team__sub">팀에 공유한 세션은 팀원 누구나 찾고, 누가 공유했는지도 보입니다. 내가&nbsp;고른 세션만 공유되고 나머지는 나만&nbsp;봅니다.</p>
       </section>
 
       <section className="ex-team__stage" aria-label="팀 화면">
@@ -101,7 +101,7 @@ export function TeamBanner() {
             ))}
           </div>
           <div>
-            <h3>기준값은 재서 정한다</h3>
+            <h3>기준값과 근거</h3>
             {THRESHOLDS.map(([value, name, detail]) => (
               <div key={name} className="ex-measure__row ex-measure__row--value">
                 <em>{value}</em>

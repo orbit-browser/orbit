@@ -83,7 +83,7 @@ export function TechBanner() {
           <br />
           Remembers<span>.</span>
         </h1>
-        <p className="ex-tech__sub">탐색의 흔적을 구조화된 기억으로.</p>
+        <p className="ex-tech__sub">페이지를 연 순간부터 다시 찾을 때까지</p>
       </section>
 
       <div className="ex-tech__body">
@@ -138,7 +138,8 @@ export function TechBanner() {
 
         <section className="ex-proven" aria-label="시험으로 확인한 숫자">
           <div className="ex-section-head">
-            <h2>Proven in Tests.</h2>
+            {/* 질문 두 개·작업 하나의 작은 시험이라 "Proven" 같은 센 말은 쓰지 않는다 — 각주의 "전체 정확도를 뜻하지 않음"과 맞춘다 */}
+            <h2>Test Results</h2>
             <span className="ex-status">직접 시험</span>
           </div>
           <div className="ex-proven__grid">
@@ -147,7 +148,7 @@ export function TechBanner() {
                 {PROVEN.refusal.orbit.percent}
                 <small>%</small>
               </strong>
-              <h3>없는 기록은, 없다고 답합니다</h3>
+              <h3>기록에 없는 건 없다고 답했습니다</h3>
               <p>{keepDots(`같은 조건 시험 ${PROVEN.refusal.orbit.total}번 중 ${PROVEN.refusal.orbit.hit}번 · Comet ${PROVEN.refusal.comet.percent}%`)}</p>
             </article>
             <article className="ex-proven__stat">
@@ -155,7 +156,7 @@ export function TechBanner() {
                 {PROVEN.restorePrecision.orbit.percent}
                 <small>%</small>
               </strong>
-              <h3>다시 열면, 그 작업의 페이지만</h3>
+              <h3>다시 열었을 때 엉뚱한 탭은 없었습니다</h3>
               <p>{keepDots(`목표 9개 중 ${PROVEN.restorePrecision.orbit.total}개를 열었고 열린 페이지는 모두 그 작업 · Comet은 연 ${PROVEN.restorePrecision.comet.total}개 중 ${PROVEN.restorePrecision.comet.hit}개(${PROVEN.restorePrecision.comet.percent}%)`)}</p>
             </article>
             <article className="ex-proven__stat">
@@ -163,7 +164,7 @@ export function TechBanner() {
                 {PROVEN.teamIsolation.leaks}
                 <small>건</small>
               </strong>
-              <h3>공유하지 않은 팀 기록의 노출</h3>
+              <h3>공유 안 한 세션이 팀원에게 보인 경우</h3>
               <p>{keepDots(`계정 둘 격리 서버 시험 · 화면·API ${PROVEN.teamIsolation.paths}가지 경로, 응답 ${PROVEN.teamIsolation.responses}개에서 0건`)}</p>
             </article>
           </div>

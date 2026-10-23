@@ -17,11 +17,11 @@ export function EdgeBanner({ side }: { side: 'left' | 'right' }) {
       {side === 'left' ? (
         <>
           <p className="ex-edge__message">
-            흩어진 탐색을
+            닫은 탭도
             <br />
-            기억하고,
+            기억했다가
             <br />
-            다시 이어가다.
+            다시 열어 줘요.
           </p>
           <p className="ex-edge__cta">
             <i className="ph ph-arrow-right" />
