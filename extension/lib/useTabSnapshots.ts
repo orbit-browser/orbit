@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSession } from './auth';
 import { getSettings, subscribeSettings } from './settings';
-import { loadSnapshots } from './tab-snapshots';
+import { FILL_PREVIEWS_MESSAGE, PREVIEW_SAVED_MESSAGE } from './page-preview';
+import { loadSnapshots, snapshotKey } from './tab-snapshots';
 
 export const TAB_SNAPSHOTS_QUERY_KEY = ['tab-snapshots'] as const;
 
@@ -29,10 +30,27 @@ export function useTabSnapshots(urls: readonly string[], enabled = true): Record
       }),
     [client],
   );
+  const queryKey = [...TAB_SNAPSHOTS_QUERY_KEY, [...urls].sort()];
   const { data } = useQuery({
-    queryKey: [...TAB_SNAPSHOTS_QUERY_KEY, [...urls].sort()],
+    queryKey,
     queryFn: () => fetchTabSnapshots(urls),
     enabled: enabled && urls.length > 0,
   });
+  // 사진이 없는 페이지(켜기 전의 지난 기록)는 대표 이미지를 받아 채운다. 판정·속도 제한은 `fillMissingPreviews`.
+  const missing = enabled && data ? urls.filter((url) => !data[snapshotKey(url) ?? '']) : [];
+  const missingKey = missing.join('\n');
+  useEffect(() => {
+    if (!missingKey) return;
+    const wanted = new Set(missingKey.split('\n').map((url) => snapshotKey(url)));
+    const onMessage = (message: { type?: string; key?: string; dataUrl?: string }) => {
+      if (message?.type !== PREVIEW_SAVED_MESSAGE || !message.key || !message.dataUrl || !wanted.has(message.key)) return;
+      client.setQueryData<Record<string, string>>(queryKey, (old) => ({ ...old, [message.key!]: message.dataUrl! }));
+    };
+    chrome.runtime.onMessage.addListener(onMessage);
+    // 받는 줄은 서비스 워커 한 곳에 있다(새 탭이 여러 개여도 속도 제한이 하나).
+    chrome.runtime.sendMessage({ type: FILL_PREVIEWS_MESSAGE, urls: missingKey.split('\n') }).catch(() => undefined);
+    return () => chrome.runtime.onMessage.removeListener(onMessage);
+    // missingKey 가 바뀔 때만 다시 부탁한다(queryKey 는 urls 에서 나온다).
+  }, [client, missingKey]);
   return enabled && data ? data : {};
 }

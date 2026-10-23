@@ -15,6 +15,7 @@ import { restoreSession, type RestoreTarget } from './lib/restore';
 import { useAskConversation } from '../shared/hooks/useAskConversation';
 import { useActiveWorkspace } from '../../lib/useWorkspaces';
 import { TeamCollectPanel } from './components/team/TeamCollect';
+import { SnapshotPrompt } from './components/sections/SnapshotPrompt';
 import type { Session } from '../../lib/types';
 
 export default function App() {
@@ -121,6 +122,9 @@ export default function App() {
           mode={composerMode}
           onModeChange={setComposerMode}
         />
+
+        {/* 지난 기록이 회색 칸뿐인 까닭이 미리보기가 꺼져서라면 여기서 바로 켠다(팀 범위에서는 남의 세션이라 묻지 않는다). */}
+        {!scopeId && <SnapshotPrompt placement="home" />}
 
         {restoreError && (
           <p className="home-error" role="alert">
