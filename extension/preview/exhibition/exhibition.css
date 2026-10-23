@@ -2814,19 +2814,10 @@ body {
   stroke-width: 5;
 }
 
-.ex-span__ring,
-.ex-span__pill {
+.ex-span__ring {
   fill: none;
   stroke: var(--accent);
   stroke-width: 5;
-}
-
-.ex-span__tie {
-  stroke: var(--accent);
-  stroke-width: 2.5;
-  stroke-dasharray: 10 8;
-  /* 사이드패널 글줄 위를 지나므로 옅게 */
-  opacity: 0.6;
 }
 
 .ex-span__leader {
@@ -2846,21 +2837,6 @@ body {
   border-radius: 50%;
   background: var(--bg-page);
   box-shadow: 0 0 0 6px var(--accent), 0 30px 70px -24px rgba(120, 72, 48, 0.45);
-}
-
-.ex-span__lens svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-/* 돋보기 테두리 위·아래, 단추 바로 옆에 붙는 ③·④ 번호 */
-.ex-span__no--on {
-  position: absolute;
-  z-index: 48;
-  box-shadow: 0 0 0 5px var(--bg-page);
 }
 
 .ex-span__label {
@@ -2897,44 +2873,48 @@ body {
   letter-spacing: -0.015em;
 }
 
-/* 아래 숫자 — 기술 현수막의 시험 숫자를 장마다 하나씩 크게 */
-/* 위끝은 창 바로 아래(PROOF_TOP, panel-span.tsx) — 띠가 허리 위에 온다 */
+/*
+ * 아래 숫자 — 기술 현수막의 시험 숫자를 장마다 하나씩 크게. 창 아래(PROOF_TOP, panel-span.tsx)부터 바닥글 위까지 칸을 채운다:
+ * 숫자는 칸 위에 붙어 세 장의 선이 한 줄로 맞고, 각주는 칸 아래에 붙는다(대표 피드백 2026-10-23 "아래가 비었다").
+ */
 .ex-span__proof {
   position: absolute;
   left: 50px;
   right: 50px;
+  bottom: 170px;
   z-index: 30;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .ex-span__proof .ex-proven__stat {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  column-gap: 36px;
-  align-items: end;
-  padding-top: 22px;
+  padding-top: 30px;
 }
 
 .ex-span__proof .ex-proven__stat > strong {
-  grid-row: span 2;
-  font-size: 116px;
+  font-size: 200px;
 }
 
 .ex-span__proof .ex-proven__stat > strong small {
-  font-size: 46px;
+  font-size: 76px;
 }
 
 .ex-span__proof .ex-proven__stat > h3 {
-  margin: 0 0 8px !important;
-  font-size: 34px;
+  margin: 20px 0 10px !important;
+  font-size: 48px;
+  text-wrap: balance;
 }
 
+/* 두 줄이 되면 끝줄에 "3개(12%)"만 남지 않게 고르게 나눈다 */
 .ex-span__proof .ex-proven__stat > p {
-  align-self: start;
-  font-size: 19px;
+  font-size: 25px;
+  text-wrap: balance;
 }
 
 .ex-span__proof .ex-fineprint {
-  margin-top: 18px !important;
+  margin-top: 40px !important;
+  font-size: 15px;
 }
 
 @media print {

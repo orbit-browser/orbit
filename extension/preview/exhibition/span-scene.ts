@@ -25,6 +25,8 @@ export type SpanTargets = Partial<Record<SpanTargetName, SpanRect>>;
 export type SpanMessage = { kind: 'orbit-span:ready'; targets: SpanTargets } | { kind: 'orbit-span:error'; message: string };
 
 const QUERY = '제주 렌터카 비교하던 거';
+/** 이어서 묻는 두 번째 질문 — 키운 창의 아래쪽까지 실제 대화가 이어진다(대표 피드백 2026-10-23 "아래 내용이 너무 없다") */
+const FOLLOW_UP = '오사카에서 가려던 맛집';
 const SESSION = '제주 3박 4일 여행 준비';
 
 const params = new URLSearchParams(location.search);
@@ -125,15 +127,23 @@ async function prepareNewTab(doc: Document) {
   const caret = (row: string) => until(row, () => doc.querySelector<HTMLButtonElement>(`${row} .atlas-row__caret`));
   (await caret('.atlas-row--folder[title^="여행 —"]')).click();
   (await caret(`.atlas-row--session[title^="${SESSION} —"]`)).click();
+  // 창을 키운 만큼 더 펼쳐 둔다 — 두 번째 질문의 세션과 졸업 프로젝트 폴더(대표 피드백 2026-10-23)
+  (await caret('.atlas-row--session[title^="오사카 맛집 리스트 —"]')).click();
+  (await caret('.atlas-row--folder[title^="졸업 프로젝트 —"]')).click();
   // 바로가기 줄은 다른 회사 아이콘이라 접는다 — 제품의 접기 단추 그대로
   const shortcuts = await until('shortcuts toggle', () => doc.querySelector<HTMLButtonElement>('.shortcuts__toggle'));
   if (shortcuts.getAttribute('aria-expanded') === 'true') shortcuts.click();
   (await until('AI mode', () => buttonByText(doc, 'AI에게 질문'))).click();
   await sleep(200);
-  type(input, QUERY);
-  await sleep(100);
-  input.form!.requestSubmit();
-  await until('answer with sources', () => doc.querySelector('.ask-source') && !doc.querySelector('.ask-turn__cursor'));
+  for (const [index, query] of [QUERY, FOLLOW_UP].entries()) {
+    type(input, query);
+    await sleep(100);
+    input.form!.requestSubmit();
+    await until(`answer ${index + 1} with sources`, () => {
+      const turns = doc.querySelectorAll('.ask-turn');
+      return turns.length === index + 1 && turns[index].querySelector('.ask-source') && !doc.querySelector('.ask-turn__cursor');
+    });
+  }
 }
 
 /**

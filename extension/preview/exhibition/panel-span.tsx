@@ -7,9 +7,10 @@
  * 홈 대화 칸(920px)이 4번 장 안에 들어가게 크기를 잡았고, 네비게이터와 사이드패널 폭을 같게 둬서 장 경계가
  * 빈 바탕에 떨어진다. 핵심 문구(제목·라벨·숫자)는 장마다 안전 여백 안에만 둔다.
  *
- * 높이(디자인팀장 검토 2026-10-23): 현수막은 바닥에 세우고 눈높이는 바닥에서 1.5~1.65m(위에서 730~880mm)다.
- * 창 높이를 줄이면 홈의 빈 위쪽이 줄어 질문·답이 눈높이로 올라온다 — ① 상자 위끝이 바닥에서 약 1.5m, 숫자 띠는
- * 허리(바닥에서 1m) 위에 온다. 아래쪽은 가운데 벽 앞 시연 탁자 높이라 비워 둔다.
+ * 높이(대표 피드백 2026-10-23 "웹페이지 쪽이 세로로 짧고 아래가 비었다"): 창이 장 높이의 절반 가까이를 차지하고, 그 아래를
+ * 숫자 띠가 바닥글까지 채운다. 창 안은 질문을 두 번 한 홈이라 키운 만큼 실제 대화가 이어진다. 홈은 답이 끝나면 대화 끝으로
+ * 스크롤하므로, 창 높이는 첫 질문이 눈높이(① 상자 위끝이 바닥에서 약 1.58m)에 오면서 행성 그림이 다 지나간 자리에서
+ * 멈추는 값이다 — 더 키우면 스크롤이 모자라 그림이 반쯤 잘려 보인다(span-scene.ts scrollPastOrbit 이 막는다).
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { BOOTH } from './booth';
@@ -21,22 +22,31 @@ import type { SpanMessage, SpanRect, SpanTargets } from './span-scene';
 const SPAN = {
   scale: 0.96,
   width: 2948,
-  height: 740,
+  height: 1110,
   side: 380,
   nav: 380,
   left: 50,
   top: 495,
 };
 
-/** 숫자 띠의 위끝(벽 mm) — 창 바로 아래. 띠 아래끝이 바닥에서 1m(위에서 1,380mm)를 넘지 않게 시험이 지킨다. */
-export const PROOF_TOP = Math.round(SPAN.top + SPAN.height * SPAN.scale + 14);
+/** 창 아래끝(벽 mm) */
+export const WINDOW_BOTTOM = SPAN.top + SPAN.height * SPAN.scale;
+
+/** 숫자 띠 칸의 위끝(벽 mm) — 창 아래. 칸은 바닥글 위까지이고 숫자는 위에, 각주는 아래에 붙는다(exhibition.css .ex-span__proof). */
+export const PROOF_TOP = Math.round(WINDOW_BOTTOM + 70);
 
 /**
- * 돋보기 — 사이드패널의 열기·공유 단추 줄만 zoom 배로 키워 5번 장 빈 바탕에 보인다(알약 모양). 단추 줄 위아래의 목록 글자와
- * 파비콘은 담지 않는다(마케팅·디자인팀장 검토 2026-10-23). x 는 돋보기 가운데(벽 mm), pad 는 단추 둘레 여백(장면 px),
- * lift 는 실제 단추 줄보다 올려 두는 높이(mm) — 아래 라벨(④)이 창 안에 들어오게.
+ * 돋보기 — 사이드패널의 단추를 zoom 배로 키워 5번 장 빈 바탕에 보인다(알약 모양). ③은 열기 두 단추, ④는 공유 단추만 담아
+ * 그 라벨 바로 아래에 둔다 — 화살표·테두리 번호·안쪽 알약 없이 라벨과 돋보기가 한 묶음이다(대표 피드백 2026-10-23 "빽빽하다").
+ * pad 는 단추 둘레 여백(장면 px).
  */
-const LENS = { x: 2268, zoom: 2, padX: 10, padY: 8, lift: 46 };
+const LENS = { zoom: 2, padX: 10, padY: 8 };
+
+/**
+ * 5번 장 ③·④ 묶음의 자리(벽 mm) — 라벨(제목 두 줄, 약 80mm) 아래 gap 만큼 띄워 돋보기, 두 묶음 사이는 between 만큼 비운다.
+ * 두 묶음이 눈높이(바닥에서 약 1.25~1.7m) 안에 든다.
+ */
+const GROUP = { x: 2040, top: 690, labelH: 80, gap: 22, between: 84 };
 
 /** 시안의 장 목록 — 가운데 벽 세 장이 한 장(ORBIT)이다. 머리글 번호와 바닥 진행 표시가 이 목록을 따른다(frame.tsx Chapters). */
 export const SPAN_CHAPTERS = ['USE', 'ORBIT', 'TEAM'] as const;
@@ -63,25 +73,25 @@ const unionRect = (a: SpanRect, b: SpanRect): SpanRect => {
 interface Callout {
   no: number;
   title: string;
-  text: string;
+  /** 덧붙이는 한 줄 — ③·④는 짧게 두려고 뺐다 */
+  text?: string;
   /** 라벨 자리(벽 mm, 왼쪽 위)와 폭 */
   at: { x: number; y: number; w: number };
-  /** 라벨에서 표시까지 화살표(벽 mm) */
-  from: [number, number];
-  to: [number, number];
+  /** 라벨에서 표시까지 화살표(벽 mm) — 돋보기가 라벨 바로 아래 붙는 ③·④에는 없다 */
+  arrow?: { from: [number, number]; to: [number, number] };
 }
+
+/**
+ * 돋보기(벽 mm)와 그 안에 보일 장면 범위(장면 px). 열기·공유 단추는 2px 붙어 있어 여백에 이웃 단추 글자가 걸린다 —
+ * keep(장면 px 가로 범위) 밖은 잘라 돋보기 바탕만 보인다.
+ */
+type Lens = Box & { no: number; source: SpanRect; keep: [number, number] };
 
 interface Layout {
   boxes: Box[];
-  /** 돋보기(벽 mm)와 그 안에 보일 장면 범위(장면 px) */
-  lens: Box & { source: SpanRect };
+  lenses: Lens[];
   /** 사이드패널의 실제 단추 줄을 두른 알약 — 위아래 목록 글자에 닿지 않는다 */
   marker: Box;
-  /** 돋보기와 실제 단추 줄을 잇는 두 줄 */
-  ties: [number, number, number, number][];
-  /** 돋보기 안에서 단추 묶음을 두른 알약과 그 위·아래에 붙는 번호(③ 열기, ④ 공유) */
-  pills: Box[];
-  badges: { no: number; x: number; y: number }[];
   callouts: Callout[];
 }
 
@@ -91,75 +101,39 @@ export function layoutFor(targets: SpanTargets): Layout | null {
   if (!question || !answer || !source || !reopen || !share) return null;
   const ask = toWall(unionRect(question, answer), 14);
   const card = toWall(source, 10);
-  const buttons = unionRect(reopen, share);
-  const scene = { x: buttons.x - LENS.padX, y: buttons.y - LENS.padY, width: buttons.width + LENS.padX * 2, height: buttons.height + LENS.padY * 2 };
-  const zoom = SPAN.scale * LENS.zoom;
-  const lensW = scene.width * zoom;
-  const lensH = scene.height * zoom;
-  const marker = toWall(buttons, 3);
-  const lens = { x: LENS.x - lensW / 2, y: marker.y + marker.h / 2 - lensH / 2 - LENS.lift, w: lensW, h: lensH, source: scene };
-  // 돋보기 안의 자리 — 장면 범위 왼쪽 위에서 떨어진 만큼 zoom 배로. 두 단추가 2px 붙어 있어 마주 보는 쪽은 줄여 테두리를 띄운다
-  const inLens = (rect: SpanRect, left: number, right: number): Box => ({
-    x: lens.x + (rect.x - left - scene.x) * zoom,
-    y: lens.y + (rect.y - 4 - scene.y) * zoom,
-    w: (rect.width + left + right) * zoom,
-    h: (rect.height + 8) * zoom,
-  });
-  const pills = [inLens(reopen, 4, -2), inLens(share, -2, 4)];
-  const [reopenX, shareX] = pills.map((pill) => pill.x + pill.w / 2);
-  const badges = [
-    { no: 3, x: reopenX, y: lens.y },
-    { no: 4, x: shareX, y: lens.y + lens.h },
-  ];
   const labelW = 420;
   const leftX = 470;
-  const rightX = 2040;
-  const labelGap = 52;
+  const zoom = SPAN.scale * LENS.zoom;
+  // 돋보기는 라벨 글줄과 같은 왼쪽 선(번호 원 56 + 사이 18)에서 시작한다
+  const lensAt = (no: number, rect: SpanRect, y: number, keep: [number, number]): Lens => {
+    const scene = { x: rect.x - LENS.padX, y: rect.y - LENS.padY, width: rect.width + LENS.padX * 2, height: rect.height + LENS.padY * 2 };
+    return { no, x: GROUP.x + 74, y, w: scene.width * zoom, h: scene.height * zoom, source: scene, keep };
+  };
+  const three = lensAt(3, reopen, GROUP.top + GROUP.labelH + GROUP.gap, [0, reopen.x + reopen.width + 1]);
+  const fourTop = three.y + three.h + GROUP.between;
+  const four = lensAt(4, share, fourTop + GROUP.labelH + GROUP.gap, [share.x - 1, SPAN.width]);
   return {
     boxes: [ask, card],
-    lens,
-    marker,
-    ties: [
-      [lens.x + lens.w - lens.h / 2, lens.y, marker.x + marker.h / 2, marker.y],
-      [lens.x + lens.w - lens.h / 2, lens.y + lens.h, marker.x + marker.h / 2, marker.y + marker.h],
-    ],
-    pills,
-    badges,
+    lenses: [three, four],
+    marker: toWall(unionRect(reopen, share), 3),
     callouts: [
       {
         no: 1,
         title: '생각나는 대로 물어도 찾아 줘요',
+        // "그 세션을"이 줄 끝에서 갈리지 않게 붙인다(글꼴 판에 따라 "그"만 윗줄에 남았다)
         text: '제목을 몰라도, 그때 하던 일을 적으면 그 세션을 찾아 답해요.',
         at: { x: leftX, y: ask.y + ask.h / 2 - 84, w: labelW },
-        from: [leftX + labelW + 6, ask.y + ask.h / 2],
-        to: [ask.x - 6, ask.y + ask.h / 2],
+        arrow: { from: [leftX + labelW + 6, ask.y + ask.h / 2], to: [ask.x - 6, ask.y + ask.h / 2] },
       },
       {
         no: 2,
         title: '같은 일로 본 페이지는 한데 묶여 있어요',
         text: 'AI가 알아서 묶고 제목과 요약까지 붙여 둬요.',
         at: { x: leftX, y: card.y - 14, w: labelW },
-        from: [leftX + labelW + 6, card.y + card.h / 2],
-        to: [card.x - 6, card.y + card.h / 2],
+        arrow: { from: [leftX + labelW + 6, card.y + card.h / 2], to: [card.x - 6, card.y + card.h / 2] },
       },
-      {
-        // 라벨은 돋보기 위 — 화살표는 위 테두리의 ③ 번호까지
-        no: 3,
-        title: '누르면 그때 페이지가 다시 열려요',
-        text: '새 창으로도, 지금 창에도 한 번에 열어요.',
-        at: { x: rightX, y: lens.y - labelGap - 150, w: labelW },
-        from: [reopenX, lens.y - labelGap + 8],
-        to: [reopenX, lens.y - 34],
-      },
-      {
-        // 라벨은 돋보기 아래 — 화살표는 아래 테두리의 ④ 번호까지
-        no: 4,
-        title: '팀에는 내가 고른 세션만 올라가요',
-        text: '팀원은 올라온 세션 안에서만 찾고 물어봐요.',
-        at: { x: rightX, y: lens.y + lens.h + labelGap, w: labelW },
-        from: [shareX, lens.y + lens.h + labelGap - 8],
-        to: [shareX, lens.y + lens.h + 34],
-      },
+      { no: 3, title: '누르면 그때 페이지가 다시 열려요', at: { x: GROUP.x, y: GROUP.top, w: labelW } },
+      { no: 4, title: '팀에는 내가 고른 세션만 올라가요', at: { x: GROUP.x, y: fourTop, w: labelW } },
     ],
   };
 }
@@ -259,7 +233,7 @@ export function SpanBanner({ part }: { part: 0 | 1 | 2 }) {
 
 /** 벽 좌표의 강조 표시 층 — 장마다 같은 층을 자기 자리만큼 옮겨 그린다(나머지는 현수막 밖이라 잘린다). */
 function Marks({ layout, x0, part }: { layout: Layout; x0: number; part: number }) {
-  const { boxes, lens, marker, ties, pills, badges, callouts } = layout;
+  const { boxes, lenses, marker, callouts } = layout;
   const arrow = `ex-span-arrow-${part}`;
   const zoom = SPAN.scale * LENS.zoom;
   const inPanel = (left: number, right: number) => right > x0 && left < x0 + 950;
@@ -274,32 +248,34 @@ function Marks({ layout, x0, part }: { layout: Layout; x0: number; part: number 
         {boxes.map((box, index) => (
           <rect key={index} x={box.x} y={box.y} width={box.w} height={box.h} rx="14" className="ex-span__box" />
         ))}
-        {/* 돋보기와 사이드패널의 실제 단추 줄을 잇는 두 줄, 단추 줄을 두른 알약 */}
-        {ties.map(([x1, y1, x2, y2], index) => (
-          <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} className="ex-span__tie" />
-        ))}
+        {/* 사이드패널의 실제 단추 줄 — ③·④ 돋보기가 이 줄을 키운 것이다 */}
         <rect x={marker.x} y={marker.y} width={marker.w} height={marker.h} rx={marker.h / 2} className="ex-span__ring" />
-        {callouts.map((callout) => (
-          <line key={callout.no} x1={callout.from[0]} y1={callout.from[1]} x2={callout.to[0]} y2={callout.to[1]} className="ex-span__leader" markerEnd={`url(#${arrow})`} />
-        ))}
+        {callouts.map((callout) =>
+          callout.arrow ? (
+            <line
+              key={callout.no}
+              x1={callout.arrow.from[0]}
+              y1={callout.arrow.from[1]}
+              x2={callout.arrow.to[0]}
+              y2={callout.arrow.to[1]}
+              className="ex-span__leader"
+              markerEnd={`url(#${arrow})`}
+            />
+          ) : null,
+        )}
       </svg>
 
-      {/* 돋보기 — 같은 장면을 한 번 더 띄워 단추 줄만 zoom 배로 보인다. 5번 장에만 걸리므로 그 장에서만 띄운다 */}
-      {inPanel(lens.x, lens.x + lens.w) && (
-        <div className="ex-span__lens" style={{ left: lens.x - x0, top: lens.y, width: lens.w, height: lens.h, borderRadius: lens.h / 2 }}>
-          <Scene style={{ transform: `translate(${-lens.source.x * zoom}px, ${-lens.source.y * zoom}px) scale(${zoom})` }} />
-          <svg viewBox={`${lens.x} ${lens.y} ${lens.w} ${lens.h}`} aria-hidden>
-            {pills.map((pill, index) => (
-              <rect key={index} x={pill.x} y={pill.y} width={pill.w} height={pill.h} rx={pill.h / 2} className="ex-span__pill" />
-            ))}
-          </svg>
-        </div>
-      )}
-      {badges.map((badge) =>
-        inPanel(badge.x - 28, badge.x + 28) ? (
-          <b key={badge.no} className="ex-span__no ex-span__no--on" style={{ left: badge.x - 28 - x0, top: badge.y - 28 }}>
-            {badge.no}
-          </b>
+      {/* 돋보기 — 같은 장면을 한 번 더 띄워 그 단추만 zoom 배로 보인다. 5번 장에만 걸리므로 그 장에서만 띄운다 */}
+      {lenses.map((lens) =>
+        inPanel(lens.x, lens.x + lens.w) ? (
+          <div key={lens.no} className="ex-span__lens" style={{ left: lens.x - x0, top: lens.y, width: lens.w, height: lens.h, borderRadius: lens.h / 2 }}>
+            <Scene
+              style={{
+                transform: `translate(${-lens.source.x * zoom}px, ${-lens.source.y * zoom}px) scale(${zoom})`,
+                clipPath: `inset(0 ${SPAN.width - lens.keep[1]}px 0 ${lens.keep[0]}px)`,
+              }}
+            />
+          </div>
         ) : null,
       )}
 
@@ -307,7 +283,7 @@ function Marks({ layout, x0, part }: { layout: Layout; x0: number; part: number 
         inPanel(callout.at.x, callout.at.x + callout.at.w) ? (
           <Label key={callout.no} no={callout.no} style={{ left: callout.at.x - x0, top: callout.at.y, width: callout.at.w }}>
             <strong>{callout.title}</strong>
-            <span>{callout.text}</span>
+            {callout.text && <span>{callout.text}</span>}
           </Label>
         ) : null,
       )}
