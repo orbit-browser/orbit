@@ -39,7 +39,9 @@ export function isLocalOrPrivateHost(hostname: string): boolean {
   if (!host.includes('.')) return true; // localhost·사내 단일 이름
   if (host.startsWith('[') || host.includes(':')) return true; // IPv6
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true; // IPv4
-  return /\.(local|internal|localhost|lan|home|corp|intranet)$/.test(host);
+  if (/\.(local|internal|localhost|lan|home|corp|intranet)$/.test(host)) return true;
+  // 공개 이름이지만 DNS가 사설·루프백 주소를 돌려주는 잘 알려진 도메인(확장에서는 DNS 해석을 할 수 없다).
+  return /(^|\.)(nip\.io|sslip\.io|localtest\.me|lvh\.me)$/.test(host);
 }
 
 function decodedPath(url: URL): string {

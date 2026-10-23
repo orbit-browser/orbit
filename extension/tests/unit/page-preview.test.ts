@@ -231,6 +231,8 @@ describe('다시 열면 부작용이 있을 수 있는 주소는 요청하지 �
     ['IPv6', 'http://[::1]/x'],
     ['.local', 'http://printer.local/status'],
     ['.internal', 'https://wiki.corp.internal/page'],
+    ['private DNS name', 'http://10.0.0.1.nip.io/admin'],
+    ['loopback DNS name', 'http://app.localtest.me/'],
     ['점 없는 이름', 'http://intranet/home'],
     ['비밀번호 재설정', 'https://example.com/reset-password/abc123'],
     ['이메일 확인', 'https://example.com/verify/abc'],
