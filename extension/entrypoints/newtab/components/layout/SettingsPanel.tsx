@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { checkHealth, fetchServerSettings, updateServerSettings } from '../../../../lib/api';
+import { buildInfoLine } from '../../../../lib/build-info';
 import { useAuth } from '../../../../lib/useAuth';
 import { useOrbitSettings } from '../../hooks/useOrbitSettings';
 import { SETTINGS_PAGES } from './SettingsPages';
@@ -139,6 +140,10 @@ export function SettingsPanel({
               <p className="settings-nav__empty">“{query}” 와 맞는 설정이 없습니다</p>
             )}
           </div>
+          {/* 크롬에 올린 확장이 어떤 빌드이고 어느 서버에 붙는지 — 최신판인지 바로 확인한다. */}
+          <p className="settings-nav__build" title="빌드 · 연결된 서버">
+            {buildInfoLine()}
+          </p>
         </nav>
 
         <div className="settings-content">

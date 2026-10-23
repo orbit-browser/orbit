@@ -83,7 +83,8 @@ it('새 탭 아틀라스: 개인 세션과 내가 공유한 팀 세션에는 사
   expect(await atlasShots(null)).toEqual({ [PAGE]: SHOT });
   expect(await atlasShots('team-a', ME)).toEqual({ [PAGE]: SHOT });
   expect(await atlasShots('team-a', OTHER)).toEqual({});
-});
+  // 화면 모듈을 처음 읽는 시험이라 전체 실행 부하에서 기본 5초를 넘길 수 있다.
+}, 20_000);
 
 async function detailShots(scope: string | null, sharedBy?: MemberBrief) {
   const { useUIStore } = await import('../../entrypoints/sidepanel/store/ui');

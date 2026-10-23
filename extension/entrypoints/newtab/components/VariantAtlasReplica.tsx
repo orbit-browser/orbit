@@ -20,6 +20,7 @@ import { readAtlasTarget } from '../lib/navigation';
 import { getNavState, useSharedNavState } from '../lib/nav-state';
 import { useAuth } from '../../../lib/useAuth';
 import { canShowSnapshots } from '../../../lib/tab-snapshots';
+import { SnapshotPrompt } from './sections/SnapshotPrompt';
 import { useTabSnapshots } from '../../../lib/useTabSnapshots';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
@@ -376,6 +377,7 @@ export function VariantAtlasReplica() {
       />
 
       <main className="atlas-canvas">
+        {!readOnly && sessions.length > 0 && <SnapshotPrompt placement="atlas" />}
         {atlasQuery.isPending ? (
           <div className="atlas-data-state" role="status">탐색 기록을 불러오는 중...</div>
         ) : atlasQuery.isError ? (

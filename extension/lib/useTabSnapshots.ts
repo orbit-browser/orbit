@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSession } from './auth';
 import { getSettings, subscribeSettings } from './settings';
-import { loadSnapshots } from './tab-snapshots';
+import { fillMissingPreviews } from './page-preview';
+import { loadSnapshots, snapshotKey } from './tab-snapshots';
 
 export const TAB_SNAPSHOTS_QUERY_KEY = ['tab-snapshots'] as const;
 
@@ -29,10 +30,25 @@ export function useTabSnapshots(urls: readonly string[], enabled = true): Record
       }),
     [client],
   );
+  const queryKey = [...TAB_SNAPSHOTS_QUERY_KEY, [...urls].sort()];
   const { data } = useQuery({
-    queryKey: [...TAB_SNAPSHOTS_QUERY_KEY, [...urls].sort()],
+    queryKey,
     queryFn: () => fetchTabSnapshots(urls),
     enabled: enabled && urls.length > 0,
   });
+  // 사진이 없는 페이지(켜기 전의 지난 기록)는 대표 이미지를 받아 채운다. 판정·속도 제한은 `fillMissingPreviews`.
+  const missing = enabled && data ? urls.filter((url) => !data[snapshotKey(url) ?? '']) : [];
+  const missingKey = missing.join('\n');
+  useEffect(() => {
+    if (!missingKey) return;
+    let alive = true;
+    void fillMissingPreviews(missingKey.split('\n'), (key, dataUrl) => {
+      if (alive) client.setQueryData<Record<string, string>>(queryKey, (old) => ({ ...old, [key]: dataUrl }));
+    });
+    return () => {
+      alive = false;
+    };
+    // missingKey 가 바뀔 때만 다시 줄을 세운다(queryKey 는 urls 에서 나온다).
+  }, [client, missingKey]);
   return enabled && data ? data : {};
 }

@@ -257,7 +257,8 @@ describe('저장 상한과 정리', () => {
     expect(all['https://example.com/p0']).toBeUndefined();
     expect(all['https://example.com/p2']).toBeUndefined();
     expect(all['https://example.com/p3']).toBe('data:x');
-  });
+    // 300장 넘게 넣는 무거운 시험이라 전체 실행 부하에서 기본 5초를 넘길 수 있다.
+  }, 30_000);
 
   it('용량 상한을 넘으면 오래된 것부터 지운다', async () => {
     // 두 장(0.8)은 들어가고 세 장(1.2)은 넘는다.

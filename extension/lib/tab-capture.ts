@@ -40,9 +40,9 @@ async function activeTabOf(windowId: number): Promise<chrome.tabs.Tab | undefine
   return tab;
 }
 
-/** data URL → 400px 폭 JPEG data URL. 서비스 워커에는 DOM 이 없어 OffscreenCanvas 를 쓴다. */
-async function shrinkToJpeg(dataUrl: string): Promise<string> {
-  const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+/** 이미지 → 400px 폭 JPEG data URL. 서비스 워커에는 DOM 이 없어 OffscreenCanvas 를 쓴다(확장 페이지도 같다). */
+export async function shrinkToJpeg(image: Blob): Promise<string> {
+  const bitmap = await createImageBitmap(image);
   const width = Math.min(SNAPSHOT_WIDTH, bitmap.width);
   const height = Math.max(1, Math.round((bitmap.height * width) / bitmap.width));
   const canvas = new OffscreenCanvas(width, height);
@@ -85,7 +85,7 @@ export async function captureVisibleTab(windowId: number): Promise<boolean> {
   if (!after || after.id !== tab.id || after.url !== url) return false;
   if ((await getSession())?.user.id !== accountId) return false;
 
-  await putSnapshot(accountId, url, await shrinkToJpeg(raw), now);
+  await putSnapshot(accountId, url, await shrinkToJpeg(await (await fetch(raw)).blob()), now);
   return true;
 }
 
