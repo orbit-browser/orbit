@@ -50,6 +50,8 @@ export default defineConfig({
     description: '탐색의 흐름을 기억하고, 원하는 순간에 복원하는 AI Browser Agent',
     // dev·build·팀원 머신에서 확장 ID 를 동일하게 유지한다(위 EXTENSION_KEY 주석 참고).
     key: EXTENSION_KEY,
+    // 시크릿 창에서는 아예 돌지 않는다. 사용자가 "시크릿 모드에서 허용"을 켤 수도 없다(수집기에도 이중 방어).
+    incognito: 'not_allowed',
     // 새 탭 홈이 쓰는 권한:
     //   search   — 검색창이 사용자가 크롬에 설정한 기본 검색엔진을 그대로 쓴다.
     //   topSites — 바로가기의 초기 목록(자주 방문한 사이트). 사용자가 편집하면 더 읽지 않는다.
@@ -78,6 +80,10 @@ export default defineConfig({
     },
     // TODO: 배포 URL 확정 시 프로덕션 백엔드 도메인 추가
     host_permissions: ['http://localhost/*', 'http://127.0.0.1/*'],
+    // 탭 화면 미리보기(tabs.captureVisibleTab)는 activeTab(아이콘을 누른 순간만)이나 <all_urls> 로만 찍을 수 있다.
+    // 상시 권한으로 두면 확장 페이지가 모든 사이트에 쿠키를 실은 요청을 보낼 수 있게 되므로(보안 검토 M1),
+    // 설치 때 받지 않고 사용자가 미리보기를 켤 때 요청하고 끌 때 돌려준다(lib/tab-snapshots.ts).
+    optional_host_permissions: ['<all_urls>'],
     commands: {
       _execute_action: {
         suggested_key: { default: 'Alt+Shift+O' },

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services import sync_pipeline
+from app.services.subject_splitter import SplitResult
 
 
 class _FakeSessionLocalCtx:
@@ -168,7 +169,7 @@ def test_run_batch_returns_immediately_and_holds_lock_until_background_done(monk
 
 
 def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
-    calls: dict = {"set_status": [], "complete": [], "refresh": []}
+    calls: dict = {"set_status": [], "complete": [], "refresh": [], "invalidate": []}
 
     def fake_dedupe(events):
         return events, []
@@ -193,8 +194,12 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
     async def fake_complete(batch_id, event_count, model=None):
         calls["complete"].append((batch_id, event_count, model))
 
-    async def fake_auto_merge_enabled():
+    async def fake_auto_merge_enabled(user_id):
+        assert user_id == "u1"  # 배치 주인의 설정을 읽는다
         return False
+
+    async def fake_invalidate_recommendations(user_id: str) -> None:
+        calls["invalidate"].append(user_id)
 
     monkeypatch.setattr(sync_pipeline, "dedupe_events", fake_dedupe)
     monkeypatch.setattr(sync_pipeline, "group_by_time_gap", fake_group_by_time_gap)
@@ -202,19 +207,21 @@ def test_process_batch_reverts_only_failed_group_and_completes(monkeypatch):
     monkeypatch.setattr(sync_pipeline, "_set_status", fake_set_status)
     monkeypatch.setattr(sync_pipeline, "refresh_session_ai", fake_refresh)
     monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
-    monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
     _no_auto_folder(monkeypatch)
+    monkeypatch.setattr(sync_pipeline, "invalidate_recommendations", fake_invalidate_recommendations)
+    monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
 
     asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}, {"id": "b"}], "u1"))
 
     assert (["a"], "pending") in calls["set_status"]
     assert calls["refresh"] == ["sess-ok"]
+    assert calls["invalidate"] == ["u1"]
     # 감사 필드는 그룹별 모델 카운트 요약(성공 그룹 1개 → "model-x:1")
     assert calls["complete"] == [("batch-1", 2, "model-x:1")]
 
 
 def _no_auto_folder(monkeypatch):
-    async def disabled():
+    async def disabled(_user_id):
         return False
 
     monkeypatch.setattr(sync_pipeline, "is_auto_folder_enabled", disabled)
@@ -235,7 +242,7 @@ def test_process_batch_auto_files_touched_sessions_and_merge_survivors(monkeypat
     async def noop(*_args, **_kwargs):
         return None
 
-    async def enabled():
+    async def enabled(_user_id):
         return True
 
     async def fake_auto_merge(_user_id):
@@ -262,7 +269,7 @@ def test_process_batch_auto_files_touched_sessions_and_merge_survivors(monkeypat
 
 
 def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
-    calls: dict = {"set_status": []}
+    calls: dict = {"set_status": [], "invalidate": []}
 
     def fake_dedupe(events):
         return events[:1], ["dup-1"]
@@ -273,19 +280,25 @@ def test_process_batch_marks_dedupe_discarded_ids_processed(monkeypatch):
     async def fake_complete(*_a, **_k):
         pass
 
-    async def fake_auto_merge_enabled():
+    async def fake_auto_merge_enabled(user_id):
+        assert user_id == "u1"  # 배치 주인의 설정을 읽는다
         return False
+
+    async def fake_invalidate_recommendations(user_id: str) -> None:
+        calls["invalidate"].append(user_id)
 
     monkeypatch.setattr(sync_pipeline, "dedupe_events", fake_dedupe)
     monkeypatch.setattr(sync_pipeline, "group_by_time_gap", lambda *a, **k: [])
     monkeypatch.setattr(sync_pipeline, "_set_status", fake_set_status)
     monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", fake_auto_merge_enabled)
-    monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
     _no_auto_folder(monkeypatch)
+    monkeypatch.setattr(sync_pipeline, "invalidate_recommendations", fake_invalidate_recommendations)
+    monkeypatch.setattr(sync_pipeline, "_complete_batch", fake_complete)
 
     asyncio.run(sync_pipeline._process_batch("batch-1", [{"id": "a"}], "u1"))
 
     assert (["dup-1"], "processed") in calls["set_status"]
+    assert calls["invalidate"] == ["u1"]
 
 
 def test_process_batch_exception_fails_batch(monkeypatch):
@@ -316,6 +329,11 @@ def test_summarize_models_counts_and_shortens():
     assert summary == "exaone:12,A.X-K1:3"
     assert sync_pipeline._summarize_models({}) is None
     assert len(sync_pipeline._summarize_models({"exaone/x": 1, "A.X-K1": 1})) <= 50
+
+
+def test_summarize_models_shortens_kt_fallback_label():
+    summary = sync_pipeline._summarize_models({"A.X-K2": 5, "kt/midm-pro-fp8-kaic": 2})
+    assert summary == "A.X-K2:5,kt:2"
 
 
 def test_event_embedding_text_joins_title_domain_query():
@@ -353,9 +371,9 @@ def test_append_blocked_by_stale_recency():
     assert sync_pipeline._append_blocked({"score": 0.9, "last_activity_days_ago": 5}) is True
 
 
-def test_append_not_blocked_when_score_none_and_recent():
-    # 점수가 없는 후보(임베딩 전 세션·Qdrant 실패)는 유사도 판정을 우회하고 recency로만 본다
-    assert sync_pipeline._append_blocked({"score": None, "last_activity_days_ago": 0}) is False
+def test_append_blocked_when_score_none_and_recent():
+    # 최근-only 후보는 주제 일치 근거가 없어 기존 세션에 붙이지 않는다.
+    assert sync_pipeline._append_blocked({"score": None, "last_activity_days_ago": 0}) is True
 
 
 def test_gate_appends_downgrades_low_similarity_to_create():
@@ -460,7 +478,7 @@ def test_fetch_candidates_falls_back_when_vector_search_fails(monkeypatch):
             "overview": "ov",
             "keywords": ["k"],
             "last_activity_days_ago": 0,
-            # Qdrant 실패로 점수를 못 매긴 최근 후보 → score None(게이트 유사도 판정 우회)
+            # 벡터 검색 실패 시 최근 후보를 제공하되 append 게이트는 차단한다.
             "score": None,
         }
     ]
@@ -480,7 +498,8 @@ def test_fetch_candidates_returns_empty_when_no_candidates_found(monkeypatch):
 
 
 def test_fetch_candidates_threads_vector_scores(monkeypatch):
-    async def search(*_a, **_k):
+    async def search(*_a, user_id, **_k):
+        assert user_id == "u1"  # 벡터 후보도 그 사용자 포인트로만 뽑는다
         return [("sess-v", 0.63)]
 
     monkeypatch.setattr(sync_pipeline, "search_similar_with_scores", search)
@@ -514,7 +533,7 @@ def test_fetch_candidates_scores_recent_only_sessions(monkeypatch):
 
     scored_ids = []
 
-    async def score(_vector, session_ids, *, user_id):
+    async def score(_vector, session_ids, *, user_id, stream=None):
         scored_ids.append((list(session_ids), user_id))
         return {"sess-recent": 0.21}
 
@@ -579,7 +598,7 @@ def test_process_group_single_cluster_wires_embed_candidates_analyze_and_apply(m
         calls["embed_kwargs"] = kwargs
         return [[0.1, 0.2] for _ in texts]
 
-    async def fake_fetch_candidates(vector, _user_id):
+    async def fake_fetch_candidates(vector, _user_id, workspace_id=None):
         calls["candidates_vector"] = vector
         return [{"session_id": "s1", "title": "t", "overview": "o", "keywords": [], "score": 0.7}]
 
@@ -619,7 +638,7 @@ def test_process_group_hard_splits_multitopic_into_two_llm_calls(monkeypatch):
     async def fake_embed_many(texts, **_kwargs):
         return [[1.0, 0.0], [0.0, 1.0]]  # 직교 → 분리
 
-    async def fake_fetch_candidates(vector, _user_id):
+    async def fake_fetch_candidates(vector, _user_id, workspace_id=None):
         order.append("fetch")
         return []
 
@@ -661,3 +680,227 @@ def test_fetch_candidates_passes_user_id_to_vector_search(monkeypatch):
 
     asyncio.run(sync_pipeline._fetch_candidates([0.1], "u1"))
     assert seen["user_id"] == "u1"
+
+
+# ── 배치 안 동시 실행(perf/batch-parallel) ─────────────────────────────────
+
+
+class _Concurrency:
+    def __init__(self):
+        self.running = 0
+        self.peak = 0
+
+    async def hold(self, seconds: float = 0.01):
+        self.running += 1
+        self.peak = max(self.peak, self.running)
+        try:
+            await asyncio.sleep(seconds)
+        finally:
+            self.running -= 1
+
+
+def _group_fakes(monkeypatch, clusters, fetch=None):
+    events = [
+        {"id": f"e{i}", "url": f"https://example.com/{i}", "title": f"t{i}", "workspace_id": None}
+        for i in range(sum(len(c) for c in clusters))
+    ]
+    applied: list[list[str]] = []
+
+    async def embed_many(texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    async def default_fetch(_centroid, _user_id, workspace_id=None):
+        return []
+
+    async def apply(_db, cluster_events, _assignments, _batch_id):
+        applied.append([e["id"] for e in cluster_events])
+        return set()
+
+    async def no_status(*_args):
+        return None
+
+    monkeypatch.setattr(sync_pipeline, "split_noise", lambda group: (group, []))
+    monkeypatch.setattr(sync_pipeline, "domain_counts", lambda _group: {})
+    monkeypatch.setattr(sync_pipeline, "embed_many", embed_many)
+    monkeypatch.setattr(sync_pipeline, "subcluster", lambda _emb, _threshold: clusters)
+    monkeypatch.setattr(sync_pipeline, "_fetch_candidates", fetch or default_fetch)
+    monkeypatch.setattr(sync_pipeline, "apply_assignments", apply)
+    monkeypatch.setattr(sync_pipeline, "_set_status", no_status)
+    monkeypatch.setattr(sync_pipeline, "AsyncSessionLocal", lambda: _FakeSessionLocalCtx(object()))
+    return events, applied
+
+
+def test_process_group_analyzes_two_clusters_at_a_time_and_applies_in_cluster_order(monkeypatch):
+    clusters = [[0, 1], [2], [3, 4], [5]]
+    events, applied = _group_fakes(monkeypatch, clusters)
+    gauge = _Concurrency()
+
+    async def analyze(cluster_events, _candidates):
+        # 앞 클러스터가 더 오래 걸려도 반영 순서는 클러스터 순서여야 한다.
+        await gauge.hold(0.04 if cluster_events[0]["id"] == "e0" else 0.01)
+        return [sync_pipeline.Assignment(list(range(len(cluster_events))), "create", title="t", model="A.X-K2")]
+
+    monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+
+    models = asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+
+    assert gauge.peak == 2
+    assert applied == [["e0", "e1"], ["e2"], ["e3", "e4"], ["e5"]]
+    assert models == ["A.X-K2"] * 4
+
+
+def test_process_group_fails_whole_group_after_all_clusters_finish(monkeypatch):
+    finished: list[str] = []
+    clusters = [[0], [1], [2]]
+
+    async def fetch(_centroid, _user_id, workspace_id=None):
+        await asyncio.sleep(0.01)
+        return []
+
+    events, applied = _group_fakes(monkeypatch, clusters, fetch)
+
+    async def analyze(cluster_events, _candidates):
+        if cluster_events[0]["id"] == "e1":
+            raise RuntimeError("candidate lookup failed")
+        await asyncio.sleep(0.01)
+        finished.append(cluster_events[0]["id"])
+        return [sync_pipeline.Assignment([0], "create", title="t")]
+
+    monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+    # 다른 클러스터는 끝까지 돌았지만, 그룹이 실패하므로 아무것도 반영하지 않는다(예전과 같은 의미).
+    assert sorted(finished) == ["e0", "e2"]
+    assert applied == []
+
+
+def test_process_batch_refreshes_two_sessions_at_a_time_and_isolates_failures(monkeypatch):
+    gauge = _Concurrency()
+    refreshed: list[str] = []
+    warnings: list[str] = []
+
+    async def fake_process_group(_group, _batch_id, touched, _user_id):
+        touched.update({"s1", "s2", "s3", "s4"})
+        return []
+
+    async def refresh(session_id):
+        await gauge.hold()
+        if session_id == "s2":
+            raise RuntimeError("summary boom")
+        refreshed.append(session_id)
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    async def disabled(_user_id):
+        return False
+
+    monkeypatch.setattr(sync_pipeline, "dedupe_events", lambda events: (events, []))
+    monkeypatch.setattr(sync_pipeline, "group_by_time_gap", lambda events, **_k: [events])
+    monkeypatch.setattr(sync_pipeline, "_process_group", fake_process_group)
+    monkeypatch.setattr(sync_pipeline, "refresh_session_ai", refresh)
+    monkeypatch.setattr(sync_pipeline, "is_auto_merge_enabled", disabled)
+    _no_auto_folder(monkeypatch)
+    monkeypatch.setattr(sync_pipeline, "_complete_batch", noop)
+    monkeypatch.setattr(sync_pipeline.logger, "warning", lambda msg, *args: warnings.append(msg % args))
+
+    asyncio.run(sync_pipeline._process_batch("b1", [{"id": "a"}], "u1"))
+
+    assert gauge.peak == 2
+    assert sorted(refreshed) == ["s1", "s3", "s4"]
+    assert any("s2" in w and "summary boom" in w for w in warnings)
+
+
+def test_process_group_analyzes_each_subject_of_a_large_subcluster_separately(monkeypatch):
+    events, applied = _group_fakes(monkeypatch, [[0, 1, 2, 3, 4, 5]])
+    seen: list[list[str]] = []
+
+    async def split(cluster_events):
+        assert [e["id"] for e in cluster_events] == ["e0", "e1", "e2", "e3", "e4", "e5"]
+        return SplitResult([[0, 2, 4], [1, 3, 5]], "split@A.X-K2")
+
+    async def analyze(cluster_events, _candidates):
+        seen.append([e["id"] for e in cluster_events])
+        return [sync_pipeline.Assignment(list(range(len(cluster_events))), "create", title="t")]
+
+    monkeypatch.setattr(sync_pipeline, "split_by_subject", split)
+    monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+    monkeypatch.setattr(sync_pipeline.settings, "subject_split_enabled", True)
+
+    models = asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+
+    assert sorted(seen) == [["e0", "e2", "e4"], ["e1", "e3", "e5"]]
+    # 나누기 시도 결과와 모델이 배치 감사(sync_batches.model)로 간다.
+    assert models == ["split@A.X-K2"]
+    assert sync_pipeline._summarize_models({"A.X-K2": 2, "split@A.X-K2": 1}) == "A.X-K2:2,split@A.X-K2:1"
+    assert applied == [["e0", "e2", "e4"], ["e1", "e3", "e5"]]
+
+
+def test_subject_split_is_on_by_default():
+    from app.config import Settings
+
+    # S4 판정 합격으로 기본 켬(DecisionLog 2026-10-23).
+    assert Settings.model_fields["subject_split_enabled"].default is True
+
+
+def test_subject_split_off_leaves_subclusters_alone(monkeypatch):
+    # 끄면 서브클러스터를 그대로 의도 분석에 넘긴다 — 대상 나누기 전 main과 같다.
+    events, applied = _group_fakes(monkeypatch, [[0, 1, 2, 3, 4, 5], [6]])
+    events.append({"id": "e6", "url": "https://example.com/6", "title": "t6", "workspace_id": None})
+    seen: list[list[str]] = []
+
+    split_calls: list[int] = []
+
+    async def must_not_split(cluster_events):
+        # 예외를 던지면 _split_clusters_by_subject가 삼키므로 호출 자체를 센다.
+        split_calls.append(len(cluster_events))
+        return SplitResult([list(range(len(cluster_events)))], "keep@A.X-K2")
+
+    async def analyze(cluster_events, _candidates):
+        seen.append([e["id"] for e in cluster_events])
+        return [sync_pipeline.Assignment(list(range(len(cluster_events))), "create", title="t", model="A.X-K2")]
+
+    monkeypatch.setattr(sync_pipeline, "split_by_subject", must_not_split)
+    monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+    monkeypatch.setattr(sync_pipeline.settings, "subject_split_enabled", False)
+
+    models = asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+
+    assert split_calls == []
+    assert models == ["A.X-K2", "A.X-K2"]  # 감사 기록도 의도 분석 모델만(대상 나누기 전과 같음)
+    assert seen == [["e0", "e1", "e2", "e3", "e4", "e5"], ["e6"]]
+    assert applied == seen
+
+
+def test_subject_split_audit_counts_attempts_and_failures(monkeypatch):
+    events, _applied = _group_fakes(monkeypatch, [[0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11], [12, 13]])
+    for i in range(12, 14):
+        events.append({"id": f"e{i}", "url": f"https://example.com/{i}", "title": f"t{i}", "workspace_id": None})
+    outcomes = {"e0": SplitResult([[0, 1, 2, 3, 4, 5]], "keep@A.X-K2"), "e12": SplitResult([[0, 1]], None)}
+
+    async def split(cluster_events):
+        if cluster_events[0]["id"] == "e6":
+            raise RuntimeError("unexpected")  # split_by_subject 밖의 예외도 실패로 센다
+        return outcomes[cluster_events[0]["id"]]
+
+    async def analyze(cluster_events, _candidates):
+        return [sync_pipeline.Assignment(list(range(len(cluster_events))), "create", title="t", model="A.X-K2")]
+
+    monkeypatch.setattr(sync_pipeline, "split_by_subject", split)
+    monkeypatch.setattr(sync_pipeline.intent_analyzer, "analyze", analyze)
+    monkeypatch.setattr(sync_pipeline.settings, "subject_split_enabled", True)
+
+    models = asyncio.run(sync_pipeline._process_group(events, "b1", set(), "u1"))
+
+    assert sorted(models) == ["A.X-K2"] * 3 + ["keep@A.X-K2", "split_fail"]
+
+
+def test_summarize_models_keeps_fallback_models_ahead_of_subject_split_labels():
+    summary = sync_pipeline._summarize_models(
+        {"split@A.X-K2": 9, "keep@A.X-K2": 7, "split_fail": 5, "A.X-K2": 12, "kt/midm-pro-fp8-kaic": 1,
+         "exaone/depmkuykpfon9lg": 1}
+    )
+    assert summary.startswith("A.X-K2:12,")
+    assert "kt:1" in summary and "exaone:1" in summary
+    assert len(summary) <= 50

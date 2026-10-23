@@ -17,6 +17,9 @@ function makeEvent(overrides: Partial<ExplorationEvent> = {}): ExplorationEvent 
     activeDurationMs: 1234,
     contentExcerpt: '본문',
     createdAt: '2026-08-05T00:00:00.000Z',
+    accountId: 'u1',
+    workspaceId: null,
+    collectWindowId: null,
     status: 'pending',
     failureCount: 0,
     nextAttemptAt: null,
@@ -43,7 +46,25 @@ describe('toWire', () => {
       referrer_url: 'https://google.com',
       event_type: 'visit',
       content_excerpt: '본문',
+      workspace_id: null,
+      collect_window_id: null,
     });
+  });
+
+  it('팀 수집 표시를 workspace_id·collect_window_id 로 싣고 브라우저 창 번호(window_id)와 섞지 않는다', () => {
+    const wire = toWire(makeEvent({ workspaceId: 'ws-1', collectWindowId: 'cw-1' }));
+    expect(wire.workspace_id).toBe('ws-1');
+    expect(wire.collect_window_id).toBe('cw-1');
+    expect(wire.window_id).toBe(3);
+  });
+
+  it('업데이트 전에 큐에 쌓인 이벤트(필드 없음)는 개인으로 보낸다', () => {
+    const legacy = makeEvent() as unknown as Record<string, unknown>;
+    delete legacy.workspaceId;
+    delete legacy.collectWindowId;
+    const wire = toWire(legacy as unknown as ExplorationEvent);
+    expect(wire.workspace_id).toBeNull();
+    expect(wire.collect_window_id).toBeNull();
   });
 
   it('로컬 전용 상태 필드(status/failureCount 등)는 wire에 포함하지 않는다', () => {

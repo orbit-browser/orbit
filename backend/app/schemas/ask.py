@@ -29,6 +29,8 @@ class AskStreamRequest(BaseModel):
     session_id: str | None = Field(default=None, min_length=1)
     rerank: bool = True
     intent: AssistantRetrievalIntent = "search_memory"
+    # 팀 워크스페이스 id. 주면 그 팀에 공유된 세션만 근거로 쓴다.
+    workspace_id: str | None = Field(default=None, min_length=1)
     # 최근 대화(오래된 순, 최대 3턴). 비어 있으면 기존과 같은 독립 단일턴이다.
     history: list[AskHistoryTurn] = Field(default_factory=list, max_length=3)
 

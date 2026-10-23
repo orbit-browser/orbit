@@ -2,8 +2,10 @@ import { hueForSession } from '../../../../lib/session-hue';
 import type {
   Folder,
   FolderSuggestion,
+  MemberBrief,
   Session,
   SessionTimelineEvent,
+  WorkspaceSession,
 } from '../../../../lib/types';
 
 export interface PageNode {
@@ -41,6 +43,8 @@ export interface SessionNode {
   pages: PageNode[];
   /** 사용자가 넣은 폴더. 없으면 미정리. */
   folderId?: string;
+  /** 팀 화면에서만 있다 — 이 세션을 공유한 팀원. */
+  sharedBy?: MemberBrief;
   /** 'auto' 면 서버가 자동으로 넣은 폴더 — "자동" 배지를 단다. */
   folderAssignedBy?: 'user' | 'auto';
 }
@@ -251,8 +255,13 @@ function sessionStatus(date: Date, now: Date): SessionNode['status'] {
   return 'archived';
 }
 
+/** 팀 세션이면 "누가 공유했는지" 한 줄. 아틀라스 상세와 홈 카드가 같은 말을 쓴다. */
+export function sharerLabel(session: Pick<SessionNode, 'sharedBy'>): string | null {
+  return session.sharedBy ? `${session.sharedBy.name ?? '팀원'} 님이 공유` : null;
+}
+
 export function toSessionNode(
-  session: Session,
+  session: Session | WorkspaceSession,
   events: SessionTimelineEvent[],
   now = new Date(),
 ): SessionNode {
@@ -277,6 +286,7 @@ export function toSessionNode(
     },
     pages,
     folderId: session.folderId,
+    sharedBy: 'sharedBy' in session ? session.sharedBy : undefined,
     folderAssignedBy: session.folderAssignedBy,
   };
 }
@@ -305,6 +315,8 @@ export function buildAtlasSessions(
 export interface OrbitPoint {
   id: string;
   title: string;
+  /** 카드 미리보기와 "열기"가 쓴다. */
+  url: string;
   domain: string;
   minutes: number;
   visits: number;
@@ -341,6 +353,7 @@ export interface OrbitScene {
 const pageToPoint = (page: PageNode): OrbitPoint => ({
   id: page.id,
   title: page.title,
+  url: page.url,
   domain: page.domain,
   minutes: page.minutes,
   visits: page.visits,

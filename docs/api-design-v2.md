@@ -57,6 +57,7 @@
 - `filtered`: 시스템 URL/3초 미만 리다이렉트 등 인제스트 필터가 거부한 개수(§ target-architecture.md §6).
 - `duplicates`: `id` 충돌로 `ON CONFLICT DO NOTHING` 처리된 개수(멱등 재전송 확인용).
 - `normalized_url`/`domain`/`search_query`는 서버가 인제스트 시점에 계산하며 요청에는 포함하지 않는다.
+- 길이 초과는 422로 거르지 않고 잘라서 받는다. 확장은 실패한 배치를 통째로 재시도하므로, 이벤트 하나 때문에 큐 전체가 막히지 않게 하려는 것이다. 상한은 `content_excerpt` 16,000자(확장 `MAX_CONTENT_EXCERPT_LENGTH`와 같음), `title` 500자, `url`·`referrer_url` 32,768자, `event_type`·`source` 20자, `device_id` 64자, `previous_event_id` 36자다(뒤의 넷은 DB 열 너비). 팀 표시 `workspace_id`·`collect_window_id`가 36자를 넘으면 표시만 버리고 이벤트는 개인 기록으로 받는다.
 
 ## 2. `GET /events/pending-count`
 
@@ -246,6 +247,7 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
   "session_id": null,
   "rerank": true,
   "intent": "search_memory",
+  "workspace_id": null,
   "history": [
     {"query": "보험 비교한 거 정리해줘", "answer": "A사, B사, C사를 비교했어요 [1].", "source_session_ids": ["s1"]}
   ]
@@ -259,6 +261,8 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
 - `intent`: `find_sessions`, `search_memory`, `search_session` 중 하나. 기본은 하위 호환을 위한
   `search_memory`다. `find_sessions`는 최대 5개 세션을 반환하고 답변 LLM을 호출하지 않으며,
   `search_session`은 지정 세션 또는 가장 가까운 세션 1개만 사용한다.
+- `workspace_id`: 팀 워크스페이스 id(§14). 주면 그 팀에 공유된 세션만 근거로 쓰고, `session_id`도
+  그 팀에 공유된 세션이어야 한다. 멤버가 아니면 `404`.
 
 - `history`: 선택, 오래된 순 최대 3턴. 각 턴은 `query`(1~2,000자), `answer`(4,000자 초과분은 서버가 자름),
   `source_session_ids`(최대 5개). 비우거나 생략하면 기존과 같은 독립 단일턴이다. 클라이언트는 답변이 끝난
@@ -266,7 +270,7 @@ Timeline 홈 화면용 — **서버에 이미 동기화된 이벤트만** 반환
 
 `history`가 있으면 서버는 LLM으로 마지막 질문을 단독 검색 질문으로 바꿔("그럼 9070은?" → "RX 9070 최저가는?")
 벡터 검색과 본문 조각 점수에 쓴다. 실패하면 직전 질문과 이어 붙인 문장으로 검색한다. 직전 턴의
-`source_session_ids`는 요청자 소유·활성 세션만 불러와 후보 앞에 두고, 최종 출처는 같은 근거 점수 규칙으로 고른다.
+`source_session_ids`는 지금 읽을 수 있는 활성 세션(개인은 요청자 소유, 팀은 그 팀의 현재 공유 세션)만 불러와 새 검색 후보 뒤에 두고, 최종 출처는 같은 근거 점수 규칙으로 고른다.
 답변 프롬프트에는 원래 질문과 이전 대화(근거 번호 제거, 답변 600자)를 "지시어 해석용"으로만 넣으며,
 재작성한 검색 질문은 넣지 않는다.
 
@@ -277,20 +281,26 @@ event: sources
 data: {"sessions":[{...SessionDetail...}]}
 
 event: delta
-data: {"text":"가장 낮은 "}
-
-event: delta
-data: {"text":"선택지는 A사였습니다 [1]."}
+data: {"text":"가장 낮은 선택지는 A사였습니다 [1]."}
 
 event: done
-data: {"model":"A.X-K2"}
+data: {"model":"exaone/depmkuykpfon9lg"}
 
 event: verification
 data: {"issues":[{"value":"21:31","answer_subject":"청량리에서 출발하는 강릉행 KTX 막차","record_subject":"서울역 출발 KTX 847 (막차)"}]}
 ```
 
-이벤트 순서는 `sources` → `delta` 0개 이상 → `done` 또는 `error`이고, `done` 뒤에 `verification`이 0~1개 올 수
-있다. 오류 이벤트는 `{"code":"stream_interrupted|generation_failed","partial":true|false,"retryable":true}` 형식이다.
+이벤트 순서는 `sources` → `delta` 0개 이상 → (`replace` 0개 또는 1개) → `done` 또는 `error`이고, `done` 뒤에
+`verification`이 0~1개 올 수 있다. 오류 이벤트는
+`{"code":"stream_interrupted|generation_failed","partial":true|false,"retryable":true}` 형식이다.
+
+소스 카드는 즉시 전송하고, 생성 답변도 토큰 단위 `delta`로 바로 흘려 보낸다. 생성이 끝난 뒤
+답변을 검사해, 소스가 있는데 방문 기록 자체를 부정하는 문장(근거 번호 없는 "기록에 없습니다" 등)이거나
+빈 답변이면 `replace`(`{"text":"..."}`)를 한 번 보낸다. 클라이언트는 그때까지 쌓은 본문을 이 텍스트로
+통째로 바꾼다. 대체 텍스트는 확인 실패 안내와 확인된 세션 제목·방문 URL이다. 대체는 서버 로그
+`Ask answer replaced: reason=record_denial|empty_answer`로 따로 센다. 세부 수치·내용이 확인되지 않는다는
+한계 표현과 "…기록은 없지만 … [1]" 같은 양보 표현은 대체하지 않는다. 생성이 중간에 끊기면 이미 보낸 본문이
+있을 때 오류의 `partial`이 `true`다.
 
 `verification`은 비슷한 대상 혼동 검증 결과다. 답변이 끝나면(`done`) 서버가 같은 답변 프롬프트와 답변을 A.X-K2에
 다시 보내, 답변의 값마다 답변이 말한 대상(`answer_subject`)·기록 원문·원문의 대상(`record_subject`)을 적게 한다.
@@ -313,8 +323,9 @@ LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 �
 상위 4개 페이지의 본문 앞 1,200자로 fallback한다. 미할당 이벤트는 포함하지 않으며, 페이지 본문 안의
 지시문은 신뢰하지 않는 데이터로 취급한다. 답변은 근거 세션을 `[1]`, `[2]`처럼 표시한다.
 
-모델은 A.X-K2 스트리밍을 우선 사용한다. 첫 토큰 전에 연결·rate limit·키 권한(401/403)·지원 상태
-오류가 나면 EXAONE으로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
+모델은 K-EXAONE 스트리밍(`enable_thinking: false`)을 우선 사용한다(DecisionLog 2026-10-23). `done.model`은
+실제로 답한 모델 라벨이다(EXAONE은 `exaone/<endpoint id>`, 폴백은 `A.X-K2`). 첫 토큰 전에 연결·rate limit·
+키 권한(401/403)·지원 상태 오류나 빈 스트림이 오면 A.X-K2로 폴백하고, 일부 토큰을 보낸 뒤 끊기면 다른 모델을 이어 붙이지 않고
 `stream_interrupted`를 보낸다.
 
 ### 8.2 `POST /assistant/route` — Ask AI 통합 의도 판별
@@ -338,6 +349,9 @@ LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 �
 - 명확한 결과 형태는 규칙으로 먼저 구분하고 나머지는 query/passage prototype 임베딩으로 판별한다.
 - retrieval 상위 의도의 격차가 작으면 `search_memory`로 fallback한다.
 - `navigate_tab`은 별도 score/margin을 통과해도 아래 탭 후보 resolver를 추가로 통과해야 실행된다.
+- 의미 기반 탭 이동의 기본 하한은 점수 `0.35`, 격차 `0.05`이며, 미달이면 `search_memory`로 간다.
+  열린 대상이 없거나 resolver에서 확실한 후보를 못 찾으면 확장은 저장 기록 검색으로 이어간다.
+  충분한 점수의 열린 후보 여러 개를 resolver가 반환한 경우에는 기존 선택 UI를 유지한다.
 - `reason`은 `rule`, `semantic`, `fallback` 중 하나다. 요청·벡터는 저장하지 않는다.
 
 ### 8.3 `POST /tab-actions/resolve` — 열린 탭 자연어 의미 매칭
@@ -441,6 +455,7 @@ LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 �
 | 정책 | 내용 |
 |---|---|
 | `SessionDetail`은 superset | `docs/data-model-v2.md` §4의 신규 컬럼(`origin`, `status`, `event_count`, `keywords` 등)은 `SessionDetail`에 **선택적(optional) 필드**로만 추가한다. 기존 필드는 이름·타입·의미를 바꾸지 않는다 — Extension은 새 필드를 무시하면 그대로 동작한다. |
+| 수동 저장의 민감 본문 | `POST /sessions`, `POST /sessions/cluster`는 민감 URL(`is_sensitive_url`, 자동 수집 인제스트와 같은 규칙) 탭의 `text_content`를 비우고 `excerpt`를 null로 바꿔 저장한다. 클러스터링·요약 입력도 이 결과만 쓰고, 프롬프트의 URL은 `ai_safe_url`을 거친다. URL·제목은 복원에 필요해 남긴다. |
 | `POST /sessions/cluster` 존치 | "지금 열린 탭 스냅샷 저장" 기능으로 그대로 유지한다(`CurrentSessionCard` 경로, `origin='snapshot'`으로 저장). Auto Session이 새 기본 경로가 되어도 이 엔드포인트를 제거하거나 시맨틱을 바꾸지 않는다. |
 | `retry-summary`는 origin 분기 | `POST /sessions/{id}/retry-summary`는 세션의 `origin`에 따라 다른 함수를 호출한다: `origin='snapshot'`이면 기존 `_ai_update`(탭 목록 기반 재요약) 그대로 사용, `origin='events'`이면 신규 `refresh_session_ai`(연결된 `session_events`를 다시 모아 재요약)를 호출한다. 응답 스키마(`SessionDetail`)는 동일하다. |
 | `GET /search` 기본값 유지 | `scope` 파라미터 생략 시 `scope=sessions`로 취급 — 기존 응답 형식(`list[SessionDetail]`)이 그대로 반환된다. |
@@ -520,3 +535,102 @@ LRU(최대 2,000개)에 재사용되어 같은 세션을 다시 묻는 후속 �
 
 - 수락은 일반 배정(`POST /folders/{id}/sessions`)이다. 사용자가 옮기거나 빼거나 제안을 닫은 세션은
   `folder_assigned_by='user'`라 자동 분류와 제안이 다시 다루지 않는다.
+
+
+## 14. 팀 워크스페이스 (`/workspaces`) — 1단계 세션 공유형
+
+팀원이 각자 고른 세션을 한 공간에 공유해 함께 보고 검색·Ask 한다. 공유는 사본이 아니라 원본
+세션을 가리키는 **라이브 참조**라, 공유 뒤 Auto Session이 붙인 페이지도 팀에 보인다. 팀원은
+읽기만 하고, 세션을 고치는 일(이름·삭제·병합·재요약)은 소유자만 한다. 결정 근거는
+`DecisionLog.md` 2026-10-17 "팀 워크스페이스".
+
+| 메서드 | 경로 | 권한 | 설명 |
+|---|---|---|---|
+| `GET` | `/workspaces` | 로그인 | 내가 속한 팀. `{workspace_id, name, hue, role, member_count, created_at}` |
+| `POST` | `/workspaces` | 로그인 | `{name}`(앞뒤 공백 제거 후 1~60자). 만든 사람이 owner. 색은 폴더와 같은 팔레트 순환 |
+| `POST` | `/workspaces/join` | 로그인 | `{code}`. 이미 멤버면 아무것도 바꾸지 않고 그 팀을 돌려준다(역할 유지) |
+| `PATCH` | `/workspaces/{id}` | owner | `{name}` |
+| `DELETE` | `/workspaces/{id}` | owner | 팀·멤버십·공유 관계만 삭제. 원본 세션은 각자의 개인 기록에 남는다 |
+| `POST` | `/workspaces/{id}/invite-code` | owner | 새 초대 코드 `{code, expires_at}`(7일). 이전 코드는 즉시 무효 |
+| `GET` | `/workspaces/{id}/members` | member | `{user_id, name, email, picture, role, joined_at}`. owner 먼저, 그다음 참여 순. `email`은 owner와 본인에게만 채워지고 다른 멤버에게는 `null` |
+| `DELETE` | `/workspaces/{id}/members/{user_id}` | owner(남) / 본인(탈퇴) | 나간 사람이 그 팀에 건 공유가 모두 풀린다. owner 본인은 `409` |
+| `GET` | `/workspaces/{id}/sessions` | member | 공유된 세션 = `SessionDetail` + `shared_by{user_id, name, picture}` + `shared_at`. 병합으로 흡수된 세션 제외, 최근 활동순 |
+| `GET` | `/workspaces/{id}/sessions/ids` | member | `{session_ids}`(정렬) — 팀 목록과 같은 범위(공유자가 멤버인 비흡수 공유)의 id 만. 열린 새 탭이 8초마다 공유 해제를 비출 때 쓴다. `ETag`(id 목록 해시)·`Cache-Control: private, no-cache`, `If-None-Match`가 같으면 본문 없이 `304`. 비멤버 `404` |
+| `POST` | `/workspaces/{id}/sessions` | member | `{session_ids}`(1~200). 내 소유의 흡수되지 않은 세션만 공유 |
+| `DELETE` | `/workspaces/{id}/sessions/{session_id}` | 공유한 사람 / owner | 공유 해제 |
+
+### 14.1 권한과 오류
+
+- 멤버가 아니면 그 팀의 모든 경로가 `404`다 — `403`은 그 id의 존재를 알려준다(§13.2와 같은 정책).
+- 멤버가 owner 전용 작업을 하면 `403`. 멤버는 이미 팀의 존재를 안다.
+- 초대 코드가 없거나 만료됐거나 재발급으로 무효가 되면 `POST /workspaces/join`은 `400`이며
+  세 경우를 구분하지 않는다(코드 추측에 단서를 주지 않는다).
+- 서버는 초대 코드의 SHA-256 해시만 저장한다. 평문은 발급 응답에서 한 번만 보인다.
+- owner가 멤버를 내보내면 현재 초대 코드도 무효가 된다 — 내보낸 사람이 아직 유효한 같은 코드로
+  다시 들어오지 못하게. 스스로 나간 경우에는 코드를 그대로 둔다.
+- 공유는 **공유한 사람이 그 팀 멤버인 동안만** 유효하다. 탈퇴·내보내기와 같은 순간 들어온 공유 행이
+  남더라도 팀 목록·팀 검색·읽기 판정이 공유한 사람의 멤버십을 다시 확인해 걸러 낸다.
+
+### 14.2 공유의 부분 성공
+
+`POST /workspaces/{id}/sessions`는 §13.1 폴더 배정과 같은 규칙을 따른다. 남의·없는·흡수된
+세션이 섞여도 전체를 실패시키지 않는다. 이미 공유된 세션은 `shared`에 그대로 포함된다(멱등).
+
+```json
+{ "workspace_id": "...", "shared": ["s1", "s2"], "skipped": ["ghost"] }
+```
+
+### 14.3 기존 경로 변경
+
+- `SessionDetail`에 `shared_workspace_ids: string[]`를 추가한다(§11 superset). 이 세션이 공유된 팀
+  id이며 **`GET /sessions` 목록과 `GET /sessions/{id}`에서 소유자에게만** 채워진다. 다른 응답(PATCH·
+  merge·retry·검색·Ask)과 팀원이 받은 응답에서는 항상 빈 배열이라, 팀원은 그 세션이 다른 팀에도
+  공유됐는지 알 수 없다.
+- 팀원이 받은 응답(공유 세션 단건, 팀 목록, 팀 범위 검색·Ask 근거)은 `folder_id`와 `folder_assigned_by`도 `null`이다 —
+  폴더는 소유자의 개인 정리 정보다.
+- `GET /sessions/{id}`, `/sessions/{id}/events`, `/sessions/{id}/versions`: 읽기 권한을 "소유자 또는 그
+  세션이 공유된 팀의 멤버"로 넓힌다. 병합으로 흡수된 세션은 팀원에게 `404`다(팀 목록·검색에서 빠지는
+  것과 같게). 쓰기 경로(`PATCH`·`DELETE`·`merge`·`unmerge`·`retry-summary`)는 소유자 전용 그대로다.
+- `GET /search`: `workspace_id` 쿼리 파라미터. 주면 그 팀에 공유된 세션만 검색하고, `scope=memory`의
+  키워드 이벤트도 공유된 세션에 속한 방문만 돌려준다. 멤버가 아니면 `404`.
+- `POST /ask/stream`: `workspace_id`(§8.1).
+- 팀 검색의 세션·방문 조회와 Ask의 근거·본문 조회는 **각 SQL 실행 시점**에 조회자와 공유자의
+  멤버십, 해당 팀의 공유 행, 세션의 비흡수 상태를 함께 판정한다. 임베딩 전에 얻은 공유 id 목록은
+  Qdrant 후보 필터에만 쓴다. Ask는 세션과 본문을 같은 SQL로 읽고, 제외된 근거는 SSE와 생성
+  프롬프트에서도 뺀다. 단, 해당 SQL의 스냅샷 이후 철회는 이미 읽은 자료를 회수하지 않는다.
+  검색 리랭킹·Ask 본문 임베딩·답변 생성·스트리밍 중 철회에 따른 취소까지 보장하지는 않는다.
+- `GET/PATCH /settings`: 사용자별 값이다. 이전의 전역 값은 읽지 않는다(`data-model-v2.md` §11).
+  `team_collect_excluded_domains: string[]`(최대 200, 호스트 접미사 일치, 소문자)를 더한다(§15).
+
+## 15. 팀 수집 모드 (`/workspaces/{id}/collect`) — 2단계
+
+팀을 켜 둔 동안 이 기기에서 연 페이지를 팀 스트림으로 보내고, 멤버별로 세션화한 뒤 그 팀에 자동 공유한다.
+설계·결정·불변 조건 17개는 `docs/team-collect-mode.md`. 권한 정책은 §14.1과 같다(비멤버 404, owner 전용 403).
+
+| 메서드 | 경로 | 권한 | 설명 |
+|---|---|---|---|
+| `GET` | `/workspaces?device_id=` | 로그인 | 항목에 `collect_allowed`, `my_collect`(이 기기의 활성 창 `{window_id, workspace_id, device_id, started_at, expires_at}` 또는 `null`) |
+| `PATCH` | `/workspaces/{id}` | owner | `{name?, collect_allowed?}`. 허용을 끄면 그 팀의 열린 창이 모두 끝난다 |
+| `GET` | `/workspaces/{id}/collect` | member | `{allowed, my_windows[], collecting[{user_id,name,picture,expires_at}]}`. `my_windows`는 내 모든 기기, `collecting`에는 남의 기기 정보가 없다 |
+| `POST` | `/workspaces/{id}/collect` | member | `{device_id, duration_minutes: 30\|60\|120\|240\|480(기본 120), consent_version}` → `201 {window, server_now, ended_workspace_id}`. 허용 안 된 팀·동시 시작은 `409`. 같은 기기의 다른 창은 끝낸다 |
+| `DELETE` | `/workspaces/{id}/collect?device_id=&reason=` | member | `reason: stop\|pause\|browser_restart\|account_switch`. `device_id`를 빼면 이 팀의 내 모든 창. 멱등 `204` |
+| `GET` | `/workspaces/{id}/collect/windows/{wid}/sessions` | 창 주인 | 돌아보기 — 그 창의 방문이 들어간 내 세션(`SessionDetail[]`). 남의 창 `404` |
+| `POST` | `/workspaces/{id}/collect/windows/{wid}/withdraw` | 창 주인 | 세션에 묶이지 않은 그 창의 방문을 개인으로. 열린 창이면 함께 끝낸다. `{withdrawn_events, sessions: SessionDetail[], window_closed}`. 남의 창 `404` |
+| `POST` | `/workspaces/{id}/collect/sessions/{sid}/restore` | 세션 주인 | 뺀 수집 세션 되돌리기 — 공유 행과 스트림을 함께. 개인 방문이 섞였거나 멤버십·가입 시각이 깨졌으면 `409`. 성공 `204` |
+
+### 15.1 인제스트
+
+- `POST /events` 이벤트마다 `workspace_id`, `collect_window_id`(둘 다 있어야 판정. 기존 `window_id`는 브라우저 창 번호).
+  서버가 그 창 하나로 사람·팀·기기·현재 멤버십(`started_at ≥ joined_at`)·허용·빼기·서버 수신 시각·민감/로그인 호스트/
+  기본 제외(웹메일·메신저·검색 결과)/사용자 제외 목록을 판정해 통과한 것만 저장한다. 어기면 거절하지 않고 개인으로 저장한다.
+- 응답에 `team_accepted`, `team_downgraded`, `window_closed`(가리킨 창이 서버에서 이미 끝났다 — 확장이 로컬 수집을 끄는 유일한 신호).
+- 이미 있는 id는 `ON CONFLICT DO NOTHING`이라 재전송으로 팀 표시를 바꿀 수 없다. 바꾸는 길은 `withdraw`뿐이다.
+
+### 15.2 기존 경로 변경
+
+- 팀원 응답(팀 범위)의 페이지 주소는 쿼리·프래그먼트를 지운다(민감 URL은 도메인만): 공유 세션 단건 `tabs[].url`,
+  `/sessions/{id}/events`의 `url`, 팀 목록, 팀 세션 검색, 팀 방문 검색, Ask 근거. `referrer_url`·`previous_event_id`는 싣지 않는다.
+- `SessionDetail.collect_workspace_id`: 소유자에게만. `WorkspaceSessionItem.collected`: 이 팀의 수집 세션인가.
+- 팀 공유 해제(`DELETE /workspaces/{id}/sessions/{sid}`)는 누가 풀든 그 팀의 수집 세션이면 스트림도 해제한다.
+- 병합·병합 제안: 스트림(`collect_workspace_id`)이 다르면 `409`/제안 제외.
+- 탈퇴·추방·팀 삭제는 창을 먼저 잠가 닫고 방문 표시·세션 스트림을 비운 뒤 공유를 지운다.

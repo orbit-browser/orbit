@@ -1,6 +1,7 @@
 from ..ai.json_utils import extract_json
 from ..ai.llm import chat_completion
 from ..schemas.session import SessionSummary, TabItemRequest
+from .event_filter import ai_safe_url
 
 _SYSTEM_PROMPT = """\
 당신은 브라우저 탭 묶음을 분석해 사용자의 탐색 목적과 맥락을 파악하는 AI입니다.
@@ -29,7 +30,7 @@ def _build_tabs_text(tabs: list[TabItemRequest]) -> str:
     parts = []
     for i, tab in enumerate(tabs[:_MAX_TABS], 1):
         text = (tab.text_content or "").strip()[:_MAX_CHARS_PER_TAB]
-        parts.append(f"[{i}] {tab.title}\nURL: {tab.url}\n{text}")
+        parts.append(f"[{i}] {tab.title}\nURL: {ai_safe_url(tab.url)}\n{text}")
     return "\n\n---\n\n".join(parts)
 
 

@@ -10,6 +10,8 @@
  * `lib/settings.ts` 와 같은 방식을 쓴다.
  */
 
+import { clearSnapshots } from './tab-snapshots';
+
 const STORAGE_KEY = 'orbit:auth';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
@@ -67,13 +69,19 @@ export async function clearSession(): Promise<void> {
 }
 
 /** 로그인 상태 변화 구독 — 다른 컨텍스트(사이드패널↔새 탭)의 로그인/로그아웃을 반영한다. */
-export function onSessionChange(listener: (session: AuthSession | null) => void): () => void {
+export function onSessionChange(
+  listener: (session: AuthSession | null, previous: AuthSession | null) => void,
+): () => void {
   const handler = (
     changes: Record<string, chrome.storage.StorageChange>,
     area: string,
   ) => {
     if (area !== 'local' || !(STORAGE_KEY in changes)) return;
-    listener((changes[STORAGE_KEY].newValue as AuthSession | undefined) ?? null);
+    const change = changes[STORAGE_KEY];
+    listener(
+      (change.newValue as AuthSession | undefined) ?? null,
+      (change.oldValue as AuthSession | undefined) ?? null,
+    );
   };
   chrome.storage.onChanged.addListener(handler);
   return () => chrome.storage.onChanged.removeListener(handler);
@@ -159,9 +167,14 @@ export async function signIn(): Promise<SignInResult> {
  * 캐시를 남기면 다음 로그인에서 계정 선택 없이 같은 계정으로 조용히 다시 들어간다.
  */
 export async function signOut(): Promise<void> {
+  const signedOut = await getSession();
   const googleToken = await requestGoogleToken(false).catch(() => null);
   if (googleToken) await removeCachedToken(googleToken);
   await clearSession();
+  // 명시적 로그아웃이면 그 계정의 화면 사진을 바로 지운다(공용 PC). 계정 전환 때는 큐처럼 7일 뒤 정리한다.
+  if (signedOut) {
+    await clearSnapshots(signedOut.user.id).catch((err) => console.error('[Orbit] snapshot cleanup failed', err));
+  }
 }
 
 async function removeCachedToken(token: string): Promise<void> {

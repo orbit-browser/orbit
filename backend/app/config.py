@@ -6,23 +6,42 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # uvicorn 실행 위치에 무관하게 backend/.env 를 로드한다
 _ENV_FILE = Path(__file__).parent.parent / ".env"
 
+# 확장 ID는 wxt.config.ts 의 manifest key 로 고정돼 모든 기기에서 같다.
+DEFAULT_CORS_ORIGIN = "chrome-extension://aghgamoeifieijjckhpfkmhiibacnhml"
+
+
+def parse_cors_origins(raw: str) -> list[str]:
+    """쉼표 목록을 출처 목록으로. 비었거나 `*`·`null`만 있으면 확장 출처 하나로 돌아간다.
+
+    운영 env에서 값을 실수로 비우거나 `*`를 넣어도 모든 웹페이지에 열리지 않게 한다.
+    `null`은 파일·샌드박스 iframe 이 보내는 출처라 누구나 만들 수 있으므로 허용하지 않는다.
+    """
+    origins = [o.strip() for o in raw.split(",") if o.strip() and o.strip().lower() not in ("*", "null")]
+    return origins or [DEFAULT_CORS_ORIGIN]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
-    # SKT A.X — 요약·리랭킹·채팅 primary (DecisionLog 2026-08-05).
+    # A.X (SKT, 기본 A.X-K2) — Ask 답변을 뺀 모든 LLM 역할 primary, Ask 답변 fallback (DecisionLog 2026-10-23).
     # 발급 키는 A.X-K2만 서빙 권한이 있다 — A.X-K1은 401(DecisionLog 2026-10-19).
     axk1_api_key: str = ""
     axk1_base_url: str = "https://awf-gw.adot.ai/v1"
     axk1_model: str = "A.X-K2"
 
-    # LG K-EXAONE (FriendliAI dedicated endpoint, OpenAI 호환) — 의도분석·클러스터링 primary.
+    # LG K-EXAONE (FriendliAI dedicated endpoint, OpenAI 호환) — Ask 답변 primary, 요약·리랭크 fallback.
     # serverless는 2026-08-20 K-EXAONE 제공 종료. model 자리에 팀 endpoint ID를 넣는다(DecisionLog 2026-10-19).
     friendli_api_key: str = ""
     friendli_base_url: str = "https://api.friendli.ai/dedicated/v1"
     exaone_model: str = "depmkuykpfon9lg"
 
-    # Upstage — embedding 전용 (채팅 경로는 A.X ↔ EXAONE 상호 폴백으로 대체)
+    # KT 믿:음 (OpenAI 호환) — 의도 분석·탭 묶기의 fallback (DecisionLog 2026-10-23).
+    # 대표 .env의 KT_MODEL은 쓰지 않는다(값이 모델명이 아니다). 모델명은 KT_MODEL_NAME으로 받는다.
+    kt_api_key: str = ""
+    kt_base_url: str = "https://midm.kt.com/v1"
+    kt_model_name: str = "midm-pro-fp8-kaic"
+
+    # Upstage — embedding 전용
     upstage_api_key: str = ""
     upstage_base_url: str = "https://api.upstage.ai/v1"
     embedding_model: str = "embedding-query"       # 검색 쿼리 임베딩
@@ -36,6 +55,10 @@ class Settings(BaseSettings):
     # 자체 JWT 서명 키. 비어 있으면 인증이 동작하지 않는다(부팅 시 경고).
     jwt_secret: str = ""
     jwt_expire_days: int = Field(default=30, ge=1)
+
+    # CORS 허용 출처(쉼표 구분). 인증은 Authorization 헤더라 credentials 는 쓰지 않는다.
+    # 로컬 웹 미리보기가 필요하면 backend/.env 에 http://localhost:5173 처럼 더한다.
+    cors_allow_origins: str = DEFAULT_CORS_ORIGIN
 
     # ── 추천 세션 ──────────────────────────────────────────────────────
     # 추천 캐시 수명. 새 탭을 열면 캐시를 즉시 주고, 이 시간이 지났으면 응답 후
@@ -58,8 +81,10 @@ class Settings(BaseSettings):
 
     # Ask 통합 의도 라우터. 자동 실행인 탭 이동은 별도 floor/margin을 모두 통과해야 한다.
     # 검색 의도가 모호하면 retrieval_margin 아래에서 search_memory로 안전하게 fallback한다.
-    assistant_route_navigation_floor: float = Field(default=0.14, ge=-1.0, le=1.0)
-    assistant_route_navigation_margin: float = Field(default=0.02, ge=0.0, le=2.0)
+    # 0.20/0.05는 라우팅 골든셋 + UI 시험 8문항으로 고른 값이다(탭 이동 8/8, 오이동 0).
+    # 간접 표현 탭 이동은 점수 0.25~0.42·격차 0.08 이상, 오이동 후보는 격차 0.033 이하라 격차가 주 구분선이다.
+    assistant_route_navigation_floor: float = Field(default=0.20, ge=-1.0, le=1.0)
+    assistant_route_navigation_margin: float = Field(default=0.05, ge=0.0, le=2.0)
     assistant_route_retrieval_margin: float = Field(default=0.015, ge=0.0, le=2.0)
 
     # Auto Session 동기화 (M3 sync_pipeline에서 사용 — docs/implementation-roadmap.md M1-1)
@@ -71,6 +96,10 @@ class Settings(BaseSettings):
     # subcluster_threshold: 골든셋 임베딩 실측 결과 안전 밴드 [0.30, 0.32]의 중앙값 0.31.
     #   <0.30이면 이질 주제가 병합(under-split), >0.32면 단일 주제가 과분할.
     subcluster_threshold: float = Field(default=0.31, ge=0.0, le=1.0)  # 낮을수록 덜 쪼갬
+    # 큰 서브클러스터(이벤트 6개 이상)를 알아본 대상별로 다시 나누는 K2 확인 호출(services/subject_splitter).
+    #   형제·다주제 오병합을 줄이고(S4: 14→7/16, 쌍 F1 +10.47%p), 큰 묶음마다 A.X 호출이 1번 는다(p95 0.73초).
+    #   S4 판정 합격으로 기본 켬(DecisionLog 2026-10-23). 끄면 대상 나누기 전과 같다.
+    subject_split_enabled: bool = True
     # append_score_floor/max_age_days: 라이브 Qdrant 점수 미측정 상태의 보수적 잠정값 —
     #   실데이터 재세션화로 튜닝 필요(검색 positive-floor 0.289보다 소폭 위).
     append_score_floor: float = Field(default=0.35, ge=0.0, le=1.0)  # 검색 0.28보다 높게

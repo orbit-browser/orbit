@@ -28,6 +28,18 @@ export interface ExplorationEvent {
   contentExcerpt: string | null;
   /** ISO 8601 — 로컬 큐에 처음 적재된 시각 */
   createdAt: string;
+  /**
+   * 방문 당시 로그인한 계정 id(로컬 전용, wire 제외). 같은 브라우저에서 계정을 바꿔도
+   * 이 계정의 화면에만 보이고 이 계정의 토큰으로만 전송된다.
+   */
+  accountId: string;
+  /**
+   * 팀 수집 표시(docs/team-collect-mode.md §5.1). 방문 시점에 그 계정의 수집 창으로 고정한다.
+   * 서버가 창·멤버십·시각을 다시 판정하므로 요청일 뿐이다. 개인 방문은 둘 다 null.
+   * `windowId`(브라우저 창 번호)와 다른 값이다.
+   */
+  workspaceId: string | null;
+  collectWindowId: string | null;
 
   // ── 로컬 전용 상태 — toWire()에서 제외 ──────────────────────────
   status: EventStatus;
@@ -71,6 +83,9 @@ export interface WireEvent {
    * 보여주지만, 실제 Pydantic 스키마가 최종 근거이므로 null은 빈 문자열로 치환해 보낸다.
    */
   content_excerpt: string;
+  /** 둘 다 있어야 서버가 팀 판정을 한다. */
+  workspace_id: string | null;
+  collect_window_id: string | null;
 }
 
 export function toWire(event: ExplorationEvent): WireEvent {
@@ -88,6 +103,9 @@ export function toWire(event: ExplorationEvent): WireEvent {
     referrer_url: event.referrerUrl,
     event_type: event.eventType,
     content_excerpt: event.contentExcerpt ?? '',
+    // 업데이트 전에 큐에 쌓인 이벤트에는 필드가 없다 — 개인이다.
+    workspace_id: event.workspaceId ?? null,
+    collect_window_id: event.collectWindowId ?? null,
   };
 }
 

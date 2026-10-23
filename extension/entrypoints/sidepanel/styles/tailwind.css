@@ -103,6 +103,43 @@ body {
   }
 }
 
+/* 팀 수집 띠가 나타날 때(감소 모션이면 motion-safe 로 생략). */
+@keyframes orbit-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
 .animate-bouncy {
   animation: bounceIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/*
+ * 누를 수 있는 것의 공통 반응(대표 화면 규칙 2026-10-22). Tailwind v4 유틸리티는 레이어 안에 있어
+ * 레이어 밖 규칙이 이기므로, base 레이어에 둬야 컴포넌트의 focus·active 유틸리티가 이긴다. 누름은 `scale` 속성이라 transform 유틸리티와 합쳐진다.
+ */
+@layer base {
+  :where(button, a[href], [role='button'], [role='tab'], select, input, textarea, summary):focus-visible {
+    outline: 2px solid var(--color-orbit-primary-muted);
+    outline-offset: 2px;
+  }
+
+  :where(button, a[href], [role='button'], [role='tab']):not(:disabled):active {
+    scale: 0.97;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :where(button, a[href], [role='button'], [role='tab']):not(:disabled):active {
+      scale: none;
+      filter: brightness(0.94);
+    }
+  }
+}
+
+/* 컴포넌트 애니메이션은 레이어 밖에 정의돼 있어 끄는 규칙도 레이어 밖에 둔다 */
+@media (prefers-reduced-motion: reduce) {
+  .animate-bouncy {
+    animation: none;
+  }
 }

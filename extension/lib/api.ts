@@ -2,13 +2,19 @@ import { getTabPageContent } from './chrome-bridge';
 import type { WireEvent } from './events/types';
 import { isSensitiveUrl } from './sensitive-domains';
 import { readSseStream } from './sse';
+import { getDeviceId } from './device-id';
 import type {
   AskStreamEvent,
+  CollectStartResult,
+  CollectStatus,
+  CollectWindow,
+  WithdrawResult,
   AskStreamRequest,
   AssistantRouteResult,
   Folder,
   FolderAssignResult,
   FolderSuggestion,
+  InviteCode,
   MemoryEvent,
   MemorySearchResult,
   MergeSuggestion,
@@ -18,8 +24,12 @@ import type {
   ServerSettings,
   OpenTabItem,
   TabActionResolveResult,
+  ShareResult,
   TabItem,
   TodayEvent,
+  Workspace,
+  WorkspaceMember,
+  WorkspaceSession,
 } from './types';
 
 import { AuthRequiredError, clearSession, getToken } from './auth';
@@ -59,6 +69,49 @@ interface BackendSession {
   last_activity_at: string | null;
   folder_id: string | null;
   folder_assigned_by: 'user' | 'auto' | null;
+  /** 소유자에게만 채워진다. 이전 서버는 이 필드가 없을 수 있다. */
+  shared_workspace_ids?: string[];
+}
+
+interface BackendWorkspace {
+  workspace_id: string;
+  name: string;
+  hue: string;
+  role: 'owner' | 'member';
+  member_count: number;
+  created_at: string;
+  collect_allowed?: boolean;
+  my_collect?: BackendCollectWindow | null;
+}
+
+interface BackendCollectWindow {
+  window_id: string;
+  workspace_id: string;
+  device_id: string;
+  started_at: string;
+  expires_at: string;
+}
+
+interface BackendWorkspaceMember {
+  user_id: string;
+  name: string | null;
+  /** owner 와 본인에게만 온다. */
+  email: string | null;
+  picture: string | null;
+  role: 'owner' | 'member';
+  joined_at: string;
+}
+
+interface BackendWorkspaceSession extends BackendSession {
+  shared_by: { user_id: string; name: string | null; picture: string | null };
+  shared_at: string;
+  collected?: boolean;
+}
+
+interface BackendShareResult {
+  workspace_id: string;
+  shared: string[];
+  skipped: string[];
 }
 
 interface BackendFolder {
@@ -191,6 +244,42 @@ function mapSession(b: BackendSession): Session {
     summaryStatus: b.summary_status,
     folderId: b.folder_id ?? undefined,
     folderAssignedBy: b.folder_assigned_by ?? undefined,
+    sharedWorkspaceIds: b.shared_workspace_ids ?? [],
+  };
+}
+
+function mapWorkspace(b: BackendWorkspace): Workspace {
+  return {
+    id: b.workspace_id,
+    name: b.name,
+    hue: b.hue,
+    role: b.role,
+    memberCount: b.member_count,
+    createdAt: b.created_at,
+    collectAllowed: b.collect_allowed ?? false,
+    myCollect: b.my_collect ? mapCollectWindow(b.my_collect) : null,
+  };
+}
+
+function mapCollectWindow(b: BackendCollectWindow): CollectWindow {
+  return {
+    windowId: b.window_id,
+    workspaceId: b.workspace_id,
+    deviceId: b.device_id,
+    startedAt: b.started_at,
+    expiresAt: b.expires_at,
+  };
+}
+
+function mapWorkspaceSession(b: BackendWorkspaceSession): WorkspaceSession {
+  return {
+    ...mapSession(b),
+    // 공유한 사람의 개인 폴더 — 팀 화면에서 쓰면 남의 폴더 id 로 정리 상태를 잘못 그린다.
+    folderId: undefined,
+    folderAssignedBy: undefined,
+    sharedBy: { userId: b.shared_by.user_id, name: b.shared_by.name, picture: b.shared_by.picture },
+    sharedAt: b.shared_at,
+    collected: b.collected ?? false,
   };
 }
 
@@ -262,8 +351,12 @@ function mapMergeSuggestion(b: BackendMergeSuggestion): MergeSuggestion {
  * 저장된 세션 토큰을 Authorization 헤더로 얹는다.
  * 토큰이 없으면 호출 자체를 하지 않는다 — 어차피 401이고, 실패 사유가 더 분명하다.
  */
-async function authorized(init?: RequestInit): Promise<RequestInit> {
-  const token = await getToken();
+/**
+ * `token`을 주면 저장소를 읽지 않고 그 토큰을 쓴다. 이벤트 전송은 이벤트를 고른 순간의 계정
+ * 토큰에 묶어야 한다 — 요청 직전에 다시 읽으면 그 사이 로그인한 다른 계정으로 올라갈 수 있다.
+ */
+async function authorized(init?: RequestInit, pinnedToken?: string): Promise<RequestInit> {
+  const token = pinnedToken ?? (await getToken());
   if (!token) throw new AuthRequiredError();
   return {
     ...init,
@@ -280,12 +373,33 @@ async function handleUnauthorized(): Promise<never> {
   throw new AuthRequiredError('세션이 만료되었어요. 다시 로그인해 주세요.');
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, await authorized(init));
-  if (res.status === 401) await handleUnauthorized();
+/**
+ * 고정 토큰이 이전 계정 것이면 거절돼도 지금 로그인한 계정의 세션을 지우지 않는다.
+ * 지금 계정의 토큰이 거절된 것이면 다른 요청처럼 세션을 비워 로그인 화면으로 보낸다.
+ */
+async function rejectUnauthorized(pinnedToken?: string): Promise<never> {
+  if (pinnedToken && pinnedToken !== (await getToken())) throw new AuthRequiredError();
+  return handleUnauthorized();
+}
+
+/** 서버가 2xx 가 아닌 응답을 줬다. 상태와 경로를 남겨 팀 접근 상실(403/404) 같은 경우를 가려낸다. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly path: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit, pinnedToken?: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, await authorized(init, pinnedToken));
+  if (res.status === 401) await rejectUnauthorized(pinnedToken);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`[Orbit API] ${init?.method ?? 'GET'} ${path} ${res.status}: ${body}`);
+    throw new ApiError(`[Orbit API] ${init?.method ?? 'GET'} ${path} ${res.status}: ${body}`, res.status, path);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -346,6 +460,223 @@ export async function removeSessionFromFolder(
   sessionId: string,
 ): Promise<void> {
   await request<void>(`/folders/${folderId}/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+// ── 팀 워크스페이스 (docs/api-design-v2.md §14) ───────
+
+/** `device_id` 를 실어야 서버가 이 기기의 수집 창(`myCollect`)을 채워 준다. */
+export async function fetchWorkspaces(): Promise<Workspace[]> {
+  const deviceId = await getDeviceId();
+  const data = await request<BackendWorkspace[]>(`/workspaces?device_id=${encodeURIComponent(deviceId)}`);
+  return data.map(mapWorkspace);
+}
+
+export async function createWorkspace(name: string): Promise<Workspace> {
+  const data = await request<BackendWorkspace>('/workspaces', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return mapWorkspace(data);
+}
+
+export async function renameWorkspace(workspaceId: string, name: string): Promise<Workspace> {
+  const data = await request<BackendWorkspace>(`/workspaces/${workspaceId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return mapWorkspace(data);
+}
+
+/** 팀과 공유 관계만 지운다 — 공유됐던 세션은 각자의 개인 기록에 남는다. */
+export async function deleteWorkspace(workspaceId: string): Promise<void> {
+  await request<void>(`/workspaces/${workspaceId}`, { method: 'DELETE' });
+}
+
+/** 초대 코드로 참여한다. 무효·만료 코드는 400 으로 거절된다. */
+export async function joinWorkspace(code: string): Promise<Workspace> {
+  const data = await request<BackendWorkspace>('/workspaces/join', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  return mapWorkspace(data);
+}
+
+/** 새 초대 코드를 발급한다. 이전 코드는 즉시 무효가 된다. */
+export async function issueInviteCode(workspaceId: string): Promise<InviteCode> {
+  const data = await request<{ code: string; expires_at: string }>(
+    `/workspaces/${workspaceId}/invite-code`,
+    { method: 'POST' },
+  );
+  return { code: data.code, expiresAt: data.expires_at };
+}
+
+export async function fetchWorkspaceMembers(workspaceId: string): Promise<WorkspaceMember[]> {
+  const data = await request<BackendWorkspaceMember[]>(`/workspaces/${workspaceId}/members`);
+  return data.map((m) => ({
+    userId: m.user_id,
+    name: m.name,
+    email: m.email,
+    picture: m.picture,
+    role: m.role,
+    joinedAt: m.joined_at,
+  }));
+}
+
+/** 멤버 내보내기, 또는 내 user id 를 넘기면 탈퇴. 나간 사람의 공유는 모두 풀린다. */
+export async function removeWorkspaceMember(workspaceId: string, userId: string): Promise<void> {
+  await request<void>(`/workspaces/${workspaceId}/members/${userId}`, { method: 'DELETE' });
+}
+
+export async function fetchWorkspaceSessions(workspaceId: string): Promise<WorkspaceSession[]> {
+  const data = await request<BackendWorkspaceSession[]>(`/workspaces/${workspaceId}/sessions`);
+  return data.map(mapWorkspaceSession);
+}
+
+// 팀마다 마지막으로 받은 공유 id 목록과 ETag. 304 면 본문 없이 이 목록을 다시 쓴다.
+const sharedIdsCache = new Map<string, { etag: string; ids: string[] }>();
+
+/**
+ * 지금 그 팀에 보이는 공유 세션 id 만 받는다(`GET /workspaces/{id}/sessions/ids`). 열린 새 탭이 몇 초마다
+ * 부르므로 탭 JSON 이 든 팀 목록 대신 이것을 쓰고, 목록이 그대로면 서버가 304 로 본문을 생략한다.
+ * 304 는 내가 보낸 ETag 가 지금 내 범위의 목록과 같다는 뜻이라 저장한 목록을 그대로 쓸 수 있다.
+ */
+export async function fetchWorkspaceSessionIds(workspaceId: string): Promise<string[]> {
+  const path = `/workspaces/${workspaceId}/sessions/ids`;
+  const cached = sharedIdsCache.get(workspaceId);
+  // 브라우저 HTTP 캐시가 끼지 않게 하고 재검증은 직접 한다(조건부 요청 헤더를 우리가 붙인다).
+  const init: RequestInit = { cache: 'no-store', headers: cached ? { 'If-None-Match': cached.etag } : {} };
+  const res = await fetch(`${BASE}${path}`, await authorized(init));
+  if (res.status === 401) await rejectUnauthorized();
+  if (res.status === 304 && cached) return cached.ids;
+  if (!res.ok) {
+    sharedIdsCache.delete(workspaceId);
+    const body = await res.text().catch(() => '');
+    throw new ApiError(`[Orbit API] GET ${path} ${res.status}: ${body}`, res.status, path);
+  }
+  const data = (await res.json()) as { session_ids: string[] };
+  const etag = res.headers.get('ETag');
+  if (etag) sharedIdsCache.set(workspaceId, { etag, ids: data.session_ids });
+  else sharedIdsCache.delete(workspaceId);
+  return data.session_ids;
+}
+
+export async function shareSessions(workspaceId: string, sessionIds: string[]): Promise<ShareResult> {
+  const data = await request<BackendShareResult>(`/workspaces/${workspaceId}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_ids: sessionIds }),
+  });
+  return { workspaceId: data.workspace_id, shared: data.shared, skipped: data.skipped };
+}
+
+export async function unshareSession(workspaceId: string, sessionId: string): Promise<void> {
+  await request<void>(`/workspaces/${workspaceId}/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+// ── 팀 수집 모드 (docs/team-collect-mode.md §5) ───────
+
+/** owner 전용. 끄면 그 팀의 열린 수집 창이 모두 끝난다. */
+export async function setCollectAllowed(workspaceId: string, collectAllowed: boolean): Promise<Workspace> {
+  const data = await request<BackendWorkspace>(`/workspaces/${workspaceId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ collect_allowed: collectAllowed }),
+  });
+  return mapWorkspace(data);
+}
+
+export async function fetchCollectStatus(workspaceId: string): Promise<CollectStatus> {
+  const data = await request<{
+    allowed: boolean;
+    my_windows: BackendCollectWindow[];
+    collecting: { user_id: string; name: string | null; picture: string | null; expires_at: string }[];
+  }>(`/workspaces/${workspaceId}/collect`);
+  return {
+    allowed: data.allowed,
+    myWindows: data.my_windows.map(mapCollectWindow),
+    collecting: data.collecting.map((m) => ({
+      userId: m.user_id,
+      name: m.name,
+      picture: m.picture,
+      expiresAt: m.expires_at,
+    })),
+  };
+}
+
+export async function startCollect(
+  workspaceId: string,
+  deviceId: string,
+  durationMinutes: number,
+  consentVersion: string,
+): Promise<CollectStartResult> {
+  const data = await request<{
+    window: BackendCollectWindow;
+    server_now: string;
+    ended_workspace_id: string | null;
+  }>(`/workspaces/${workspaceId}/collect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId, duration_minutes: durationMinutes, consent_version: consentVersion }),
+  });
+  return {
+    window: mapCollectWindow(data.window),
+    serverNow: data.server_now,
+    endedWorkspaceId: data.ended_workspace_id ?? null,
+  };
+}
+
+export type CollectStopReason = 'stop' | 'pause' | 'browser_restart' | 'account_switch';
+
+/** `deviceId` 가 null 이면 이 팀에 대한 내 모든 기기의 창을 끝낸다. `token` 은 계정 전환 때 이전 계정 것. */
+export async function stopCollect(
+  workspaceId: string,
+  deviceId: string | null,
+  reason: CollectStopReason,
+  token?: string,
+): Promise<void> {
+  const query = new URLSearchParams({ reason });
+  if (deviceId) query.set('device_id', deviceId);
+  await request<void>(`/workspaces/${workspaceId}/collect?${query}`, { method: 'DELETE' }, token);
+}
+
+export async function fetchWindowSessions(workspaceId: string, windowId: string): Promise<Session[]> {
+  const data = await request<BackendSession[]>(`/workspaces/${workspaceId}/collect/windows/${windowId}/sessions`);
+  return data.map(mapSession);
+}
+
+export async function withdrawWindow(workspaceId: string, windowId: string, token?: string): Promise<WithdrawResult> {
+  const data = await request<{ withdrawn_events: number; sessions: BackendSession[]; window_closed: boolean }>(
+    `/workspaces/${workspaceId}/collect/windows/${windowId}/withdraw`,
+    { method: 'POST' },
+    token,
+  );
+  return {
+    withdrawnEvents: data.withdrawn_events,
+    sessions: data.sessions.map(mapSession),
+    windowClosed: data.window_closed,
+  };
+}
+
+/** 돌아보기의 되돌리기. 조건이 깨졌으면 409(`ApiError.status`). */
+export async function restoreCollectSession(workspaceId: string, sessionId: string): Promise<void> {
+  await request<void>(`/workspaces/${workspaceId}/collect/sessions/${sessionId}/restore`, { method: 'POST' });
+}
+
+export async function fetchTeamCollectExcluded(token?: string): Promise<string[]> {
+  const data = await request<{ team_collect_excluded_domains?: string[] }>('/settings', undefined, token);
+  return data.team_collect_excluded_domains ?? [];
+}
+
+export async function updateTeamCollectExcluded(domains: string[]): Promise<string[]> {
+  const data = await request<{ team_collect_excluded_domains?: string[] }>('/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ team_collect_excluded_domains: domains }),
+  });
+  return data.team_collect_excluded_domains ?? [];
 }
 
 /** 미정리 세션별 폴더 제안(점수 내림차순). */
@@ -518,17 +849,27 @@ export interface EventBatchResponse {
   duplicates: number;
   filtered: number;
   pending_total: number;
+  team_accepted?: number;
+  team_downgraded?: number;
+  /** 이 배치가 실은 수집 창이 서버에서 이미 끝났다. 로컬 수집을 끄는 유일한 신호다. */
+  window_closed?: boolean;
 }
 
+/** `token`은 이벤트 주인 계정의 토큰이다(`authorized` 주석). */
 export async function postEventBatch(
   deviceId: string,
   events: WireEvent[],
+  token: string,
 ): Promise<EventBatchResponse> {
-  return request<EventBatchResponse>('/events', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ device_id: deviceId, events }),
-  });
+  return request<EventBatchResponse>(
+    '/events',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: deviceId, events }),
+    },
+    token,
+  );
 }
 
 export type ServerSyncTrigger = 'manual' | 'periodic' | 'event_count' | 'idle';
@@ -537,16 +878,22 @@ export type ServerSyncTrigger = 'manual' | 'periodic' | 'event_count' | 'idle';
  * 서버 배치 세션화 트리거. 202(시작)/200(pending 없음)은 성공,
  * 409(이미 실행 중)도 정상 흐름이므로 예외로 취급하지 않는다.
  */
-export async function triggerServerSync(triggerType: ServerSyncTrigger): Promise<void> {
+export async function triggerServerSync(
+  triggerType: ServerSyncTrigger,
+  token: string,
+): Promise<void> {
   const res = await fetch(
     `${BASE}/sync`,
-    await authorized({
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trigger_type: triggerType }),
-    }),
+    await authorized(
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trigger_type: triggerType }),
+      },
+      token,
+    ),
   );
-  if (res.status === 401) await handleUnauthorized();
+  if (res.status === 401) await rejectUnauthorized(token);
   if (!res.ok && res.status !== 409) {
     throw new Error(`[Orbit API] POST /sync ${res.status}`);
   }
@@ -695,6 +1042,7 @@ export async function* streamAsk(
         session_id: body.sessionId ?? null,
         rerank: body.rerank ?? true,
         intent: body.intent ?? 'search_memory',
+        workspace_id: body.workspaceId ?? null,
         history: (body.history ?? []).map((turn) => ({
           query: turn.query,
           answer: turn.answer,
@@ -718,6 +1066,8 @@ export async function* streamAsk(
       yield { type: 'sources', sessions: sessions.map(mapSession) };
     } else if (frame.event === 'delta') {
       yield { type: 'delta', text: typeof data.text === 'string' ? data.text : '' };
+    } else if (frame.event === 'replace') {
+      yield { type: 'replace', text: typeof data.text === 'string' ? data.text : '' };
     } else if (frame.event === 'verification') {
       const issues = Array.isArray(data.issues) ? data.issues as Record<string, unknown>[] : [];
       yield {

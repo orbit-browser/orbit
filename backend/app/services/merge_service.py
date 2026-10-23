@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db.models import ExplorationEvent, Session as SessionModel, SessionEvent
 from .merge_suggester import _normalize_tokens, find_merge_suggestions
+from .workspaces import shared_workspaces
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,10 @@ async def merge_sessions(
         raise MergeError("not_found", "session not found")
     if survivor.status != "active" or absorbed.status != "active":
         raise MergeError("conflict", "both sessions must be active")
+    # 스트림이 다른 세션끼리는 병합하지 않는다(docs/team-collect-mode.md §3.3 S4). 개인 세션을 팀 수집 세션에
+    # 흡수시키면 개인 방문이 팀에 보인다. 공유 여부가 아니라 스트림을 직접 비교한다 — 공유가 풀려도 열은 남을 수 있다.
+    if survivor.collect_workspace_id != absorbed.collect_workspace_id:
+        raise MergeError("conflict", "sessions belong to different collection streams")
 
     absorbed_event_ids = await _fetch_events_ordered(db, absorbed_id)
     survivor_event_ids = await _existing_event_ids(db, survivor_id)
@@ -250,9 +255,16 @@ async def auto_merge_duplicates(db: AsyncSession, user_id: str) -> list[tuple[st
     재요약/재임베딩·흡수 세션 Qdrant 포인트 삭제는 호출측이 반환 목록으로 처리한다.
     """
     suggestions = await find_merge_suggestions(db, user_id)
+    shared = await shared_workspaces(
+        db, list({sid for s in suggestions for sid in (s.survivor_id, s.absorbed_id)})
+    )
     consumed: set[str] = set()
     merged: list[tuple[str, str]] = []
     for s in suggestions:
+        # 팀에 공유 중인 세션은 자동 병합하지 않는다 — 흡수된 페이지가 사용자 모르게 팀에
+        # 보이거나, 공유한 세션이 팀에서 사라진다. 수동 병합은 확인 UI에서 알린다.
+        if s.survivor_id in shared or s.absorbed_id in shared:
+            continue
         if not is_auto_merge_candidate(
             s.score,
             s.survivor_title,

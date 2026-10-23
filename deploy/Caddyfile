@@ -1,0 +1,27 @@
+{
+	# Let's Encrypt 만료 알림을 받을 주소.
+	email {$ACME_EMAIL}
+}
+
+{$ORBIT_DOMAIN} {
+	encode gzip
+
+	# FastAPI 자동 문서는 공개 서버에서 감춘다(API 목록이 그대로 드러난다).
+	@apidocs path /docs /docs/* /redoc /openapi.json
+	respond @apidocs 404
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+
+	# 이벤트 배치(최대 200개)를 넉넉히 넘는 크기. 큰 본문 하나로 2GB 서버 메모리가 차는 것을 막는다.
+	request_body {
+		max_size 5MB
+	}
+
+	# 접근 로그(log 블록)는 두지 않는다. /search?q=, /recommendations?current_url= 처럼
+	# 검색어와 지금 보는 탭 URL이 쿼리에 실려 그대로 로그에 남기 때문이다.
+	reverse_proxy backend:8000
+}

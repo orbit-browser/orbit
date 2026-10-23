@@ -225,7 +225,7 @@ def test_answer_events_for_session_discovery_skips_generation(monkeypatch):
 def test_source_count_follows_retrieval_intent(monkeypatch):
     limits: list[int] = []
 
-    async def fake_search(_query, limit, _rerank, _db, _user_id, **_kwargs):
+    async def fake_search(_query, limit, _rerank, _db, _user_id, _shared_ids=None, _workspace_id=None, **_kwargs):
         limits.append(limit)
         return []
 
@@ -251,7 +251,7 @@ def test_prepare_context_falls_back_when_event_embedding_fails(monkeypatch):
         ),
     )
 
-    async def fake_load(_db, _session_ids, _user_id):
+    async def fake_load(_db, _session_ids, _user_id, _workspace_id=None):
         return {source.session_id: SimpleNamespace(tabs=[])}, [row]
 
     async def fail_rank(*_args):
@@ -443,8 +443,9 @@ def test_has_evidence_accepts_strong_passage_when_session_scores_are_low():
 
 
 def test_prepare_context_returns_no_sources_without_evidence(monkeypatch):
-    async def fake_load(_db, _session_ids, _user_id):
-        return {}, []
+    async def fake_load(_db, session_ids, _user_id, _workspace_id=None):
+        # _load_context_records는 읽을 수 있는 세션을 모두 돌려준다(팀 공유 해제 세션만 빠진다).
+        return {session_id: SimpleNamespace(tabs=[]) for session_id in session_ids}, []
 
     async def fake_score(_query, _rows):
         return _scored("weak", 0.27)
@@ -460,8 +461,9 @@ def test_prepare_context_returns_no_sources_without_evidence(monkeypatch):
 
 
 def test_prepare_context_fallback_skips_weak_candidates(monkeypatch):
-    async def fake_load(_db, _session_ids, _user_id):
-        return {}, []
+    async def fake_load(_db, session_ids, _user_id, _workspace_id=None):
+        # _load_context_records는 읽을 수 있는 세션을 모두 돌려준다(팀 공유 해제 세션만 빠진다).
+        return {session_id: SimpleNamespace(tabs=[]) for session_id in session_ids}, []
 
     async def fail_rank(*_args):
         raise RuntimeError("embedding unavailable")
@@ -482,8 +484,9 @@ def test_vector_score_is_not_serialized():
 def test_prepare_context_numbers_only_selected_sources(monkeypatch):
     sources = [_source("loan", "전세대출"), _source("rtx", "그래픽카드")]
 
-    async def fake_load(_db, _session_ids, _user_id):
-        return {}, []
+    async def fake_load(_db, session_ids, _user_id, _workspace_id=None):
+        # _load_context_records는 읽을 수 있는 세션을 모두 돌려준다(팀 공유 해제 세션만 빠진다).
+        return {session_id: SimpleNamespace(tabs=[]) for session_id in session_ids}, []
 
     async def fake_score(_query, _rows):
         return {**_scored("loan", 0.5), **_scored("rtx", 0.2)}

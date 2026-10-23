@@ -1,0 +1,25 @@
+product,capability,value,basis,source_ids,checked_on
+Orbit,자연어로 예전 페이지 찾기,3/6,직접 시험,orbit_trial.csv;orbit-ui-trial.md,2026-10-22
+Orbit,기록 없는 질문에 '없음',2/2,직접 시험,orbit_trial.csv;orbit-ui-trial.md,2026-10-22
+Orbit,같이 본 페이지 목록,찾은 작업만,직접 시험,orbit-ui-trial.md,2026-10-22
+Orbit,작업 다시 열기,4/9 · 섞임 0,직접 시험,orbit-ui-trial.md,2026-10-22
+Perplexity Comet,자연어로 예전 페이지 찾기,1/6,직접 시험,competitor_trials.csv,2026-10-20
+Perplexity Comet,기록 없는 질문에 '없음',1/2,직접 시험,competitor_trials.csv,2026-10-20
+Perplexity Comet,같이 본 페이지 목록,못 찾음,직접 시험,competitor_trials.csv,2026-10-20
+Perplexity Comet,작업 다시 열기,일부,직접 시험,competitor_trials.csv,2026-10-20
+Google Chrome,자연어로 예전 페이지 찾기,0/6,직접 시험,competitor_trials.csv,2026-10-20
+Google Chrome,기록 없는 질문에 '없음',결과 0,직접 시험,competitor_trials.csv,2026-10-20
+Google Chrome,같이 본 페이지 목록,기능 없음,직접 시험,competitor_trials.csv,2026-10-20
+Google Chrome,작업 다시 열기,기능 없음,직접 시험,competitor_trials.csv,2026-10-20
+Aside,자연어로 예전 페이지 찾기,일부,공식 문서,A8;A9,2026-10-20
+Aside,기록 없는 질문에 '없음',확인 못 함,공식 문서,,2026-10-20
+Aside,같이 본 페이지 목록,확인 못 함,공식 문서,A6;A9,2026-10-20
+Aside,작업 다시 열기,확인 못 함,공식 문서,A6;A9,2026-10-20
+Dia,자연어로 예전 페이지 찾기,일부,공식 문서,D3,2026-10-20
+Dia,기록 없는 질문에 '없음',확인 못 함,공식 문서,,2026-10-20
+Dia,같이 본 페이지 목록,일부,공식 문서,D8,2026-10-20
+Dia,작업 다시 열기,일부,공식 문서,D8,2026-10-20
+Microsoft Edge,자연어로 예전 페이지 찾기,일부,공식 문서,E3;E5,2026-10-20
+Microsoft Edge,기록 없는 질문에 '없음',확인 못 함,공식 문서,,2026-10-20
+Microsoft Edge,같이 본 페이지 목록,확인 못 함,공식 문서,E4,2026-10-20
+Microsoft Edge,작업 다시 열기,확인 못 함,공식 문서,E4,2026-10-20

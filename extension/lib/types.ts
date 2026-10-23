@@ -91,6 +91,114 @@ export interface Session {
   folderId?: string;
   /** 폴더 소속을 누가 정했는지. 'auto' 면 서버 자동 분류다. 정한 적 없으면 undefined. */
   folderAssignedBy?: 'user' | 'auto';
+  /**
+   * 이 세션이 공유된 팀 id. 목록·단건 조회에서 소유자에게만 채워진다 — 다른 응답과 팀원이 받은
+   * 응답에서는 비어 있다. 공유 배지는 목록 응답을 기준으로 그린다.
+   */
+  sharedWorkspaceIds?: string[];
+}
+
+// ── 팀 워크스페이스 (docs/api-design-v2.md §14) ────────────────────────
+
+export type WorkspaceRole = 'owner' | 'member';
+
+/** 내가 속한 팀. 1단계는 세션 공유형 — 공유된 세션을 함께 보고 검색·Ask 한다. */
+export interface Workspace {
+  id: string;
+  name: string;
+  hue: string;
+  role: WorkspaceRole;
+  memberCount: number;
+  /** ISO 8601 */
+  createdAt: string;
+  /** owner 가 팀 수집을 허용했는지(docs/team-collect-mode.md §1.1). */
+  collectAllowed?: boolean;
+  /** 이 기기에서 이 팀으로 열린 수집 창. 없으면 null. */
+  myCollect?: CollectWindow | null;
+}
+
+// ── 팀 수집 모드 (docs/team-collect-mode.md §5) ───────────────────────
+
+/** 서버가 만든 수집 창. 팀 판정의 근거는 언제나 서버의 이 행이다. */
+export interface CollectWindow {
+  windowId: string;
+  workspaceId: string;
+  deviceId: string;
+  /** ISO 8601 */
+  startedAt: string;
+  /** ISO 8601 */
+  expiresAt: string;
+}
+
+export interface CollectingMember {
+  userId: string;
+  name: string | null;
+  picture: string | null;
+  /** ISO 8601 */
+  expiresAt: string;
+}
+
+export interface CollectStatus {
+  allowed: boolean;
+  /** 이 팀에 대한 내 모든 기기의 열린 창(다른 기기 것을 끄기 위해). */
+  myWindows: CollectWindow[];
+  collecting: CollectingMember[];
+}
+
+export interface CollectStartResult {
+  window: CollectWindow;
+  /** ISO 8601 — 기기 시계 보정 기준 */
+  serverNow: string;
+  endedWorkspaceId: string | null;
+}
+
+export interface WithdrawResult {
+  withdrawnEvents: number;
+  sessions: Session[];
+  windowClosed: boolean;
+}
+
+export interface WorkspaceMember {
+  userId: string;
+  name: string | null;
+  /** owner 와 본인에게만 채워진다 — 팀원끼리는 이름·사진만 본다. */
+  email: string | null;
+  picture: string | null;
+  role: WorkspaceRole;
+  /** ISO 8601 */
+  joinedAt: string;
+}
+
+export interface MemberBrief {
+  userId: string;
+  name: string | null;
+  picture: string | null;
+}
+
+/**
+ * 팀에 공유된 세션 — 원본 세션을 가리키는 라이브 참조다. 공유 뒤 붙은 페이지도 보인다.
+ * `folderId` 는 공유한 사람의 개인 폴더라 팀 화면에서는 쓰지 않는다.
+ */
+export interface WorkspaceSession extends Session {
+  sharedBy: MemberBrief;
+  /** 이 팀으로 수집된 세션인지(팀 수집 모드). */
+  collected?: boolean;
+  /** ISO 8601 */
+  sharedAt: string;
+}
+
+/** 초대 코드는 발급 응답에서 한 번만 보인다 — 서버는 해시만 저장한다. */
+export interface InviteCode {
+  code: string;
+  /** ISO 8601 */
+  expiresAt: string;
+}
+
+/** 공유 결과 — 폴더 배정과 같이 건너뛴 세션을 그대로 돌려준다. */
+export interface ShareResult {
+  workspaceId: string;
+  shared: string[];
+  skipped: string[];
 }
 
 // ── 사용자 폴더 (docs/api-design-v2.md §13) ────────────────────────────
@@ -218,6 +326,8 @@ export interface AskStreamRequest {
   sessionId?: string;
   rerank?: boolean;
   intent?: AssistantRetrievalIntent;
+  /** 주면 그 팀에 공유된 세션만 근거로 쓴다. */
+  workspaceId?: string;
   /** 최근 대화(오래된 순, 최대 3턴). 비우면 독립 질문으로 처리된다. */
   history?: AskHistoryTurn[];
 }
@@ -232,6 +342,8 @@ export interface AskVerificationIssue {
 export type AskStreamEvent =
   | { type: 'sources'; sessions: Session[] }
   | { type: 'delta'; text: string }
+  /** 서버가 생성 뒤 검사에서 근거와 모순을 찾았을 때 이미 보낸 본문 전체를 바꾼다. */
+  | { type: 'replace'; text: string }
   | { type: 'verification'; issues: AskVerificationIssue[] }
   | { type: 'done'; model: string | null }
   | {

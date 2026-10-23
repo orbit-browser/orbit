@@ -26,9 +26,12 @@ from .api.sessions import router as sessions_router
 from .api.settings import router as settings_router
 from .api.sync import router as sync_router
 from .api.tab_actions import router as tab_actions_router
-from .config import settings
+from .api.team_collect import router as team_collect_router
+from .api.workspaces import router as workspaces_router
+from .config import parse_cors_origins, settings
 from .db.session import init_db
 from .db.vector import backfill_user_ids, init_collection
+from .services.embedding_sync import backfill_owner_payload
 from .services.sync_pipeline import periodic_sync_loop
 
 
@@ -36,6 +39,8 @@ from .services.sync_pipeline import periodic_sync_loop
 async def lifespan(app: FastAPI):
     await init_db()
     await init_collection()
+    # 두 갈래가 따로 만든 백필이다. 앞은 소유자를 채우고, 뒤는 남은 고아 포인트를 지운다. 둘 다 멱등이다.
+    await backfill_owner_payload()
     await backfill_user_ids()
     await recover_pending_sessions()
 
@@ -55,9 +60,11 @@ app = FastAPI(title="Orbit API", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=parse_cors_origins(settings.cors_allow_origins),
     allow_methods=["*"],
     allow_headers=["*"],
+    # 공유 세션 id 폴링이 304로 본문을 아끼려면 확장이 ETag 를 읽어야 한다(기본 노출 헤더가 아님).
+    expose_headers=["ETag"],
 )
 
 # /auth 만 무인증 — 로그인해야 토큰을 받을 수 있으므로.
@@ -81,6 +88,9 @@ app.include_router(ask_router, dependencies=_authenticated)
 # 열린 탭 제목·URL과 의도 임베딩도 사용자 입력이므로 인증된 확장에서만 호출한다.
 app.include_router(tab_actions_router, dependencies=_authenticated)
 app.include_router(assistant_router, dependencies=_authenticated)
+# 팀 워크스페이스 — 멤버십 검사는 각 엔드포인트가 하지만 인증은 여기서 먼저 건다.
+app.include_router(workspaces_router, dependencies=_authenticated)
+app.include_router(team_collect_router, dependencies=_authenticated)
 
 
 @app.get("/health")

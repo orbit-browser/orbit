@@ -21,8 +21,13 @@ POST /sync (또는 주기 루프 / 개수 임계) → sync_pipeline.run_batch:
   → 그룹별: 그룹 임베딩 → Qdrant로 기존 세션 후보 검색(top3, thr 0.35) + 최근 24h 활성 세션(≤5)
   → LLM 의도 분석 1회: {assignments:[{event_indices, action: append|create|hold|discard, target|title, relevance}]}
     (split은 한 그룹이 여러 assignment로 갈리는 것으로 자연 지원, merge는 후순위 — 스키마만 예약)
+  → append 게이트: 후보의 유한한 유사도 점수 ≥ append_score_floor 및 최근 활동 조건 확인.
+    최근 목록에만 있는 후보(score 없음), 유효하지 않은 점수, 사라진 후보는 create로 분리.
+  → discard 가드: 같은 도메인 2회 이상·본문 있음·체류 10초 이상인 이벤트를 LLM이 discard하면 create로 분리.
+    (의도 분석 이벤트 줄에는 제목·도메인·체류와 함께 URL 경로가 들어가 제목이 같은 페이지를 구분한다.)
   → session_updater: 세션 생성/갱신 + session_events + tabs JSONB 대표 페이지 top-20 동기화(하위 호환)
   → 변경된 세션: generate_summary(재사용) → session_versions 기록 → _embed_and_upsert(재사용)
+    (임베딩 텍스트: 세션 제목 + 요약 + 대표 페이지의 제목·도메인·URL 경로 토큰)
 ```
 
 이 파이프라인은 `Event Stream(수집) → Session Builder(그룹화+의도분석+세션갱신) → Memory Store(exploration_events/sessions/session_events/session_versions) → Embedding(기존 재사용) → Timeline/Search/Analytics(조회 계층)` 6단계로 구성된다. Timeline·Search·Analytics는 Memory Store를 읽기만 하는 조회 계층이며, 쓰기는 Session Builder(배치)와 인제스트(이벤트 최초 저장) 두 지점으로 한정된다.
@@ -41,6 +46,9 @@ open → pending → syncing → synced
 - `synced`: 서버가 2xx로 accepted 처리한 이벤트. 48시간 후 prune(로컬 큐에서 삭제) 대상.
 - 사용자는 동기화 전(`open`/`pending`) 이벤트를 Timeline에서 개별 삭제할 수 있다.
 - 큐 상한 5,000개 — 초과 시 `synced`부터 정리하고, 그래도 부족하면 최고령 `pending`을 퇴출하며 `droppedCount`를 UI에 노출한다(무음 데이터 유실 금지).
+- **계정 귀속(DB v2)**: 이벤트마다 방문 당시 로그인 계정 `accountId`(로컬 전용, wire 제외)를 단다. 로그아웃 상태에서는 수집하지 않는다. Timeline·동기화 요약은 현재 계정 것만 읽고(`by-account-status`·`by-account-visitedAt` 색인), drain은 현재 계정 이벤트만 그 계정 토큰(고른 순간에 고정)으로 보낸다. 로그아웃·계정 교체 때는 이전 계정의 열린 방문을 마감하고 탭 상태를 비운 뒤, 남은 이벤트를 이전 계정 토큰으로 한 번 보낸다. 못 보낸 것은 그 계정 것으로 남아 그 계정이 다시 로그인할 때 보낸다. v1 큐(계정 없음)는 업그레이드 때 비운다.
+- **수집 동의는 계정별**(`orbit:collectionConsent`, 계정 id → 동의). `settings.collectionEnabled`는 지금 계정의 동의를 비춘 값이고, 계정이 바뀌면 SW가 새 계정의 동의로 바꾼다(없으면 꺼짐 → 동의 안내가 다시 나옴). 수집기는 방문을 만들 때 그 계정의 동의를 직접 확인한다. 업데이트 직후에는 브라우저 단위였던 기존 동의를 그때 로그인한 계정으로 옮긴다.
+- 탭 상태(`orbit:tabState`)에도 계정 id를 두고, 다른 계정의 탭 상태는 referrer·이전 이벤트로 잇지 않는다. 다른 계정(로그아웃 상태면 모든 계정)의 이벤트는 7일이 지나면 SW 시작 정리에서 지운다. 로그아웃 뒤에도 그 계정의 남은 이벤트를 그 계정 토큰으로 한 번 보낸다(서버 `/auth/logout`은 토큰을 폐기하지 않는다).
 
 ### 2.2 서버 이벤트 상태 (`exploration_events.sync_status`)
 
@@ -79,7 +87,8 @@ pending → processing → processed | discarded
 - **실패**: 지수 백오프(최대 30분)로 재시도 알람을 예약. 브라우징 자체는 절대 막지 않는다(fail-open) — 수집 실패가 사용자의 정상적인 브라우징을 방해해서는 안 된다는 원칙을 collector 단계부터 동기화 단계까지 일관 적용한다.
 - **배치 동시 실행 방지(서버)**: 모듈 레벨 `asyncio.Lock` + `sync_batches.status='running'` 행을 재시작 안전망으로 사용한다. 서버 재시작 시 복구 로직(`recover_pending_sessions` 확장)이 `running`이던 배치는 `failed`로, `processing`이던 이벤트는 `pending`으로 되돌린다 — 기존 `recover_pending_sessions`(요약/임베딩 복구)와 동일한 "재시작 시 중단된 작업을 안전 상태로 되돌리는" 패턴을 이벤트 파이프라인에도 그대로 적용한 것이다.
 - **멱등성**: 이벤트 `id`는 클라이언트가 생성한 UUID이자 PK이며, 서버는 `on_conflict_do_nothing`으로 삽입한다. 응답의 `accepted`/`duplicates` 카운트로 클라이언트가 로컬 큐를 정리한다 — SW가 응답을 받기 전에 죽어도, 다음 재전송이 같은 UUID로 들어오므로 서버에 중복 레코드가 쌓이지 않는다.
-- **A.X 3 RPS 대응**: 배치 파이프라인의 LLM 호출은 전부 순차 실행하고, `llm.py`에 전역 최소 호출 간격(~500ms) 리미터를 추가해 스냅샷 경로(`POST /sessions/cluster`)와 공유한다. 배치 소요 시간이 2~5분으로 늘어날 수 있으므로 `/sync/status`로 진행 상황(현재 배치/처리량)을 노출한다.
+- **A.X 호출 제한 대응**(설계 당시 A.X-K1 안내값 3 RPS. 2026-10-23 실측: A.X-K2 짧은 요청(max_tokens 8)을 1→6 RPS로 단계마다 10초씩 보내 160회 모두 성공, 429·한도 헤더 없음(`backend/eval/probe_rate_limit.py`). 긴 요청·분 단위 한도는 미측정): `llm.py`의 공급자별 최소 호출 간격 리미터(A.X 250ms, EXAONE·KT 500ms, 429면 그 공급자만 1초 늦춤)를 스냅샷 경로(`POST /sessions/cluster`)와 배치가 공유한다. 배치 안에서는 클러스터별 의도 분석과 세션 재요약을 각각 동시 2개까지 부르고, 세션 반영(phase 2)은 클러스터 순서대로 차례로 한다(2026-10-23, 첫 배치 13.35초의 89%가 두 LLM 단계를 차례로 부른 시간). 배치 소요 시간이 2~5분으로 늘어날 수 있으므로 `/sync/status`로 진행 상황(현재 배치/처리량)을 노출한다.
+- **대상 나누기**(`SUBJECT_SPLIT_ENABLED`, 기본 켬 — S4 판정 합격, DecisionLog 2026-10-23): 같은 범주의 다른 대상은 임베딩이 가까워 서브클러스터 하나로 들어온다(S1 검증셋 47개 중 44개). 켜면 이벤트 6개 이상인 서브클러스터에만 A.X에게 목적별 이벤트 묶음과 그 관계(independent/facets/unsure)를 묻고, 확실히 서로 다른 대상일 때만 대상 묶음마다 의도 분석을 따로 한다(`services/subject_splitter.py`). 호출은 A.X 전용이고 폴백·재시도가 없다. 실패·형식 오류·facets·unsure면 나누지 않는다. 비용은 큰 서브클러스터마다 A.X 호출 1번(추가 지연 p50 0.44초, p95 0.73초), 나뉘면 의도 분석이 대상 수만큼 는다. 켜짐이면 시도마다 결과를 배치 감사(`sync_batches.model` 요약)에 `split@<모델>`(나눔), `keep@<모델>`(그대로), `split_fail`(호출·형식 실패)로 남긴다. 끄면 서브클러스터·LLM 호출·감사 기록이 대상 나누기 전과 같다.
 
 ## 6. 개인정보 보호 구조
 
@@ -94,6 +103,7 @@ pending → processing → processed | discarded
 | 로컬/서버 범위 구분 | 이벤트는 로컬 큐 선저장 → 동기화 시에만 서버 전송. 본문 저장 여부는 `contentCapture` 토글 |
 | LLM 전송 전 제외 | 의도 분석 프롬프트에 본문 미포함(제목/도메인/체류만), 본문은 요약 프롬프트에서만 기존 2000자/10개 캡 |
 | 수집 상태 상시 표시 | `SyncStatusCard` 활성/일시정지 인디케이터 |
+| 팀 공유 범위 (2026-10-20) | 팀에는 사용자가 고른 세션만 라이브 참조로 공유. 단건 읽기는 `api/sessions.py` `_readable_session`, 쓰기는 소유자 전용(`_owned_session`). 팀 검색·Ask의 SQL 경계는 `session_scope_clause`로 조회자·공유자 멤버십, 공유 행, 비흡수 상태를 같은 쿼리에서 판정. Qdrant만 미리 구한 공유 id로 후보를 좁히며, 방문·Ask 본문에도 같은 SQL 범위를 적용(철회 시점의 한계는 `api-design-v2.md` §14.3) |
 
 이 표는 "무엇을 수집하는가"보다 "언제·어디까지 사용자 통제가 미치는가"를 기준으로 설계되어 있다 — 로컬 큐 단계에서는 사용자가 전량 열람·삭제 가능하고, 서버로 넘어간 뒤에도 개별 이벤트 삭제가 가능하도록 대칭적으로 설계했다.
 

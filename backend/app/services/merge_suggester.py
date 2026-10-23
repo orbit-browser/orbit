@@ -38,6 +38,8 @@ class SessionMeta:
     # 제안 카드에 보여 줄 이름(별칭 우선). 점수에는 쓰지 않는다.
     # 비어 있으면 title로 되돌아간다 — 판정만 검증하는 호출자는 채우지 않아도 된다.
     display_title: str = ""
+    # 팀 수집 스트림. 다른 스트림끼리는 제안하지 않는다(docs/team-collect-mode.md §3.3).
+    stream: str | None = None
 
 
 def _normalize_tokens(values: list[str]) -> set[str]:
@@ -105,6 +107,7 @@ def _to_meta(session: SessionModel) -> SessionMeta:
         keywords=tuple(str(k) for k in (session.keywords or [])),
         event_count=session.event_count or 0,
         order_ts=session.started_at or session.created_at,
+        stream=session.collect_workspace_id,
     )
 
 
@@ -133,7 +136,7 @@ async def find_merge_suggestions(db: AsyncSession, user_id: str) -> list[MergeSu
             continue
         # limit은 상한 여유를 두고 조회, 자기 자신은 제외
         neighbors = await search_similar_with_scores(
-            vector, user_id=user_id, limit=10, score_threshold=floor
+            vector, limit=10, score_threshold=floor, user_id=user_id
         )
         for other_id, score in neighbors:
             if other_id == session.id or other_id not in metas:
@@ -145,6 +148,8 @@ async def find_merge_suggestions(db: AsyncSession, user_id: str) -> list[MergeSu
     suggestions: list[MergeSuggestion] = []
     for key, score in best_score.items():
         id_a, id_b = tuple(key)
+        if metas[id_a].stream != metas[id_b].stream:
+            continue
         suggestion = evaluate_pair(metas[id_a], metas[id_b], score, floor=floor)
         if suggestion is not None:
             suggestions.append(suggestion)

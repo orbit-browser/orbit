@@ -210,3 +210,27 @@ def test_new_vs_existing_accuracy_partial_mismatch():
 
 def test_new_vs_existing_accuracy_none_when_empty():
     assert new_vs_existing_accuracy([]) is None
+
+
+# ── 형제 기존 세션 오염 (model-eval-v1에서 찾은 정의 결함) ─────────────────
+
+
+def test_wrong_append_to_sibling_session_is_not_remapped_to_correct():
+    # 후쿠오카 이벤트 둘을 형제 기존 세션(오사카)에 통째로 붙였다. 다수결 리매핑이 append 키까지
+    # 바꾸면 "s::osaka" → "s::fukuoka"가 되어 맞은 것으로 센다. 기존 세션 오염은 오답이어야 한다.
+    outcomes = [
+        _o("e1", "s::osaka", "s::fukuoka"),
+        _o("e2", "s::osaka", "s::fukuoka"),
+        _o("e3", "s::new::0", "s::gpu"),
+    ]
+    assert assignment_accuracy(outcomes) == 1 / 3
+    assert [o.predicted_key for o in remap_predictions(outcomes)] == ["s::osaka", "s::osaka", "s::gpu"]
+
+
+def test_legacy_accuracy_keeps_majority_remap_for_all_clusters():
+    outcomes = [
+        _o("e1", "s::osaka", "s::fukuoka"),
+        _o("e2", "s::osaka", "s::fukuoka"),
+        _o("e3", "s::new::0", "s::gpu"),
+    ]
+    assert assignment_accuracy(outcomes, created_only=False) == 1.0

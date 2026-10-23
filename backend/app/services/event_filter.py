@@ -6,7 +6,8 @@
 
 import hashlib
 import re
-from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
+import unicodedata
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 _SYSTEM_SCHEMES = {
     "chrome",
@@ -111,6 +112,16 @@ def normalize_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
 
 
+def _decoded(text: str) -> str:
+    """판정용 정규화. 이중 인코딩(%2540)까지 풀고 전각 문자(＠, ｌ)를 반각으로 접는다."""
+    for _ in range(5):
+        decoded = unicodedata.normalize("NFKC", unquote(text))
+        if decoded == text:
+            break
+        text = decoded
+    return text
+
+
 def is_sensitive_url(url: str) -> bool:
     """민감 도메인/경로 여부 — 본문 제거 판정용(이벤트 자체는 저장)."""
     try:
@@ -118,17 +129,83 @@ def is_sensitive_url(url: str) -> bool:
     except ValueError:
         return False
 
-    host = parts.hostname or ""
+    # 끝 점 호스트(hometax.go.kr.)와 인코딩한 경로(/%6Cogin/)도 같은 페이지다.
+    host = _decoded(parts.hostname or "").rstrip(".")
+    path = _decoded(parts.path)
     if any(pattern.search(host) for pattern in _SENSITIVE_DOMAIN_PATTERNS):
         return True
-    if any(pattern.search(parts.path) for pattern in _SENSITIVE_PATH_PATTERNS):
+    if any(pattern.search(path) for pattern in _SENSITIVE_PATH_PATTERNS):
         return True
     return False
+
+
+_PATH_PIECE = re.compile(r"[A-Za-z0-9]+")
+_HEX_PIECE = re.compile(r"[0-9a-f]{12,}", re.IGNORECASE)
+# 문서 id 같은 base64url 값은 -, _ 로 쪼개면 조각마다 짧아져서 통째로도 본다.
+_ID_RUN = re.compile(r"[A-Za-z0-9_-]{16,}")
+
+
+def _looks_secret(segment: str) -> bool:
+    """문서 id·재설정 토큰·이메일·주문 번호처럼 사람을 특정하거나 접근 권한이 되는 경로 조각."""
+    segment = _decoded(segment)
+    if "@" in segment:
+        return True
+    for piece in _PATH_PIECE.findall(segment):
+        if piece.isdigit():
+            if len(piece) >= 8:
+                return True
+        elif _HEX_PIECE.fullmatch(piece):
+            return True
+        elif len(piece) >= 16 and any(c.isdigit() for c in piece):
+            return True
+    return any(
+        any(c.isdigit() for c in run) and any(c.isupper() for c in run) and any(c.islower() for c in run)
+        for run in _ID_RUN.findall(segment)
+    )
+
+
+def ai_safe_path(url: str) -> str:
+    """외부 AI(임베딩·LLM)에 보낼 URL 경로. 쿼리·프래그먼트는 없고, 민감 URL과 .go.kr URL은 빈 문자열."""
+    try:
+        parts = urlsplit(url)
+        path = parts.path
+    except ValueError:
+        return ""
+    # .go.kr 공지 본문은 수집하지만(민감 도메인 아님) 그 경로는 외부 AI에 보내지 않는다 —
+    # 민원·신청 페이지 경로에 접수 번호 같은 개인 식별 조각이 섞여도 사이트마다 형식이 달라 가려낼 수 없다.
+    if is_sensitive_url(url) or _decoded(parts.hostname or "").rstrip(".").endswith(".go.kr"):
+        return ""
+    return "/".join(segment for segment in path.split("/") if not _looks_secret(segment))
+
+
+def ai_safe_url(url: str) -> str:
+    """Ask 프롬프트의 출처 URL. 사용자 화면의 링크는 원래 URL을 그대로 쓴다."""
+    try:
+        parts = urlsplit(url)
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return ""
+    if not parts.hostname:
+        return ""
+    return f"{parts.scheme}://{parts.hostname}{port}{ai_safe_path(url)}"
 
 
 def _first_query_value(query: str, param: str) -> str | None:
     values = parse_qs(query).get(param)
     return values[0] if values else None
+
+
+def _search_param(host: str, path: str) -> str | None:
+    """검색엔진 결과 페이지면 검색어 쿼리 이름, 아니면 None."""
+    if _GOOGLE_HOST_RE.search(host) and path == "/search":
+        return "q"
+    if host == "search.naver.com" and path == "/search.naver":
+        return "query"
+    if host in ("youtube.com", "www.youtube.com") and path == "/results":
+        return "search_query"
+    if host in ("bing.com", "www.bing.com") and path == "/search":
+        return "q"
+    return None
 
 
 def extract_search_query(url: str) -> str | None:
@@ -137,20 +214,103 @@ def extract_search_query(url: str) -> str | None:
         parts = urlsplit(url)
     except ValueError:
         return None
+    param = _search_param((parts.hostname or "").lower(), parts.path)
+    return _first_query_value(parts.query, param) if param else None
 
-    host = (parts.hostname or "").lower()
-    path = parts.path
 
-    if _GOOGLE_HOST_RE.search(host) and path == "/search":
-        return _first_query_value(parts.query, "q")
-    if host == "search.naver.com" and path == "/search.naver":
-        return _first_query_value(parts.query, "query")
-    if host in ("youtube.com", "www.youtube.com") and path == "/results":
-        return _first_query_value(parts.query, "search_query")
-    if host in ("bing.com", "www.bing.com") and path == "/search":
-        return _first_query_value(parts.query, "q")
+# ── 팀 수집 전용 판정 (docs/team-collect-mode.md §2.1) ─────────────────────
+# 개인 수집에는 쓰지 않는다. 확장의 같은 목록과 함께 바꾸고, 바꾸면 동의 문구 버전도 올린다.
 
-    return None
+# 로그인 화면으로 보이는 호스트. 경로 정규식(_SENSITIVE_PATH_PATTERNS)이 못 잡는 SSO 화면을 더 잡지만
+# 모든 로그인 화면을 잡지는 못한다 — 동의 문구는 "로그인 주소로 보이는 페이지"까지만 약속한다.
+_LOGIN_HOST_PREFIXES = ("login.", "accounts.", "sso.", "auth.", "signin.")
+_LOGIN_PATHS = {"github.com": ("/session",)}
+
+# 팀 수집 기본 제외(CTO 결정, v1은 사용자가 풀 수 없다): 웹메일·메신저. 검색 결과 페이지는 _search_param 으로 본다.
+_TEAM_EXCLUDED_HOSTS = (
+    "mail.google.com",
+    "outlook.live.com",
+    "outlook.office.com",
+    "outlook.office365.com",
+    "mail.naver.com",
+    "mail.daum.net",
+    "web.whatsapp.com",
+    "web.telegram.org",
+    "app.slack.com",
+    "teams.microsoft.com",
+    "messenger.com",
+)
+_TEAM_EXCLUDED_PATHS = {"discord.com": "/channels", "instagram.com": "/direct"}
+
+# _search_param(검색어 추출용) 밖의 검색 결과 페이지. 동의 문구가 "검색 결과 페이지"라고 넓게 말하므로
+# 팀 수집에서는 주요 검색엔진의 결과 경로를 더 막는다. 개인 수집의 검색어 추출(§8)은 바꾸지 않는다.
+_TEAM_SEARCH_PAGES = {
+    "search.daum.net": ("/search",),
+    "m.search.daum.net": ("/search",),
+    "m.search.naver.com": ("/search.naver",),
+    "search.naver.com": ("/search.naver",),
+    "html.duckduckgo.com": ("/html",),
+    "search.yahoo.com": ("/search",),
+    "www.ecosia.org": ("/search",),
+}
+
+
+def _host_matches(host: str, domain: str) -> bool:
+    return host == domain or host.endswith("." + domain)
+
+
+def is_team_blocked_url(url: str, excluded_domains: tuple[str, ...] | list[str] = ()) -> bool:
+    """팀 스트림으로 보내지 않을 주소인가. 민감 URL·로그인 호스트·기본 제외·사용자 제외 목록.
+
+    판정할 수 없는 주소도 막는다(실패 시 닫힘).
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return True
+    host = _decoded(parts.hostname or "").rstrip(".").lower()
+    if not host:
+        return True
+    path = _decoded(parts.path)
+    if is_sensitive_url(url):
+        return True
+    if host.startswith(_LOGIN_HOST_PREFIXES):
+        return True
+    for domain, paths in _LOGIN_PATHS.items():
+        if _host_matches(host, domain) and any(path == p or path.startswith(p + "/") for p in paths):
+            return True
+    if any(_host_matches(host, domain) for domain in _TEAM_EXCLUDED_HOSTS):
+        return True
+    for domain, prefix in _TEAM_EXCLUDED_PATHS.items():
+        if _host_matches(host, domain) and (path == prefix or path.startswith(prefix + "/")):
+            return True
+    if _search_param(host, parts.path) is not None:
+        return True
+    if any(path == p or path.startswith(p + "/") for p in _TEAM_SEARCH_PAGES.get(host, ())):
+        return True
+    if host in ("duckduckgo.com", "www.duckduckgo.com") and "q" in parse_qs(parts.query):
+        return True
+    return any(_host_matches(host, domain.strip(".").lower()) for domain in excluded_domains if domain)
+
+
+def teammate_url(url: str) -> str:
+    """팀원 응답에 싣는 페이지 주소. 쿼리·프래그먼트·계정 정보를 지우고, 민감 URL은 도메인만 남긴다(§7.3).
+
+    경로는 남긴다 — 팀원이 링크로 열 수 있어야 한다. 제목·요약 속 검색어는 여기서 지우지 못한다.
+    """
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return ""
+    if not host:
+        return ""
+    netloc = f"[{host}]" if ":" in host else host
+    if port:
+        netloc += f":{port}"
+    path = "/" if is_sensitive_url(url) else (parts.path or "/")
+    return urlunsplit((parts.scheme, netloc, path, "", ""))
 
 
 def content_hash(text: str) -> str:

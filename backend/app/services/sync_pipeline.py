@@ -9,6 +9,7 @@
 
 import asyncio
 import logging
+import math
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -22,7 +23,7 @@ from ..db.vector import delete_point, score_sessions, search_similar_with_scores
 from ..services import intent_analyzer
 from ..services.event_filter import is_system_url
 from ..services.intent_analyzer import Assignment
-from ..services.noise_filter import split_noise
+from ..services.noise_filter import domain_counts, has_topic_evidence, split_noise
 from ..services.grouper import dedupe_events, group_by_time_gap
 from ..services.app_settings import is_auto_folder_enabled, is_auto_merge_enabled
 from ..services.folder_classifier import auto_file_sessions
@@ -30,11 +31,16 @@ from ..services.merge_service import auto_merge_duplicates
 from ..services.recommender.service import invalidate as invalidate_recommendations
 from ..services.session_updater import apply_assignments, refresh_session_ai
 from ..services.subclusterer import subcluster
+from ..services.subject_splitter import split_by_subject
 
 logger = logging.getLogger(__name__)
 
 _GAP_MINUTES = 30
 _MAX_GROUP_SIZE = 25
+# 배치 안 LLM 호출 동시 상한. 첫 배치 지연의 89%가 요약·의도 분석을 차례로 부르는 데서 났다(2026-10-23 측정).
+# 공급자 리미터(llm._throttle)가 RPS를 따로 지키므로 여기서는 동시에 기다리는 호출 수만 묶는다.
+_INTENT_CONCURRENCY = 2
+_SUMMARY_CONCURRENCY = 2
 _CANDIDATE_VECTOR_LIMIT = 3
 _CANDIDATE_RECENT_LIMIT = 5
 _CANDIDATE_RECENT_HOURS = 24
@@ -80,6 +86,9 @@ def _event_to_dict(row: ExplorationEvent) -> dict:
         "tab_id": row.tab_id,
         "window_id": row.window_id,
         "event_type": row.event_type,
+        # 팀 수집 스트림(None=개인). 반영 직전에 서버가 다시 판정한다(team_collect.confirm_team_events).
+        "workspace_id": row.workspace_id,
+        "collect_window_id": row.collect_window_id,
     }
 
 
@@ -150,26 +159,31 @@ async def _create_batch_row(trigger_type: str) -> str:
 async def _claim_pending_events(batch_id: str) -> tuple[list[dict], str | None]:
     """pending 이벤트를 claim(→processing)하고 sync_batch_events에 감사 로그를 남긴다.
 
-    **한 배치는 한 사용자의 이벤트만 다룬다.** 시간 gap 그룹화가 사용자 경계를 모르기 때문에
-    여러 사용자 이벤트를 섞어 claim하면 서로 다른 사람의 방문이 한 세션으로 묶인다.
-    가장 오래 기다린 pending 이벤트의 주인을 골라 그 사용자 것만 가져온다.
-    나머지 사용자는 다음 배치에서 처리된다(주기 루프가 반복 호출).
+    **한 배치는 한 사용자·한 스트림의 이벤트만 다룬다.** 시간 gap 그룹화가 사용자 경계를 모르기 때문에
+    여러 사용자 이벤트를 섞어 claim하면 서로 다른 사람의 방문이 한 세션으로 묶인다. 같은 사람이라도
+    팀 수집 스트림과 개인 스트림을 섞으면 개인 방문이 팀 세션에 붙는다(docs/team-collect-mode.md §3.3).
+    가장 오래 기다린 pending 이벤트의 (주인, 스트림)을 골라 그것만 가져온다.
+    나머지는 다음 배치에서 처리된다(주기 루프가 반복 호출).
     """
     async with AsyncSessionLocal() as db:
-        target_user = await db.scalar(
-            select(ExplorationEvent.user_id)
-            .where(ExplorationEvent.sync_status == "pending")
-            .order_by(ExplorationEvent.visited_at)
-            .limit(1)
-        )
-        if target_user is None:
+        target = (
+            await db.execute(
+                select(ExplorationEvent.user_id, ExplorationEvent.workspace_id)
+                .where(ExplorationEvent.sync_status == "pending")
+                .order_by(ExplorationEvent.visited_at)
+                .limit(1)
+            )
+        ).first()
+        if target is None:
             return [], None
+        target_user, target_stream = target
 
         subquery = (
             select(ExplorationEvent.id)
             .where(
                 ExplorationEvent.sync_status == "pending",
                 ExplorationEvent.user_id == target_user,
+                ExplorationEvent.workspace_id.is_not_distinct_from(target_stream),
             )
             .order_by(ExplorationEvent.visited_at)
             .limit(settings.sync_max_events_per_batch)
@@ -229,18 +243,23 @@ async def _fail_batch(batch_id: str, exc: Exception) -> None:
         await db.commit()
 
 
-async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
+async def _fetch_candidates(
+    vector: list[float], user_id: str, workspace_id: str | None = None
+) -> list[dict]:
     """벡터 유사 세션(top3) + 최근 24h 활성 이벤트 기반 세션(≤5)을 합쳐 후보를 만든다.
 
-    후보는 **같은 사용자의 세션으로만** 제한한다. 이 필터가 빠지면 벡터 검색이 다른
-    사용자의 유사 세션을 끌어와 남의 세션에 이벤트가 append된다.
+    후보는 **같은 사용자·같은 스트림의 세션으로만** 제한한다. 사용자 필터가 빠지면 남의 세션에,
+    스트림 필터가 빠지면 개인 방문이 팀 수집 세션에(또는 그 반대로) append된다. 경계는 SQL 조건이고
+    Qdrant 필터는 후보 품질용이다.
     """
+    same_stream = SessionModel.collect_workspace_id.is_not_distinct_from(workspace_id)
     try:
         scored = await search_similar_with_scores(
             vector,
-            user_id=user_id,
             limit=_CANDIDATE_VECTOR_LIMIT,
             score_threshold=settings.search_score_threshold,
+            user_id=user_id,
+            stream=workspace_id,
         )
         vector_ids = [session_id for session_id, _score in scored]
         scores_by_id = {session_id: score for session_id, score in scored}
@@ -255,6 +274,7 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
             select(SessionModel.id)
             .where(
                 SessionModel.user_id == user_id,
+                same_stream,
                 SessionModel.origin == "events",
                 SessionModel.status == "active",
                 SessionModel.last_activity_at.is_not(None),
@@ -270,7 +290,9 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
         unscored = [sid for sid in recent_ids if sid not in scores_by_id]
         if unscored:
             try:
-                scores_by_id.update(await score_sessions(vector, unscored, user_id=user_id))
+                scores_by_id.update(
+                    await score_sessions(vector, unscored, user_id=user_id, stream=workspace_id)
+                )
             except Exception as exc:
                 logger.warning("최근 후보 점수 계산 실패(%s) — 해당 후보는 recency로만 게이트", exc)
 
@@ -291,6 +313,7 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
             select(SessionModel).where(
                 SessionModel.id.in_(combined_ids),
                 SessionModel.user_id == user_id,
+                same_stream,
                 # merged 세션은 후보에서 제외 — Qdrant 포인트 삭제가 실패해 벡터 후보로 새어들어도
                 # 병합된 세션에 다시 append되지 않게 이중 방어한다(merge P2).
                 SessionModel.status == "active",
@@ -310,8 +333,13 @@ async def _fetch_candidates(vector: list[float], user_id: str) -> list[dict]:
 def _append_blocked(candidate: dict) -> bool:
     """append 게이트 — 후보가 유사도 하한 미달이거나 시간 근접을 벗어나면 True(강등 대상)."""
     score = candidate.get("score")
-    # 점수가 없는 후보(임베딩 전 세션·Qdrant 실패)는 유사도 판정 없이 recency로만 본다.
-    if isinstance(score, (int, float)) and score < settings.append_score_floor:
+    # 최근 활동은 주제 일치의 증거가 아니다. 점수가 없는 후보(임베딩 전 세션·Qdrant 실패)도 기존 세션
+    # 오염을 막기 위해 강등한다. 최근 후보는 _fetch_candidates가 score_sessions로 점수를 매겨 둔다.
+    if (
+        not isinstance(score, (int, float))
+        or not math.isfinite(score)
+        or not settings.append_score_floor <= score <= 1.0
+    ):
         return True
     days_ago = candidate.get("last_activity_days_ago")
     if isinstance(days_ago, int) and days_ago > settings.append_max_age_days:
@@ -354,17 +382,41 @@ def _gate_appends(assignments: list[Assignment], candidates: list[dict]) -> list
     for assignment in assignments:
         if assignment.action == "append" and assignment.target:
             candidate = meta.get(assignment.target)
-            if candidate is not None and _append_blocked(candidate):
+            if candidate is None or _append_blocked(candidate):
                 logger.info(
-                    "append 게이트 — 후보 %s로의 append를 create로 강등(score=%s, days_ago=%s)",
+                    "Append blocked; creating a separate session (target=%s, score=%s, days_ago=%s)",
                     assignment.target,
-                    candidate.get("score"),
-                    candidate.get("last_activity_days_ago"),
+                    (candidate or {}).get("score"),
+                    (candidate or {}).get("last_activity_days_ago"),
                 )
                 gated.append(replace(assignment, action="create", target=None))
                 continue
         gated.append(assignment)
     return gated
+
+
+def _guard_discards(
+    assignments: list[Assignment], events: list[dict], counts: dict[str, int]
+) -> list[Assignment]:
+    """LLM discard 가드(순수 함수) — 주제 근거가 있는 이벤트는 폐기하지 않고 create로 돌린다.
+
+    LLM 호출은 늘지 않는다. 근거 없는 나머지 이벤트의 discard는 그대로 둔다.
+    """
+    guarded: list[Assignment] = []
+    for assignment in assignments:
+        if assignment.action != "discard":
+            guarded.append(assignment)
+            continue
+        rescued = [i for i in assignment.event_indices if has_topic_evidence(events[i], counts)]
+        if not rescued:
+            guarded.append(assignment)
+            continue
+        logger.info("LLM discard overridden for %d events with topic evidence", len(rescued))
+        dropped = [i for i in assignment.event_indices if i not in rescued]
+        if dropped:
+            guarded.append(replace(assignment, event_indices=dropped))
+        guarded.append(replace(assignment, event_indices=rescued, action="create", target=None))
+    return guarded
 
 
 async def _process_group(
@@ -384,6 +436,7 @@ async def _process_group(
 
     # 노이즈 사전 필터 — 스침 방문(로그인 화면·습관성 도메인·고립 루트)을 LLM 호출 전에
     # 결정적으로 discard한다(LLM 판정 변동성 회피, DecisionLog 2026-08-05).
+    counts = domain_counts(filtered_group)
     filtered_group, noise_ids = split_noise(filtered_group)
     discarded_ids.extend(noise_ids)
 
@@ -397,21 +450,36 @@ async def _process_group(
     # 기존 세션(embedding-passage 저장)을 검색하는 쿼리 벡터이므로 embedding-query(기본값)를 쓴다.
     embeddings = await embed_many([_event_embedding_text(e) for e in filtered_group])
     clusters_idx = subcluster(embeddings, settings.subcluster_threshold)
+    if settings.subject_split_enabled:
+        clusters_idx, split_audit = await _split_clusters_by_subject(filtered_group, clusters_idx)
+    else:
+        split_audit = []
 
     # phase 1 — 클러스터별 후보검색 + 의도분석 + 게이트. apply 전에 모두 수행해, 클러스터가
     # 서로가 방금 만든 세션을 후보로 잡아 쪼갠 주제를 다시 붙이는 것(재병합)을 막는다.
-    pending: list[tuple[list[dict], list[Assignment]]] = []
-    models_used: list[str] = []
-    for idx_group in clusters_idx:
+    # 읽기와 LLM 호출뿐이라 클러스터끼리 동시에 돈다(상한 _INTENT_CONCURRENCY). 잠금은 phase 2에서만 잡는다.
+    # 한 배치는 한 스트림이다(_claim_pending_events). 반영 직전 재판정은 apply_assignments가 한다.
+    stream = filtered_group[0].get("workspace_id")
+
+    async def analyze_cluster(idx_group: list[int]) -> tuple[list[dict], list[Assignment]]:
         cluster_events = [filtered_group[i] for i in idx_group]
         centroid = _centroid([embeddings[i] for i in idx_group])
-        candidates = await _fetch_candidates(centroid, user_id)
+        candidates = await _fetch_candidates(centroid, user_id, workspace_id=stream)
         assignments = await intent_analyzer.analyze(cluster_events, candidates)
         assignments = _gate_appends(_merge_split_topic(assignments), candidates)
-        pending.append((cluster_events, assignments))
-        models_used.extend(a.model for a in assignments if a.model)
+        return cluster_events, _guard_discards(assignments, cluster_events, counts)
 
-    # phase 2 — 세션 생성/갱신 반영
+    results = await _gather_limited(_INTENT_CONCURRENCY, clusters_idx, analyze_cluster)
+    for result in results:
+        # 후보 검색 실패 같은 오류는 예전처럼 그룹 전체를 실패시킨다(_process_batch가 pending으로 되돌린다).
+        if isinstance(result, BaseException):
+            raise result
+    pending: list[tuple[list[dict], list[Assignment]]] = results
+    models_used = [a.model for _events, assignments in pending for a in assignments if a.model]
+    # 켜짐이면 대상 나누기 시도마다 결과·모델을 감사에 남긴다(split@모델/keep@모델/split_fail). 꺼짐이면 빈 목록.
+    models_used.extend(split_audit)
+
+    # phase 2 — 세션 생성/갱신 반영. 클러스터 순서대로 하나씩(팀 수집 재판정과 창→세션 잠금 순서를 그대로 둔다).
     for cluster_events, assignments in pending:
         async with AsyncSessionLocal() as db:
             touched_ids = await apply_assignments(db, cluster_events, assignments, batch_id)
@@ -420,18 +488,61 @@ async def _process_group(
     return models_used
 
 
-def _summarize_models(counts: dict[str, int]) -> str | None:
-    """그룹별 사용 모델 카운트를 감사용 요약 문자열로(EXAONE/A.X 폴백률 관측). String(50) 상한.
+async def _gather_limited(limit: int, items: list, fn) -> list:
+    """items마다 fn을 동시 limit개까지 돌려 입력 순서대로 결과를 돌려준다. 예외도 결과 자리에 담는다
+    (하나가 실패해도 나머지는 끝까지 돈다)."""
+    semaphore = asyncio.Semaphore(limit)
 
-    예: {"exaone/LGAI-EXAONE/K-EXAONE-236B-A23B": 12, "A.X-K1": 3} → "exaone:12,A.X-K1:3"
+    async def run(item):
+        async with semaphore:
+            return await fn(item)
+
+    return await asyncio.gather(*(run(item) for item in items), return_exceptions=True)
+
+
+async def _split_clusters_by_subject(
+    events: list[dict], clusters_idx: list[list[int]]
+) -> tuple[list[list[int]], list[str]]:
+    """큰 서브클러스터를 알아본 대상별로 다시 나눈다(subject_splitter). 임베딩은 같은 범주의 다른 대상을
+    가르지 못한다. 실패한 묶음은 그대로 둔다. 순서는 각 묶음의 첫 이벤트 순이다.
+    반환: (나눈 묶음, 시도마다의 감사 라벨)."""
+    results = await _gather_limited(
+        _INTENT_CONCURRENCY, clusters_idx, lambda idx_group: split_by_subject([events[i] for i in idx_group])
+    )
+    refined: list[list[int]] = []
+    audit: list[str] = []
+    for idx_group, result in zip(clusters_idx, results):
+        if isinstance(result, BaseException) and not isinstance(result, Exception):
+            raise result
+        if isinstance(result, Exception):
+            refined.append(idx_group)
+            audit.append("split_fail")
+            continue
+        refined.extend([idx_group[i] for i in part] for part in result.groups)
+        if result.audit:
+            audit.append(result.audit)
+    return sorted(refined, key=lambda part: part[0]), audit
+
+
+def _summarize_models(counts: dict[str, int]) -> str | None:
+    """그룹별 사용 모델 카운트를 감사용 요약 문자열로(폴백률 관측). String(50) 상한.
+
+    예: {"exaone/LGAI-EXAONE/K-EXAONE-236B-A23B": 12, "kt/midm-pro-fp8-kaic": 2, "A.X-K2": 3}
+    → "exaone:12,A.X-K2:3,kt:2"
     """
     if not counts:
         return None
 
     def _short(model: str) -> str:
-        return "exaone" if model.startswith("exaone/") else model
+        # 폴백 라벨은 "공급자/모델" 형식이다(llm._exaone_model_label, _kt_model_label).
+        return model.split("/", 1)[0]
 
-    parts = [f"{_short(m)}:{n}" for m, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+    # 50자에서 잘려도 모델(폴백 kt·exaone 포함)이 남도록 대상 나누기 라벨(split@·keep@·split_fail)은 뒤에 둔다.
+    def _order(kv: tuple[str, int]) -> tuple[bool, int]:
+        model, count = kv
+        return model.startswith(("split", "keep@")), -count
+
+    parts = [f"{_short(m)}:{n}" for m, n in sorted(counts.items(), key=_order)]
     return ",".join(parts)[:50]
 
 
@@ -478,20 +589,23 @@ async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> No
                 logger.warning("배치 그룹 처리 실패(batch_id=%s) — 이벤트 pending 복귀: %s", batch_id, exc)
                 await _set_status([e["id"] for e in group], "pending")
 
-        for session_id in touched:
-            try:
-                await refresh_session_ai(session_id)
-            except Exception as exc:
-                logger.warning("세션 재요약 실패(session_id=%s): %s", session_id, exc)
+        # 세션마다 자기 DB 세션으로 따로 반영하므로 동시에 돌려도 서로 기다리지 않는다.
+        session_ids = sorted(touched)
+        refreshed = await _gather_limited(_SUMMARY_CONCURRENCY, session_ids, refresh_session_ai)
+        for session_id, result in zip(session_ids, refreshed):
+            if isinstance(result, Exception):
+                logger.warning("세션 재요약 실패(session_id=%s): %s", session_id, result)
+            elif isinstance(result, BaseException):
+                raise result
 
-        # opt-in 자동 병합(기본 OFF) — 사용자 토글(app_settings, DB) 우선, 없으면 env 기본값.
+        # opt-in 자동 병합(기본 OFF) — 그 사용자의 토글(user_settings, DB) 우선, 없으면 env 기본값.
         # '명백한 중복'만 배치 후 자동 병합(merge-design §2, DecisionLog 2026-08-07).
-        if await is_auto_merge_enabled():
+        if await is_auto_merge_enabled(user_id):
             # 생존 세션도 이번 배치에서 바뀐 세션이다(흡수된 세션은 merged라 분류 대상이 아니다).
             touched |= await _run_auto_merge(user_id)
 
         # 새로 만들어지거나 바뀐 미정리 세션을 사용자 폴더에 확실할 때만 넣는다(§13.4). 애매하면 제안으로 남는다.
-        if await is_auto_folder_enabled():
+        if await is_auto_folder_enabled(user_id):
             await auto_file_sessions(user_id, touched)
 
         # 세션이 바뀌었으므로 추천을 낡은 것으로 표시한다 — 다음 새 탭에서 재계산된다.

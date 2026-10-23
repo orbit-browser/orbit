@@ -101,7 +101,7 @@ Auto Session의 핵심 위험은 "의도 분석 품질 — 오할당이 좋은 �
 
 | 모드 | 동작 | 용도 |
 |---|---|---|
-| 실 LLM 모드 | `intent_analyzer.py`가 실제로 K-EXAONE(primary)/A.X-K2(fallback) API를 호출 | 프롬프트 튜닝 후 실측 성능 확인, 정기적인 품질 점검(비용 발생) |
+| 실 LLM 모드 | `intent_analyzer.py`가 실제로 A.X-K2(primary)/KT 믿:음(fallback) API를 호출 | 프롬프트 튜닝 후 실측 성능 확인, 정기적인 품질 점검(비용 발생) |
 | 기록 재생 모드 | 이전 실 LLM 모드 실행에서 저장해 둔 원문 응답을 그대로 재생해 동일한 assignments를 재계산 | CI에서 비용 없이 회귀 확인, 지표 계산 로직 자체의 버그를 잡을 때 |
 
 이는 계획서 §12(테스트와 검증)의 "단위 테스트는 monkeypatch, 평가는 실 호출" 원칙과 같은 선을 따른다 — `backend/tests/`의 단위 테스트는 `intent_analyzer`가 특정 형식의 JSON을 올바르게 파싱/방어하는지만 monkeypatch로 검증하고, `backend/eval/run_eval.py`는 실제 모델 성능(정확도)을 측정하는 별도 트랙이다. 두 트랙을 분리해야 "테스트는 항상 통과하지만 실제 배치는 품질이 나쁜" 상황을 놓치지 않는다.
@@ -120,6 +120,7 @@ Auto Session의 핵심 위험은 "의도 분석 품질 — 오할당이 좋은 �
 | Retrieval Recall@K | 골든셋에 포함된 자연어 질의 → 정답 세션 쌍에 대해, `/search` 결과 상위 K개 안에 정답 세션이 포함된 비율 | `정답이 top-K 안에 있는 질의 수 / 전체 질의 수` |
 
 - Assignment Accuracy/Purity/Coverage/New-vs-Existing/노이즈 제외율은 계획서 F에 명시된 5개 지표를 그대로 정의한 것이다.
+- Assignment Accuracy의 "일치"는 create로 만든 새 세션 키만 클러스터별 다수결 정답 라벨로 바꾼 뒤 비교한다. append로 붙인 기존 세션 키는 그대로 비교하므로, 형제 기존 세션에 잘못 붙인 이벤트(오염)는 오답이다. 2026-10-22 이전 정의(모든 클러스터 리매핑)는 `assignment_accuracy_legacy`로 함께 출력한다(model-eval-v1에서 결함 발견).
 - Retrieval Recall@K는 계획서 F "골든셋에 자연어 질의→정답 세션 쌍 포함, `/search` 대상 측정"을 구체화한 것 — 이 지표가 Intent 검색의 리랭크 사용 여부, 0.35 score threshold 유지 여부, 이벤트 단위 임베딩 도입 여부를 결정하는 실측 근거가 된다(계획서 D-1 "세션 임베딩+키워드로 충분한지 골든셋으로 판단 후 결정").
 
 ## 6. LLM-as-Judge와 Restore Success Rate
@@ -131,7 +132,7 @@ Auto Session의 핵심 위험은 "의도 분석 품질 — 오할당이 좋은 �
 
 `sync_batches` 테이블(`docs/data-model-v2.md` §2)이 이미 기록하는 `prompt_version`/`model`/`event_count`/`started_at`~`completed_at`(소요시간)/`error_message`를 그대로 운영 지표의 원천으로 쓴다.
 
-- **평균 동기화 시간**: `AVG(completed_at - started_at) WHERE status='completed'` — A.X 3 RPS 제약 하 배치 소요(계획서 예상 2~5분)가 실제로 어느 정도인지 확인.
+- **평균 동기화 시간**: `AVG(completed_at - started_at) WHERE status='completed'` — 전역 최소 간격 리미터(0.5초 = 최대 2 RPS) 하 배치 소요(계획서 예상 2~5분)가 실제로 어느 정도인지 확인. A.X 게이트웨이 자체 한도는 A.X-K1 시절 안내값이 3 RPS였고, 2026-10-23 A.X-K2 측정은 짧은 요청·단계당 10초로 6 RPS까지 429가 없었다.
 - **배치당 비용 추적**: `event_count`와 `model`을 조합해 배치당 LLM 호출 횟수·모델 사용량을 추정.
 - **실패율**: `status='failed'` 배치 비율과 `error_message` 패턴 분석.
 - **LangSmith 연동은 선택**(계획서 "LangSmith는 선택(자체 sync_batches 기록으로 대체)") — 이번 MVP는 LangSmith 없이 `sync_batches` 자체 기록만으로 운영 지표를 충당하고, 필요 시 이후 LangSmith를 추가 연동하는 방식으로 남겨둔다.

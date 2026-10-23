@@ -74,9 +74,10 @@ class _FakeDB:
         pass
 
 
-def _session(id_, *, status="active", keywords=None, merged_into=None):
+def _session(id_, *, status="active", keywords=None, merged_into=None, stream=None):
     return SimpleNamespace(
         id=id_,
+        collect_workspace_id=stream,
         status=status,
         keywords=keywords or [],
         merged_into=merged_into,

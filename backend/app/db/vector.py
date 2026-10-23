@@ -13,6 +13,7 @@ from qdrant_client.models import (
     PointIdsList,
     PointStruct,
     QueryRequest,
+    SearchParams,
     VectorParams,
 )
 
@@ -22,8 +23,16 @@ logger = logging.getLogger(__name__)
 
 COLLECTION = "orbit_sessions"
 VECTOR_DIM = 4096
+# ef256: 60/60 at 100/1k/5k/10k; fastest passing 10k p50/p95 36.88/118.57 ms (benchmarks/exhibition-2026/recall-fix).
+SEARCH_HNSW_EF = 256
 
 _client: AsyncQdrantClient | None = None
+
+# 팀 수집 스트림(docs/team-collect-mode.md §4.3). 개인 스트림 세션은 이 필드를 두지 않는다 — 기존 포인트는
+# 필드가 없어 개인으로 판정되므로 백필이 필요 없다. 배치 후보의 recall 필터일 뿐, 경계는 SQL 조건이다.
+STREAM_FIELD = "collect_workspace_id"
+# 스트림 필터를 걸지 않는다(검색·Ask·병합 제안 등 배치 후보가 아닌 호출).
+ANY_STREAM = object()
 
 
 def get_qdrant() -> AsyncQdrantClient:
@@ -46,21 +55,47 @@ async def init_collection() -> None:
             logger.info("Qdrant 컬렉션 '%s' 생성", COLLECTION)
         else:
             logger.info("Qdrant 컬렉션 '%s' 확인 완료", COLLECTION)
-        try:
-            await client.create_payload_index(
-                collection_name=COLLECTION,
-                field_name="user_id",
-                field_schema=PayloadSchemaType.KEYWORD,
-            )
-        except Exception as exc:  # 이미 존재하는 인덱스는 정상
-            if "already exists" not in str(exc).lower():
-                raise
+        info = await client.get_collection(COLLECTION)
+        for field in ("user_id", STREAM_FIELD):
+            if field in (info.payload_schema or {}):
+                continue
+            try:
+                await client.create_payload_index(
+                    collection_name=COLLECTION,
+                    field_name=field,
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                logger.info("Qdrant payload index '%s' 생성", field)
+            except Exception as exc:  # 다른 프로세스가 먼저 만든 인덱스는 정상
+                if "already exists" not in str(exc).lower():
+                    raise
     except Exception as exc:
         logger.warning("Qdrant 초기화 실패 (%s) — 벡터 검색 비활성화", exc)
 
 
-def _user_filter(user_id: str) -> Filter:
-    return Filter(must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))])
+def _user_filter(user_id: str, stream: object = ANY_STREAM) -> Filter:
+    must: list = [FieldCondition(key="user_id", match=MatchValue(value=user_id))]
+    if stream is None:
+        must.append(IsEmptyCondition(is_empty=PayloadField(key=STREAM_FIELD)))
+    elif stream is not ANY_STREAM:
+        must.append(FieldCondition(key=STREAM_FIELD, match=MatchValue(value=stream)))
+    return Filter(must=must)
+
+
+async def set_stream_payload(session_ids: list[str], workspace_id: str | None) -> None:
+    """세션 포인트의 스트림 필드를 맞춘다. 실패해도 SQL 후보 조건이 막으므로 경고만 남긴다."""
+    if not session_ids:
+        return
+    try:
+        client = get_qdrant()
+        if workspace_id is None:
+            await client.delete_payload(collection_name=COLLECTION, keys=[STREAM_FIELD], points=session_ids)
+        else:
+            await client.set_payload(
+                collection_name=COLLECTION, payload={STREAM_FIELD: workspace_id}, points=session_ids
+            )
+    except Exception as exc:
+        logger.warning("Qdrant stream payload update failed (%d points): %s", len(session_ids), exc)
 
 
 async def backfill_user_ids(page_size: int = 256) -> None:
@@ -159,6 +194,19 @@ async def get_vector(session_id: str) -> list[float] | None:
     return vector if isinstance(vector, list) else None
 
 
+def _scope_filter(user_id: str, session_ids: list[str] | None, stream: object = ANY_STREAM) -> Filter:
+    """top-k를 읽을 수 있는 포인트로 좁힌다. session_ids 가 있으면 그 id만(팀 범위), 없으면 그 사용자 소유.
+
+    팀 범위에 user 필터를 걸면 다른 멤버가 공유한 세션이 빠진다. recall용 필터이고,
+    보안 경계는 호출측 SQL 조건이며 그대로 유지한다.
+    """
+    if session_ids is not None:
+        # ponytail: 팀 공유 세션 id 목록을 매 쿼리에 싣는다. 팀 공유가 수천 건을 넘으면
+        # payload 에 workspace_ids 배열을 두고 MatchAny 로 바꾼다.
+        return Filter(must=[HasIdCondition(has_id=session_ids)])
+    return _user_filter(user_id, stream)
+
+
 async def get_vectors(session_ids: list[str]) -> dict[str, list[float]]:
     """여러 세션 벡터를 한 번에 조회한다. 포인트가 없는 세션은 빠지고, Qdrant 오류는 호출측에 그대로 올린다
     (get_vector처럼 None으로 삼키면 장애가 "벡터 없음"으로 보인다)."""
@@ -171,13 +219,20 @@ async def get_vectors(session_ids: list[str]) -> dict[str, list[float]]:
 
 
 async def search_similar(
-    query_vector: list[float], *, user_id: str, limit: int = 5
+    query_vector: list[float],
+    limit: int = 5,
+    *,
+    user_id: str,
+    session_ids: list[str] | None = None,
 ) -> list[str]:
+    if session_ids is not None and not session_ids:
+        return []  # 공유된 세션이 없는 팀 — 빈 id 목록 필터를 Qdrant 에 보내지 않는다
     client = get_qdrant()
     result = await client.query_points(
         collection_name=COLLECTION,
         query=query_vector,
-        query_filter=_user_filter(user_id),
+        query_filter=_scope_filter(user_id, session_ids),
+        search_params=SearchParams(hnsw_ef=SEARCH_HNSW_EF),
         limit=limit,
         score_threshold=settings.search_score_threshold,
     )
@@ -186,26 +241,63 @@ async def search_similar(
 
 async def search_similar_with_scores(
     query_vector: list[float],
-    *,
-    user_id: str,
     limit: int = 5,
     score_threshold: float | None = None,
+    *,
+    user_id: str,
+    session_ids: list[str] | None = None,
+    stream: object = ANY_STREAM,
 ) -> list[tuple[str, float]]:
-    """유사 세션을 (session_id, score) 쌍으로 반환 (Auto Session 배치의 후보 세션 검색용)."""
+    """유사 세션을 (session_id, score) 쌍으로 반환 (Auto Session 배치의 후보 세션 검색, Ask 후보).
+
+    session_ids 는 search_similar 와 같다 — 팀 범위면 공유된 세션 id 로만 좁힌다.
+    stream 은 배치 후보용 스트림 필터(None=개인 스트림, 팀 id=그 팀 수집 스트림).
+    """
+    if session_ids is not None and not session_ids:
+        return []
     client = get_qdrant()
     threshold = settings.search_score_threshold if score_threshold is None else score_threshold
     result = await client.query_points(
         collection_name=COLLECTION,
         query=query_vector,
-        query_filter=_user_filter(user_id),
+        query_filter=_scope_filter(user_id, session_ids, stream),
+        search_params=SearchParams(hnsw_ef=SEARCH_HNSW_EF),
         limit=limit,
         score_threshold=threshold,
     )
     return [(str(p.id), p.score) for p in result.points]
 
 
+async def point_ids_missing_owner() -> list[str]:
+    """`user_id` payload가 없는 포인트 id 목록 (소유자 payload 도입 이전 포인트의 backfill용)."""
+    client = get_qdrant()
+    missing = Filter(must=[IsEmptyCondition(is_empty=PayloadField(key="user_id"))])
+    ids: list[str] = []
+    offset = None
+    while True:
+        records, offset = await client.scroll(
+            collection_name=COLLECTION,
+            scroll_filter=missing,
+            limit=256,
+            offset=offset,
+            with_payload=False,
+            with_vectors=False,
+        )
+        ids.extend(str(record.id) for record in records)
+        if offset is None:
+            return ids
+
+
+async def set_owner(user_id: str, session_ids: list[str]) -> None:
+    await get_qdrant().set_payload(
+        collection_name=COLLECTION,
+        payload={"user_id": user_id},
+        points=session_ids,
+    )
+
+
 async def score_sessions(
-    query_vector: list[float], session_ids: list[str], *, user_id: str
+    query_vector: list[float], session_ids: list[str], *, user_id: str, stream: object = ANY_STREAM
 ) -> dict[str, float]:
     """지정한 세션들만 임계값 없이 점수를 매긴다. 포인트가 없는 세션(임베딩 전)은 결과에서 빠진다."""
     if not session_ids:
@@ -215,7 +307,7 @@ async def score_sessions(
         collection_name=COLLECTION,
         query=query_vector,
         query_filter=Filter(
-            must=[*_user_filter(user_id).must, HasIdCondition(has_id=list(session_ids))]
+            must=[*_user_filter(user_id, stream).must, HasIdCondition(has_id=list(session_ids))]
         ),
         limit=len(session_ids),
     )

@@ -47,7 +47,7 @@ def test_search_maps_embedding_upstream_error(monkeypatch):
 
 
 def test_search_maps_vector_store_failure(monkeypatch):
-    async def failing_search(_vector, *, limit):
+    async def failing_search(_vector, *, limit, user_id, session_ids):
         raise RuntimeError(f"qdrant unavailable for limit={limit}")
 
     monkeypatch.setattr(search, "search_similar", failing_search)
@@ -59,8 +59,10 @@ def test_search_maps_vector_store_failure(monkeypatch):
 
 
 def test_search_returns_empty_when_no_points_match(monkeypatch):
-    async def empty_search(_vector, *, user_id, limit):
+    async def empty_search(_vector, *, limit, user_id, session_ids):
         assert limit == 5
+        assert user_id == "u1"
+        assert session_ids is None  # workspace_id 없음 = 개인 범위
         return []
 
     monkeypatch.setattr(search, "search_similar", empty_search)
@@ -128,7 +130,7 @@ def test_select_session_relevance_events_caps_overall_at_ten():
 
 def test_fetch_session_relevance_events_returns_empty_without_db_call_when_no_sessions():
     async def scenario():
-        return await search._fetch_session_relevance_events(db=None, session_ids=[])
+        return await search._fetch_session_relevance_events(db=None, session_ids=[], user_id="u1")
 
     assert asyncio.run(scenario()) == []
 
@@ -142,7 +144,7 @@ def test_fetch_session_relevance_events_maps_orm_rows_and_scores():
     )
     db = _FakeDB(_AllResult([(session_event, event, "일본 도쿄 여행 준비")]))
 
-    result = asyncio.run(search._fetch_session_relevance_events(db, ["sess-1"]))
+    result = asyncio.run(search._fetch_session_relevance_events(db, ["sess-1"], "u1"))
 
     assert result == [
         {
@@ -201,7 +203,7 @@ def test_fetch_keyword_matched_events_caps_at_ten():
 def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch):
     visited_at = datetime(2026, 7, 20, 10, 5, tzinfo=timezone.utc)
 
-    async def fake_relevance(_db, session_ids):
+    async def fake_relevance(_db, session_ids, _user_id, _workspace_id=None):
         assert session_ids == ["sess-1"]
         return [
             {
@@ -211,7 +213,7 @@ def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch)
             }
         ]
 
-    async def fake_keyword(_db, _q, exclude_ids, _user_id):
+    async def fake_keyword(_db, _q, exclude_ids, _user_id, _workspace_id=None):
         assert exclude_ids == {"e1"}
         return [
             {
@@ -238,10 +240,10 @@ def test_search_memory_events_tags_session_then_keyword_and_dedupes(monkeypatch)
 def test_search_sessions_scope_memory_wraps_sessions_and_events(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None, _workspace_id=None):
         return [session]
 
-    async def fake_memory_events(_db, _q, _sessions, _user_id):
+    async def fake_memory_events(_db, _q, _sessions, _user_id, _workspace_id=None):
         return []
 
     monkeypatch.setattr(search, "_search_sessions_by_vector", fake_by_vector)
@@ -258,10 +260,10 @@ def test_search_sessions_scope_memory_wraps_sessions_and_events(monkeypatch):
 def test_search_sessions_scope_memory_event_query_failure_still_returns_sessions(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None, _workspace_id=None):
         return [session]
 
-    async def failing_memory_events(_db, _q, _sessions):
+    async def failing_memory_events(_db, _q, _sessions, _user_id, _workspace_id=None):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(search, "_search_sessions_by_vector", fake_by_vector)
@@ -278,7 +280,7 @@ def test_search_sessions_scope_memory_event_query_failure_still_returns_sessions
 def test_search_sessions_scope_sessions_default_returns_bare_list(monkeypatch):
     session = _session_detail()
 
-    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id):
+    async def fake_by_vector(_q, _limit, _rerank, _db, _user_id, _shared_ids=None, _workspace_id=None):
         return [session]
 
     monkeypatch.setattr(search, "_search_sessions_by_vector", fake_by_vector)
@@ -296,7 +298,7 @@ def test_widened_candidates_keep_owned_scores_for_ask_gate(monkeypatch):
     async def fake_embed(_q):
         return [0.1]
 
-    async def fake_scores(_vector, user_id, limit, score_threshold):
+    async def fake_scores(_vector, user_id, limit, score_threshold, session_ids=None):
         return [("other-user", 0.9), ("mine", 0.2)]
 
     class _Result:
@@ -309,7 +311,7 @@ def test_widened_candidates_keep_owned_scores_for_ask_gate(monkeypatch):
 
     monkeypatch.setattr(search, "embed", fake_embed)
     monkeypatch.setattr(search, "search_similar_with_scores", fake_scores)
-    monkeypatch.setattr(search, "_to_detail", lambda s: s)
+    monkeypatch.setattr(search, "_to_detail", lambda s, **_k: s)
 
     result = asyncio.run(
         search._search_sessions_by_vector("질문", 5, False, _DB(), "me", candidate_floor=0.15)
@@ -324,7 +326,7 @@ def test_vector_search_passes_user_id(monkeypatch):
     async def fake_embed(_q):
         return [0.1]
 
-    async def fake_search(_vector, *, user_id, limit):
+    async def fake_search(_vector, *, user_id, limit, session_ids=None):
         seen["user_id"] = user_id
         return []
 
@@ -333,3 +335,30 @@ def test_vector_search_passes_user_id(monkeypatch):
 
     asyncio.run(search._search_sessions_by_vector("질문", 5, False, None, "me"))
     assert seen["user_id"] == "me"
+
+
+def test_ask_candidate_search_keeps_team_scope(monkeypatch):
+    """Ask의 넓힌 후보 검색(candidate_floor)도 팀 공유 id를 Qdrant 필터로 넘긴다."""
+    import asyncio
+    from types import SimpleNamespace
+
+    seen: dict = {}
+
+    async def fake_embed(_q):
+        return [0.1]
+
+    async def fake_scores(_vector, *, user_id, limit, score_threshold, session_ids=None):
+        seen.update(user_id=user_id, session_ids=session_ids)
+        return []
+
+    monkeypatch.setattr(search, "embed", fake_embed)
+    monkeypatch.setattr(search, "search_similar_with_scores", fake_scores)
+
+    result = asyncio.run(
+        search._search_sessions_by_vector(
+            "질문", 5, False, SimpleNamespace(), "viewer", ["shared-1"], "team-1", candidate_floor=0.15
+        )
+    )
+
+    assert result == []
+    assert seen == {"user_id": "viewer", "session_ids": ["shared-1"]}

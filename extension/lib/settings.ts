@@ -2,11 +2,17 @@
 // localStorage는 SW에서 접근할 수 없어 chrome.storage.local을 진실 원천으로 둔다.
 // zustand persist 봉투({state, version}) 없이 평문 OrbitSettings JSON으로 저장한다.
 
+import { getSession } from './auth';
+
 /** 화면 모양. system 은 OS 설정을 따라간다. */
 export type OrbitTheme = 'system' | 'light' | 'dark';
 
 export interface OrbitSettings {
   theme: OrbitTheme;
+  /**
+   * 지금 로그인한 계정의 수집 동의를 비춘 값(화면·수집기가 읽는다). 동의 자체는 계정별로
+   * `orbit:collectionConsent`에 있고, 계정이 바뀌면 SW가 새 계정의 동의로 바꿔 놓는다.
+   */
   collectionEnabled: boolean;
   contentCapture: boolean;
   excludeSensitive: boolean;
@@ -15,6 +21,18 @@ export interface OrbitSettings {
   idleSyncMin: number;
   countThreshold: number;
   rerankEnabled: boolean;
+  /**
+   * 지금 보고 있는 팀 워크스페이스. null 이면 개인 기록이다.
+   * 사이드패널·새 탭 아틀라스·Ask 가 같은 범위를 보도록 여기 둔다.
+   */
+  activeWorkspaceId: string | null;
+  /** 개인 워크스페이스 이름. 비우면 "내 Orbit" 으로 보인다(서버에 두지 않는 내 화면 이름). */
+  personalWorkspaceName: string | null;
+  /**
+   * 탭 화면 미리보기를 기기에 저장한다(`lib/tab-capture.ts`). 서버로는 보내지 않는다. 기본은 끔 — 켤 때
+   * 안내와 함께 `<all_urls>` 선택 권한을 받는다(`enableTabSnapshots`).
+   */
+  tabSnapshotsEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: OrbitSettings = {
@@ -27,9 +45,74 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
   idleSyncMin: 10,
   countThreshold: 20,
   rerankEnabled: false,
+  activeWorkspaceId: null,
+  personalWorkspaceName: null,
+  tabSnapshotsEnabled: false,
 };
 
 const STORAGE_KEY = 'orbit:settings';
+export const CONSENT_KEY = 'orbit:collectionConsent';
+
+/**
+ * 수집 동의 화면과 설정에 함께 쓰는 외부 AI 전송 범위 안내. 실제로 보내는 것보다 적게 읽히면 안 된다.
+ * 근거(backend): 제목·검색어·본문 발췌는 요약·세션화·임베딩·Ask로 간다. 주소는 `ai_safe_url/path`가
+ * 쿼리와 비밀 같은 조각을 지운 형태다. 민감 URL은 받을 때 본문을 지우고 주소는 도메인만 남지만 제목은 간다.
+ * 제공자는 config.py·llm.py 기준(임베딩 Upstage, LLM A.X-K2·K-EXAONE·폴백 KT 믿:음). 바뀌면 이 문구와
+ * `CONSENT_VERSION`을 함께 바꾼다.
+ */
+export const AI_DISCLOSURE =
+  '세션 정리와 검색을 위해 페이지 제목·주소·검색어·본문 일부가 AI 서비스(Upstage·SKT A.X·LG EXAONE·KT 믿:음)로 전송돼요. 민감한 사이트는 제목과 도메인만 보내요.';
+/** 같은 뜻, "~합니다" 말투의 새 탭 설정 화면용. */
+export const AI_DISCLOSURE_FORMAL =
+  '세션 정리와 검색을 위해 페이지 제목·주소·검색어·본문 일부가 AI 서비스(Upstage·SKT A.X·LG EXAONE·KT 믿:음)로 전송됩니다. 민감한 사이트는 제목과 도메인만 보냅니다.';
+
+/**
+ * 지금 동의 문구의 버전. 외부 AI 제공자가 늘면 올려서 모든 계정에 다시 동의를 받는다.
+ * 1(값 `true`): 2026-10-22 문구(Upstage·A.X·EXAONE). 2: 2026-10-23 KT 믿:음 추가.
+ */
+export const CONSENT_VERSION = 2;
+
+/**
+ * 계정 id → 그 계정이 동의한 문구 버전(끈 상태는 false). 동의한 사람과 수집되는 사람이 같아야 하므로
+ * 브라우저가 아니라 계정에 묶는다. 옛 값 `true`는 버전 1 동의다.
+ */
+export type CollectionConsent = Record<string, number | boolean>;
+
+/**
+ * 이 계정이 옛 문구에 동의했다가 문구가 바뀌어 수집이 멈췄는지. 처음 켜는 사람과 달리 "왜 멈췄는지"를
+ * 알려야 한다(2026-10-23 KT 믿:음 추가로 버전 2).
+ */
+export function needsReconsent(consent: CollectionConsent, accountId: string): boolean {
+  const value = consent[accountId];
+  return value === true || (typeof value === 'number' && value > 0 && value < CONSENT_VERSION);
+}
+
+export const RECONSENT_NOTICE = 'AI 서비스 안내가 바뀌어(KT 추가) 다시 동의가 필요해요';
+
+/** 이 계정이 지금 문구에 동의했는지. 옛 문구 동의는 동의로 보지 않는다. */
+export function hasCurrentConsent(consent: CollectionConsent, accountId: string): boolean {
+  return consent[accountId] === CONSENT_VERSION;
+}
+
+/**
+ * 계정별 수집 동의를 읽는다. 키가 아직 없으면(이 업데이트 직후 한 번) 브라우저 단위였던 기존
+ * 동의를 `owner`(기본: 지금 로그인한 계정)의 동의로 옮긴다 — 그 계정이 켰던 스위치이므로
+ * 다시 묻지 않는다. 로그인한 계정이 없으면 옮길 주인이 없어 빈 동의로 시작한다.
+ */
+export async function getCollectionConsent(owner?: string): Promise<CollectionConsent> {
+  const stored = await chrome.storage.local.get([CONSENT_KEY, STORAGE_KEY]);
+  const saved = stored[CONSENT_KEY] as CollectionConsent | undefined;
+  if (saved) return saved;
+  const ownerId = owner ?? (await getSession())?.user.id;
+  const legacy = { ...DEFAULT_SETTINGS, ...(stored[STORAGE_KEY] as Partial<OrbitSettings> | undefined) };
+  const migrated: CollectionConsent = ownerId ? { [ownerId]: legacy.collectionEnabled } : {};
+  await chrome.storage.local.set({ [CONSENT_KEY]: migrated });
+  return migrated;
+}
+
+export async function hasCollectionConsent(accountId: string): Promise<boolean> {
+  return hasCurrentConsent(await getCollectionConsent(), accountId);
+}
 /** 이관 대상 — 기존 zustand persist(localStorage)가 쓰던 키. */
 const LEGACY_LOCALSTORAGE_KEY = 'orbit-settings';
 
@@ -47,7 +130,19 @@ let writeQueue: Promise<unknown> = Promise.resolve();
 export function updateSettings(partial: Partial<OrbitSettings>): Promise<OrbitSettings> {
   const next = writeQueue.then(async () => {
     const merged = { ...(await getSettings()), ...partial };
-    await chrome.storage.local.set({ [STORAGE_KEY]: merged });
+    const writes: Record<string, unknown> = { [STORAGE_KEY]: merged };
+    if (partial.collectionEnabled !== undefined) {
+      // 수집 스위치는 지금 계정의 동의다. 로그아웃 상태의 변경(계정 전환 정리)은 누구의 동의도 아니다.
+      const accountId = (await getSession())?.user.id;
+      if (accountId) {
+        const consent = await getCollectionConsent(accountId);
+        writes[CONSENT_KEY] = {
+          ...consent,
+          [accountId]: partial.collectionEnabled ? CONSENT_VERSION : false,
+        };
+      }
+    }
+    await chrome.storage.local.set(writes);
     return merged;
   });
   writeQueue = next.catch(() => {});
@@ -55,14 +150,17 @@ export function updateSettings(partial: Partial<OrbitSettings>): Promise<OrbitSe
 }
 
 /** chrome.storage.onChanged을 래핑 — 다른 컨텍스트(SW ↔ 사이드패널)의 설정 변경을 구독한다. */
-export function subscribeSettings(cb: (settings: OrbitSettings) => void): () => void {
+export function subscribeSettings(
+  cb: (settings: OrbitSettings, previous: OrbitSettings) => void,
+): () => void {
   const listener = (
     changes: Record<string, chrome.storage.StorageChange>,
     areaName: string,
   ) => {
     if (areaName !== 'local' || !(STORAGE_KEY in changes)) return;
     const saved = changes[STORAGE_KEY].newValue as Partial<OrbitSettings> | undefined;
-    cb({ ...DEFAULT_SETTINGS, ...saved });
+    const previous = changes[STORAGE_KEY].oldValue as Partial<OrbitSettings> | undefined;
+    cb({ ...DEFAULT_SETTINGS, ...saved }, { ...DEFAULT_SETTINGS, ...previous });
   };
   chrome.storage.onChanged.addListener(listener);
   return () => chrome.storage.onChanged.removeListener(listener);

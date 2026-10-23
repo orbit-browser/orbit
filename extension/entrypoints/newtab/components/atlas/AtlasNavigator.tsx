@@ -47,6 +47,8 @@ interface AtlasNavigatorProps {
   searchInputRef?: React.Ref<HTMLInputElement>;
   sort: SessionSort;
   onSortChange: (sort: SessionSort) => void;
+  /** 팀 화면 — 공유받은 세션이라 이름 바꾸기·폴더 정리를 감춘다. */
+  readOnly?: boolean;
 }
 
 const SORT_LABEL: Record<SessionSort, string> = {
@@ -101,6 +103,7 @@ export function AtlasNavigator({
   searchInputRef,
   sort,
   onSortChange,
+  readOnly = false,
 }: AtlasNavigatorProps) {
   /**
    * "새로 저장됨" 점을 이미 확인한 세션들. 사용자가 세션을 열면 표시를 지운다.
@@ -323,7 +326,8 @@ export function AtlasNavigator({
   /** 세션 한 줄과 그 아래 페이지들. 폴더 안이든 미정리든 같은 모양으로 그린다. */
   const renderSession = (session: SessionNode, visiblePageIds: Set<string> | null) => {
     const isOpen = visiblePageIds !== null || expandedSessionIds.has(session.id);
-    const suggestion = suggestionBySession.get(session.id);
+    // 팀 화면은 읽기 전용이다 — 폴더 제안은 내 개인 정리라 남의 공유 세션에 붙이지 않는다.
+    const suggestion = readOnly ? undefined : suggestionBySession.get(session.id);
     const visiblePages = visiblePageIds
       ? session.pages.filter((page) => visiblePageIds.has(page.id))
       : session.pages;
@@ -338,8 +342,9 @@ export function AtlasNavigator({
             absorbingId === session.id && 'atlas-row--absorbing',
             survivingId === session.id && 'atlas-row--surviving',
           )}
-          draggable
+          draggable={!readOnly}
           onDragStart={(event) => {
+            if (readOnly) return;
             event.dataTransfer.setData(DRAG_TYPE, session.id);
             event.dataTransfer.effectAllowed = 'move';
             setDraggingSession(true);
@@ -353,7 +358,9 @@ export function AtlasNavigator({
           }
           role="button"
           tabIndex={0}
-          title={`${session.title} — ${session.date}`}
+          title={`${session.title} — ${session.date}${
+            session.sharedBy ? ` · ${session.sharedBy.name ?? '팀원'} 님이 공유` : ''
+          }`}
         >
           <button
             type="button"
@@ -402,21 +409,31 @@ export function AtlasNavigator({
           <span className="atlas-row__meta">{session.pages.length}p</span>
           {/* 대표 아이콘은 오른쪽 끝 — 제목이 길어져도 자리가 흔들리지 않는다 */}
           <span className="atlas-row__trailing">
-            <button
-              type="button"
-              className="atlas-row__action"
-              aria-label={`${session.title} 이름 바꾸기`}
-              title="이름 바꾸기"
-              onClick={(event) => {
-                event.stopPropagation();
-                setFolderError(null);
-                // 별칭이 없으면 빈 칸으로 시작하고 원래 이름을 placeholder 로 보여 준다.
-                setDraftName(session.alias ?? '');
-                setRenamingSessionId(session.id);
-              }}
-            >
-              <i className="ph ph-pencil-simple" />
-            </button>
+            {session.sharedBy?.picture && (
+              <img
+                className="atlas-row__avatar"
+                src={session.sharedBy.picture}
+                alt=""
+                referrerPolicy="no-referrer"
+              />
+            )}
+            {!readOnly && (
+              <button
+                type="button"
+                className="atlas-row__action"
+                aria-label={`${session.title} 이름 바꾸기`}
+                title="이름 바꾸기"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setFolderError(null);
+                  // 별칭이 없으면 빈 칸으로 시작하고 원래 이름을 placeholder 로 보여 준다.
+                  setDraftName(session.alias ?? '');
+                  setRenamingSessionId(session.id);
+                }}
+              >
+                <i className="ph ph-pencil-simple" />
+              </button>
+            )}
             {session.folderId && (
               <button
                 type="button"
@@ -535,17 +552,19 @@ export function AtlasNavigator({
           <i className="ph ph-house" />
         </button>
         <div className="atlas-nav__head-actions">
-          <button
-            type="button"
-            title="새 폴더"
-            aria-label="새 폴더"
-            onClick={() => {
-              setDraftName('');
-              setCreating(true);
-            }}
-          >
-            <i className="ph ph-folder-plus" />
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              title="새 폴더"
+              aria-label="새 폴더"
+              onClick={() => {
+                setDraftName('');
+                setCreating(true);
+              }}
+            >
+              <i className="ph ph-folder-plus" />
+            </button>
+          )}
           <button
             type="button"
             title={`정렬: ${SORT_LABEL[sort]} (눌러서 ${SORT_LABEL[sort === 'recent' ? 'title' : 'recent']}으로)`}
@@ -753,9 +772,9 @@ export function AtlasNavigator({
                   void handleDropOnUnfiled(event);
                 }}
               >
-                정리 안 됨
+                {readOnly ? '공유된 세션' : '정리 안 됨'}
                 <span className="atlas-nav__section-tail">
-                  {suggestions.length >= 2 && (
+                  {!readOnly && suggestions.length >= 2 && (
                     <button
                       type="button"
                       className="atlas-nav__section-action"
@@ -774,7 +793,7 @@ export function AtlasNavigator({
             {unfiled.length === 0 && folders.length === 0 && (
               <div className="atlas-nav__empty">
                 <i className="ph ph-folder-simple-dashed" />
-                <span>저장된 세션이 없습니다</span>
+                <span>{readOnly ? '팀에 공유된 세션이 없습니다' : '저장된 세션이 없습니다'}</span>
               </div>
             )}
 

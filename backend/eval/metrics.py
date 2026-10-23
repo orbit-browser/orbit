@@ -6,9 +6,11 @@ LLM 호출이나 DB 접근이 없어 backend/tests/test_eval_metrics.py에서 �
 없는) 세션 식별자를 얻는다 — 실제 운영에서도 새로 생성된 세션은 무작위 UUID를 받으므로
 골든셋의 사람이 붙인 라벨("gpu_research" 등)과 문자열이 같을 수 없다. 따라서 정확도 계산
 전에 "예측 클러스터별 다수결 정답 라벨"로 predicted_key를 리매핑한다(클러스터링 평가의
-표준 기법 — purity 계산과 동일한 다수결 매핑을 재사용). append로 붙은 기존 세션은 애초에
-골든셋 라벨을 predicted_key로 그대로 쓰므로(run_eval.py가 candidates[i]["session_id"]를
-골든셋 키와 동일하게 채워 넣는다) 리매핑해도 결과가 바뀌지 않는다.
+표준 기법 — purity 계산과 동일한 다수결 매핑을 재사용). 리매핑은 create 클러스터
+(키에 "new::"가 든 것, run_eval.py가 만든다)에만 한다. append로 붙은 기존 세션은 골든셋 라벨을
+predicted_key로 그대로 쓰므로 리매핑할 이유가 없고, 리매핑하면 형제 기존 세션에 통째로 잘못
+붙인 이벤트(오염)까지 다수결로 정답이 되어 버린다(model-eval-v1, 2026-10-22). 예전 정의
+(모든 클러스터 리매핑)는 created_only=False로 남겨 accuracy_legacy로 함께 보고한다.
 """
 
 from collections import Counter, defaultdict
@@ -71,9 +73,21 @@ def build_cluster_label_map(outcomes: list[EventOutcome]) -> dict[str, str]:
     }
 
 
-def remap_predictions(outcomes: list[EventOutcome]) -> list[EventOutcome]:
-    """predicted_key를 다수결 정답 라벨로 치환한 새 목록을 반환한다(원본은 불변)."""
-    label_map = build_cluster_label_map(outcomes)
+_CREATED_MARKER = "new::"
+
+
+def remap_predictions(
+    outcomes: list[EventOutcome], *, created_only: bool = True
+) -> list[EventOutcome]:
+    """predicted_key를 다수결 정답 라벨로 치환한 새 목록을 반환한다(원본은 불변).
+
+    created_only=True면 create 클러스터만 바꾼다(모듈 docstring 참고).
+    """
+    label_map = {
+        key: label
+        for key, label in build_cluster_label_map(outcomes).items()
+        if not created_only or _CREATED_MARKER in key
+    }
     return [
         EventOutcome(
             event_id=o.event_id,
@@ -84,13 +98,15 @@ def remap_predictions(outcomes: list[EventOutcome]) -> list[EventOutcome]:
     ]
 
 
-def assignment_accuracy(outcomes: list[EventOutcome]) -> float | None:
+def assignment_accuracy(
+    outcomes: list[EventOutcome], *, created_only: bool = True
+) -> float | None:
     """Event-to-Session Assignment Accuracy = 일치 이벤트 수 / (N - |noise|).
 
     비교 전에 리매핑을 적용한다(위 모듈 docstring 참고). noise가 아닌 이벤트가
     하나도 없으면 정의되지 않으므로 None을 반환한다.
     """
-    remapped = remap_predictions(outcomes)
+    remapped = remap_predictions(outcomes, created_only=created_only)
     non_noise = [o for o in remapped if o.expected_key != NOISE]
     if not non_noise:
         return None

@@ -1,0 +1,89 @@
+{
+  "provenance": "42005d4 benchmarks/exhibition-2026/orbit-ui-trial/raw/gpu_benchmark.json",
+  "query": "그래픽카드 고르면서 실제 3D 렌더링 성능을 장치별로 비교한 페이지가 어디였지?",
+  "answer": "그래픽카드별 실제 3D 렌더링 성능을 비교한 페이지는 탐색 기록에 없습니다. [1] 세션은 RTX 5070 제품 사양과 게임 성능 정보를 확인하는 내용이었고, [2] 세션은 Blender Open Data(커뮤니티 기여 하드웨어/소프트웨어 벤치마크 플랫폼)와 CSS Grid 레이아웃 가이드를 함께 탐색한 기록입니다. Blender Open Data는 3D 렌더링 성능 데이터를 제공할 수 있는 사이트지만, 해당 세션에서는 플랫폼 소개와 CSS Grid 예제를 확인했을 뿐 구체적인 그래픽카드별 성능 비교 페이지를 방문한 기록은 남아 있지 않습니다.",
+  "sources": [
+    {
+      "session_id": "cb38fa4d-5504-47ae-8235-15cd5c9772c6",
+      "title": "RTX 5070 제품 탐색",
+      "alias": null,
+      "summary": {
+        "overview": "GeForce RTX 5070 및 5070 Ti의 사양과 성능을 확인하는 중",
+        "purpose": "신제품 그래픽 카드의 기술 사양, 성능, AI 기능 등을 파악하여 구매 또는 업그레이드 여부를 검토",
+        "highlights": [
+          "NVIDIA Blackwell 아키텍처 기반",
+          "DLSS, 레이 트레이싱, Reflex 등 RTX 기술 지원"
+        ],
+        "todos": [
+          "가격 및 실제 벤치마크 비교 필요",
+          "RTX 5070 vs RTX 5070 Ti 차이 확인"
+        ],
+        "next_actions": [
+          "경쟁사 제품(RX 7000 시리즈 등)과 성능 비교 검색",
+          "실제 게임 프레임 벤치마크 결과 확인"
+        ]
+      },
+      "summary_status": "done",
+      "tabs": [
+        {
+          "id": "cf1391f7-05dd-4c52-9362-91aad7a398e4",
+          "title": "GeForce RTX 5070 Family Graphics Cards | NVIDIA",
+          "url": "https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5070-family/",
+          "fav_icon_url": null
+        }
+      ],
+      "created_at": "2026-10-20T14:33:03.062422+00:00",
+      "updated_at": "2026-10-20T14:33:05.034756+00:00",
+      "last_activity_at": "2026-10-20T14:31:47.975000+00:00",
+      "folder_id": null,
+      "shared_workspace_ids": []
+    },
+    {
+      "session_id": "a1c3267e-77fa-4839-a864-a6ab0ba8181e",
+      "title": "Blender 성능 및 CSS 그리드",
+      "alias": null,
+      "summary": {
+        "overview": "Blender Open Data 벤치마크와 CSS Grid 레이아웃 가이드를 동시에 탐색 중",
+        "purpose": "Blender 커뮤니티 성능 데이터를 이해하고 웹 레이아웃 기술을 학습하려는 복합적 목적",
+        "highlights": [
+          "Blender Open Data는 346,101개의 커뮤니티 기여 벤치마크를 제공",
+          "CSS Grid는 3열 트랙 그리드와 line-based placement 예제 포함"
+        ],
+        "todos": [
+          "Blender Open Data의 구체적인 벤치마크 데이터 확인",
+          "CSS Grid의 추가 속성(grid-auto-columns, grid-auto-flow 등) 학습"
+        ],
+        "next_actions": [
+          "Blender Open Data 홈페이지에서 실제 벤치마크 점수 비교",
+          "MDN CSS Grid 레이아웃 전체 속성 가이드 탐색"
+        ]
+      },
+      "summary_status": "done",
+      "tabs": [
+        {
+          "id": "ffe97d05-b999-4e73-9c08-1f711bd0626a",
+          "title": "CSS grid layout - CSS | MDN",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Grid_layout",
+          "fav_icon_url": null
+        },
+        {
+          "id": "01a225b6-31f1-4c69-b9a8-23bb14ee3104",
+          "title": "Blender - Open Data",
+          "url": "https://opendata.blender.org/",
+          "fav_icon_url": null
+        },
+        {
+          "id": "19cd48d4-1e74-4d3c-8ba2-fa110e1ed9ef",
+          "title": "Blender - Open Data",
+          "url": "https://opendata.blender.org/about/",
+          "fav_icon_url": null
+        }
+      ],
+      "created_at": "2026-10-20T14:30:52.581394+00:00",
+      "updated_at": "2026-10-20T14:33:13.298568+00:00",
+      "last_activity_at": "2026-10-20T14:32:21.577000+00:00",
+      "folder_id": null,
+      "shared_workspace_ids": []
+    }
+  ]
+}

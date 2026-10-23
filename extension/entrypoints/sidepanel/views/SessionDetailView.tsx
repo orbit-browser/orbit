@@ -9,6 +9,11 @@ import { StatePlaceholder } from '../components/StatePlaceholder';
 import { TimelineItem } from '../components/timeline/TimelineItem';
 import { restoreInNewWindow, restoreInCurrentWindow } from '../../../lib/chrome-bridge';
 import { fetchSessionEvents } from '../../../lib/api';
+import { useActiveWorkspace } from '../../../lib/useWorkspaces';
+import { useWorkspaceSessions } from '../hooks/useWorkspaces';
+import { useAuth } from '../../../lib/useAuth';
+import { canShowSnapshots, snapshotKey } from '../../../lib/tab-snapshots';
+import { useTabSnapshots } from '../../../lib/useTabSnapshots';
 
 export function SessionDetailView() {
   const selectedId = useUIStore((s) => s.selectedSessionId);
@@ -16,6 +21,17 @@ export function SessionDetailView() {
   const showToast = useUIStore((s) => s.showToast);
   const pendingSessionIds = useUIStore((s) => s.pendingSessionIds);
   const { data: session, isLoading, isError } = useSession(selectedId);
+  // 팀 화면에서 연 세션은 읽기 전용이다. 공유한 사람은 팀 목록(캐시)에서 찾는다.
+  const { scopeId } = useActiveWorkspace();
+  const { data: teamSessions } = useWorkspaceSessions(scopeId);
+  const readOnly = !!scopeId;
+  const sharedBy = teamSessions?.find((item) => item.id === selectedId)?.sharedBy;
+  // 남의 팀 세션에는 내 기기 사진을 붙이지 않는다.
+  const myUserId = useAuth().session?.user.id ?? null;
+  const shots = useTabSnapshots(
+    session?.tabs.map((tab) => tab.url) ?? [],
+    canShowSnapshots(readOnly, sharedBy, myUserId),
+  );
   const { mutate: renameSession } = useRenameSession();
   const { mutate: retrySummary, isPending: isRetrying } = useRetrySummary();
   const { data: timelineEvents } = useQuery({
@@ -62,7 +78,7 @@ export function SessionDetailView() {
         className="flex items-center gap-1 text-xs text-orbit-muted hover:text-orbit-text"
       >
         <ArrowLeft size={14} />
-        세션 목록
+        {readOnly ? '팀 세션 목록' : '세션 목록'}
       </button>
 
       <StatePlaceholder
@@ -88,18 +104,21 @@ export function SessionDetailView() {
               ) : (
                 <h2 className="min-w-0 flex-1 truncate text-base font-bold">{title}</h2>
               )}
-              <button
-                type="button"
-                title="이름 편집"
-                onClick={() => setEditing(true)}
-                className="rounded-md p-1 text-orbit-muted hover:bg-orbit-bg"
-              >
-                <Pencil size={15} />
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  title="이름 편집"
+                  onClick={() => setEditing(true)}
+                  className="rounded-md p-1 text-orbit-muted hover:bg-orbit-bg"
+                >
+                  <Pencil size={15} />
+                </button>
+              )}
             </div>
 
             <p className="text-xs text-orbit-muted">
               {session.tabs.length}개 탭 · {session.timeLabel} 활동
+              {sharedBy && ` · ${sharedBy.name ?? '팀원'} 님이 공유`}
             </p>
 
             <div className="flex items-center justify-between gap-2">
@@ -188,24 +207,29 @@ export function SessionDetailView() {
               {activeSubTab === 'tabs' ? (
                 <div className="space-y-0.5">
                   {session.tabs.map((tab) => (
-                    <TabListItem key={tab.id} tab={tab} />
+                    <TabListItem key={tab.id} tab={tab} shot={shots[snapshotKey(tab.url) ?? '']} />
                   ))}
                 </div>
               ) : isFailed ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-12 rounded-orbit-card border border-orbit-border bg-orbit-surface text-orbit-muted select-none">
                   <p className="text-xs font-semibold text-orbit-danger">AI 요약 생성 실패</p>
                   <p className="text-[10px] text-orbit-muted/80">
-                    요약을 만드는 중 문제가 발생했어요. 다시 시도해 주세요.
+                    {readOnly
+                      ? '공유한 사람이 다시 시도할 수 있어요.'
+                      : '요약을 만드는 중 문제가 발생했어요. 다시 시도해 주세요.'}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => selectedId && retrySummary(selectedId)}
-                    disabled={isRetrying}
-                    className="mt-1 flex items-center gap-1.5 rounded-lg bg-orbit-primary px-3 py-1.5 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50 cursor-pointer"
-                  >
-                    <RotateCw size={12} className={isRetrying ? 'animate-spin' : ''} />
-                    다시 시도
-                  </button>
+                  {/* 재요약은 소유자만 할 수 있다. */}
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={() => selectedId && retrySummary(selectedId)}
+                      disabled={isRetrying}
+                      className="mt-1 flex items-center gap-1.5 rounded-lg bg-orbit-primary px-3 py-1.5 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50 cursor-pointer"
+                    >
+                      <RotateCw size={12} className={isRetrying ? 'animate-spin' : ''} />
+                      다시 시도
+                    </button>
+                  )}
                 </div>
               ) : isPending || !session.summary || !session.summary.overview ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-12 rounded-orbit-card border border-orbit-border bg-orbit-surface text-orbit-muted select-none">

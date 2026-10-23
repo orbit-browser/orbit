@@ -1,4 +1,5 @@
 export type SettingsPageId =
+  | 'workspace'
   | 'general'
   | 'collection'
   | 'session'
@@ -12,7 +13,7 @@ export interface SettingsNavItem {
   id: SettingsPageId;
   label: string;
   /** lucide 아이콘 이름. 컴포넌트 매핑은 화면 쪽에서 한다. */
-  icon: 'sliders' | 'download' | 'layers' | 'sparkles' | 'shield' | 'database' | 'plug' | 'info';
+  icon: 'users' | 'sliders' | 'download' | 'layers' | 'sparkles' | 'shield' | 'database' | 'plug' | 'info';
   /**
    * 검색어 매칭용 단어들. 라벨만으로는 "토글", "본문" 같은 실제 설정 이름으로 찾을 수 없다.
    */
@@ -25,6 +26,17 @@ export interface SettingsNavGroup {
 }
 
 export const SETTINGS_NAV: SettingsNavGroup[] = [
+  {
+    title: '워크스페이스',
+    items: [
+      {
+        id: 'workspace',
+        label: '워크스페이스',
+        icon: 'users',
+        keywords: ['팀', '내 Orbit', '이름', '초대', '초대 코드', '멤버', '내보내기', '나가기', '삭제'],
+      },
+    ],
+  },
   {
     title: '설정',
     items: [
@@ -51,7 +63,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         id: 'privacy',
         label: '개인정보 보호',
         icon: 'shield',
-        keywords: ['민감', '개인정보', '수집 범위'],
+        keywords: ['민감', '개인정보', '수집 범위', '미리보기', '화면', '캡처'],
       },
     ],
   },

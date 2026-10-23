@@ -9,10 +9,12 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
+
 from fastapi import HTTPException
 
-from app.api import ask
+from app.api import ask, workspaces
 from app.services import ask_service
+from tests.test_workspace_security import db  # noqa: F401 — 실제 SQL을 돌리는 메모리 SQLite 픽스처
 
 _NOW = datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc)
 
@@ -53,12 +55,14 @@ def _session(user_id=_OWNER, status="active"):
         folder_id=None,
         folder_assigned_by=None,
         alias=None,
+        collect_workspace_id=None,
     )
 
 
 def _body(session_id=None, query="질문", intent="search_memory", history=None):
     return SimpleNamespace(
         session_id=session_id,
+        workspace_id=None,
         query=query,
         rerank=False,
         intent=intent,
@@ -109,8 +113,8 @@ def test_vector_search_receives_requesting_user(monkeypatch):
     """세션을 지목하지 않으면 벡터 검색으로 근거를 찾는데, 그 검색도 소유자 범위여야 한다."""
     captured = {}
 
-    async def fake_search(query, limit, rerank, db, user_id, **_kwargs):
-        captured.update(query=query, limit=limit, rerank=rerank, user_id=user_id)
+    async def fake_search(query, limit, rerank, db, user_id, shared_ids=None, workspace_id=None, **_kwargs):
+        captured.update(query=query, limit=limit, rerank=rerank, user_id=user_id, shared_ids=shared_ids)
         return []
 
     monkeypatch.setattr(ask, "_search_sessions_by_vector", fake_search)
@@ -121,17 +125,40 @@ def test_vector_search_receives_requesting_user(monkeypatch):
     assert captured["query"] == "교토"
 
 
-def test_previous_sources_are_loaded_only_for_the_requesting_user():
-    """후속 질문의 이전 출처 id는 클라이언트가 보낸 값 — 소유자·활성 조건으로만 불러온다."""
-    db = _FakeDB()
-    history = [SimpleNamespace(query="이전", answer="답", source_session_ids=["s1", "other"])]
+def _history_body(source_ids, workspace_id=None):
+    history = [SimpleNamespace(query="이전", answer="답", source_session_ids=source_ids)]
+    body = _body(history=history)
+    body.workspace_id = workspace_id
+    return body
 
-    sources = asyncio.run(ask._previous_sources(_body(history=history), db, _OWNER))
 
-    assert sources == []
-    where_clause = str(db.executed[0])
-    assert "user_id" in where_clause
-    assert "status" in where_clause
+@pytest.mark.parametrize("user,workspace_id,requested,expected", [
+    # (a) 개인 범위: 남의 세션 id를 보내도 내 세션만 남는다
+    ("bob", None, ["bob-private", "private", "shared"], ["bob-private"]),
+    # (b) 팀 범위: 팀원이 공유한 세션은 남이 소유했어도 들어온다
+    ("bob", "alpha", ["shared", "bob-shared"], ["shared", "bob-shared"]),
+    # (c) 다른 팀에만 공유됐거나, 공유한 사람이 팀을 떠났거나, 공유하지 않은 세션은 빠진다
+    ("bob", "alpha", ["other-team", "departed-share", "private", "eve-private"], []),
+    # (d) merged 세션은 빠진다 — 개인·팀 둘 다
+    ("alice", None, ["absorbed", "private"], ["private"]),
+    ("bob", "alpha", ["absorbed"], []),
+])
+def test_previous_sources_follow_request_scope_with_real_sql(db, user, workspace_id, requested, expected):
+    """후속 질문의 직전 출처 id는 클라이언트가 보낸 값이다. 읽을 수 있는 세션만 출처가 된다."""
+    sources = asyncio.run(ask._previous_sources(_history_body(requested, workspace_id), db, user))
+
+    assert [s.session_id for s in sources] == expected
+
+
+def test_previous_sources_drop_session_unshared_after_answer(db):
+    """(c) 직전 답변 뒤 공유를 끊은 세션은 다음 턴의 출처로 다시 들어오지 않는다."""
+    asyncio.run(workspaces.unshare_session("alpha", "bob-shared", db, "bob"))
+
+    sources = asyncio.run(ask._previous_sources(_history_body(["bob-shared", "shared"], "alpha"), db, "alice"))
+
+    assert [s.session_id for s in sources] == ["shared"]
+    # 팀원에게 가는 카드에는 소유자 개인 정보(폴더)를 싣지 않는다
+    assert sources[0].folder_id is None
 
 
 def test_previous_sources_skip_query_without_history():
@@ -155,7 +182,7 @@ def test_followup_search_uses_rewritten_query_and_appends_previous_sources(monke
     monkeypatch.setattr(ask, "_previous_sources", fake_previous)
 
     sources = asyncio.run(
-        ask._resolve_sources(_body(query="그럼 9070은?"), _FakeDB(), _OWNER, "RX 9070 최저가는?")
+        ask._resolve_sources(_body(query="그럼 9070은?"), _FakeDB(), _OWNER, retrieval_query="RX 9070 최저가는?")
     )
 
     assert captured["query"] == "RX 9070 최저가는?"
@@ -172,7 +199,7 @@ def test_previous_source_found_again_by_search_stays_exempt_from_relevance_gate(
     monkeypatch.setattr(ask, "_search_sessions_by_vector", fake_search)
     monkeypatch.setattr(ask, "_previous_sources", fake_previous)
 
-    sources = asyncio.run(ask._resolve_sources(_body(query="거기는?"), _FakeDB(), _OWNER, "질문"))
+    sources = asyncio.run(ask._resolve_sources(_body(query="거기는?"), _FakeDB(), _OWNER, retrieval_query="질문"))
 
     assert [(s.session_id, s.vector_score) for s in sources] == [("new", 0.3), ("prev", None)]
 
@@ -195,7 +222,7 @@ def test_followup_after_session_discovery_keeps_new_results_and_caps_previous(mo
     monkeypatch.setattr(ask, "_search_sessions_by_vector", fake_search)
     history = [SimpleNamespace(query="세션 찾아줘", answer="5개", source_session_ids=previous_ids)]
 
-    sources = asyncio.run(ask._resolve_sources(_body(history=history), _OwnedDB(), _OWNER, "질문"))
+    sources = asyncio.run(ask._resolve_sources(_body(history=history), _OwnedDB(), _OWNER, retrieval_query="질문"))
 
     ids = [s.session_id for s in sources]
     assert ids[:5] == [f"new{i}" for i in range(5)]
@@ -205,15 +232,18 @@ def test_followup_after_session_discovery_keeps_new_results_and_caps_previous(mo
 # ── _load_context_records ──────────────────────────────────────
 
 
-def test_context_loading_filters_by_owner():
-    """이중 방어 — 호출측이 걸렀더라도 컨텍스트 로딩에서 한 번 더 소유자를 건다."""
-    db = _FakeDB()
+@pytest.mark.parametrize("user,workspace_id,requested,expected", [
+    ("bob", None, ["bob-private", "private", "shared"], {"bob-private"}),
+    ("bob", "alpha", ["shared", "bob-shared", "other-team", "absorbed", "departed-share"], {"shared", "bob-shared"}),
+    ("alice", None, ["absorbed", "private"], {"absorbed", "private"}),
+])
+def test_context_loading_follows_request_scope_with_real_sql(db, user, workspace_id, requested, expected):
+    """이중 방어 — 호출측이 걸렀더라도 본문 로딩이 같은 SQL에서 범위를 다시 판정한다.
+    개인 범위의 merged 세션은 소유자 본인이 지정해 읽을 수 있으므로 남는다(호출측이 막는다)."""
+    models, rows = asyncio.run(ask_service._load_context_records(db, requested, user, workspace_id))
 
-    asyncio.run(ask_service._load_context_records(db, ["s1", "s2"], _OWNER))
-
-    assert db.executed, "세션 조회가 실행되지 않았다"
-    where_clause = str(db.executed[0])
-    assert "user_id" in where_clause, "세션 조회에 소유자 조건이 없다"
+    assert set(models) == expected
+    assert {session_event.session_id for session_event, _event in rows} == expected
 
 
 def test_context_loading_skips_query_when_no_sessions():
@@ -223,3 +253,21 @@ def test_context_loading_skips_query_when_no_sessions():
 
     assert models == {} and events == []
     assert db.executed == []
+
+
+@pytest.mark.parametrize("intent", ["find_sessions", "search_session", "search_memory"])
+def test_team_ask_vector_search_keeps_team_scope_for_every_intent(monkeypatch, intent):
+    """팀 Ask는 의도와 상관없이 팀 공유 범위로만 검색한다. 하나라도 범위를 빠뜨리면 개인 세션이 팀 답변에 섞인다."""
+    captured = {}
+
+    async def fake_search(query, limit, rerank, db, user_id, shared_ids=None, workspace_id=None, **_kwargs):
+        captured.update(shared_ids=shared_ids, workspace_id=workspace_id)
+        return []
+
+    monkeypatch.setattr(ask, "_search_sessions_by_vector", fake_search)
+    body = _body(intent=intent)
+    body.workspace_id = "team-1"
+
+    asyncio.run(ask._resolve_sources(body, _FakeDB(), _OWNER, ["shared-1"]))
+
+    assert captured == {"shared_ids": ["shared-1"], "workspace_id": "team-1"}

@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Loader2, Pencil, RotateCw } from 'lucide-react';
-import type { Session, TabItem } from '../../../lib/types';
+import { ChevronRight, Loader2, Pencil, RotateCw, Users } from 'lucide-react';
+import type { MemberBrief, Session, TabItem } from '../../../lib/types';
 import { hueForSession } from '../../../lib/session-hue';
 import { attachVisits } from '../../../lib/session-visits';
 import { fetchSessionEvents } from '../../../lib/api';
 import { useUIStore } from '../store/ui';
 import { useDeleteSession, useRenameSession, useRetrySummary } from '../hooks/useSessions';
 import { restoreInNewWindow, restoreInCurrentWindow } from '../../../lib/chrome-bridge';
+import { useWorkspaces } from '../../../lib/useWorkspaces';
 import { Favicon } from './Favicon';
+import { MemberAvatar } from './team/MemberAvatar';
+import { ShareSessionDialog } from './team/ShareSessionDialog';
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -69,7 +72,12 @@ function FaviconStack({ tabs }: { tabs: TabItem[] }) {
   );
 }
 
-export function SessionRow({ session }: { session: Session }) {
+/**
+ * 세션 한 줄. `sharedBy` 가 있으면 팀에 공유된 세션이라 읽기 전용으로 그린다 —
+ * 이름·삭제는 공유한 사람의 개인 화면에서만 한다(서버도 소유자만 허용한다).
+ */
+export function SessionRow({ session, sharedBy }: { session: Session; sharedBy?: MemberBrief }) {
+  const readOnly = !!sharedBy;
   const showToast = useUIStore((s) => s.showToast);
   const isPending = useUIStore((s) => s.pendingSessionIds.includes(session.id));
   const { mutate: deleteSession } = useDeleteSession();
@@ -78,6 +86,9 @@ export function SessionRow({ session }: { session: Session }) {
 
   const [expanded, setExpanded] = useState(false);
   const [editingTitle, setEditingTitle] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const { data: workspaces = [] } = useWorkspaces();
+  const sharedCount = session.sharedWorkspaceIds?.length ?? 0;
 
   // 방문 시각은 탭이 아니라 이벤트에만 있다. 펼친 세션만 조회한다.
   // fetchSessionEvents 는 실패를 빈 배열로 흡수하므로 목록이 사라지지 않는다.
@@ -150,7 +161,8 @@ export function SessionRow({ session }: { session: Session }) {
           </h3>
         </div>
 
-        {isFailed ? (
+        {/* 재요약은 소유자만 할 수 있다 — 팀 세션에서는 버튼 대신 파비콘을 그대로 둔다. */}
+        {isFailed && !readOnly ? (
           <button
             type="button"
             onClick={(event) => {
@@ -164,7 +176,19 @@ export function SessionRow({ session }: { session: Session }) {
             다시 시도
           </button>
         ) : (
-          <FaviconStack tabs={session.tabs} />
+          <>
+            {sharedBy && <MemberAvatar member={sharedBy} />}
+            {!readOnly && sharedCount > 0 && (
+              <Users
+                size={11}
+                aria-label="팀에 공유 중"
+                className="shrink-0 text-orbit-primary"
+              >
+                <title>팀에 공유 중</title>
+              </Users>
+            )}
+            <FaviconStack tabs={session.tabs} />
+          </>
         )}
       </div>
 
@@ -178,16 +202,20 @@ export function SessionRow({ session }: { session: Session }) {
           <div className="flex items-center gap-1.5">
             <p className="min-w-0 flex-1 truncate text-[11px] text-orbit-muted">
               {session.tabs.length}개 탭 · {session.timeLabel}
+              {sharedBy && ` · ${sharedBy.name ?? '팀원'} 님이 공유`}
+              {!readOnly && sharedCount > 0 && ` · 팀 ${sharedCount}곳에 공유 중`}
             </p>
-            <button
-              type="button"
-              onClick={() => setEditingTitle(session.title)}
-              title="이름 바꾸기"
-              aria-label="세션 이름 바꾸기"
-              className="shrink-0 cursor-pointer rounded p-1 text-orbit-muted transition-colors hover:bg-orbit-surface hover:text-orbit-text"
-            >
-              <Pencil size={11} />
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => setEditingTitle(session.title)}
+                title="이름 바꾸기"
+                aria-label="세션 이름 바꾸기"
+                className="shrink-0 cursor-pointer rounded p-1 text-orbit-muted transition-colors hover:bg-orbit-surface hover:text-orbit-text"
+              >
+                <Pencil size={11} />
+              </button>
+            )}
           </div>
 
           {editingTitle !== null && (
@@ -208,7 +236,9 @@ export function SessionRow({ session }: { session: Session }) {
 
           {isFailed ? (
             <p className="text-xs leading-relaxed text-orbit-danger">
-              AI 요약 생성에 실패했어요. 다시 시도해 주세요.
+              {readOnly
+                ? 'AI 요약 생성에 실패했어요. 공유한 사람이 다시 시도할 수 있어요.'
+                : 'AI 요약 생성에 실패했어요. 다시 시도해 주세요.'}
             </p>
           ) : (
             session.summary?.overview && (
@@ -272,21 +302,37 @@ export function SessionRow({ session }: { session: Session }) {
             >
               현재 창에 열기
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!window.confirm(`"${session.title}" 세션을 지울까요?`)) return;
-                deleteSession(session.id, {
-                  onSuccess: () => showToast('세션을 삭제했어요'),
-                });
-              }}
-              className="ml-auto cursor-pointer rounded-md px-1.5 py-1 text-[11px] font-medium text-orbit-muted transition-colors hover:bg-orbit-danger-soft hover:text-orbit-danger"
-            >
-              삭제
-            </button>
+            {!readOnly && workspaces.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSharing(true)}
+                className="cursor-pointer rounded-md px-1.5 py-1 text-[11px] font-semibold text-orbit-primary transition-colors hover:bg-orbit-primary-soft"
+              >
+                팀에 공유
+              </button>
+            )}
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => {
+                  const notice = sharedCount
+                    ? '\n팀에 공유 중이라 팀 화면에서도 사라져요.'
+                    : '';
+                  if (!window.confirm(`"${session.title}" 세션을 지울까요?${notice}`)) return;
+                  deleteSession(session.id, {
+                    onSuccess: () => showToast('세션을 삭제했어요'),
+                  });
+                }}
+                className="ml-auto cursor-pointer rounded-md px-1.5 py-1 text-[11px] font-medium text-orbit-muted transition-colors hover:bg-orbit-danger-soft hover:text-orbit-danger"
+              >
+                삭제
+              </button>
+            )}
           </div>
         </div>
       )}
+
+      {sharing && <ShareSessionDialog session={session} onClose={() => setSharing(false)} />}
     </div>
   );
 }

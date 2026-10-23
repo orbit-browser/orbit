@@ -1,6 +1,6 @@
 import { RotateCw } from 'lucide-react';
 import type { SessionNode } from '../atlas/data';
-import { formatMinutes } from '../atlas/data';
+import { formatMinutes, sharerLabel } from '../atlas/data';
 import type { RestoreTarget } from '../../lib/restore';
 
 interface ExploreCardProps {
@@ -57,6 +57,12 @@ export function ExploreCard({
         <span>페이지 {session.pages.length}개</span>
         <span className="dot-sep" />
         <span>{formatMinutes(session.minutes)}</span>
+        {session.sharedBy && (
+          <>
+            <span className="dot-sep" />
+            <span>{sharerLabel(session)}</span>
+          </>
+        )}
       </div>
 
       {reason && <p className="explore-card__reason">{reason}</p>}

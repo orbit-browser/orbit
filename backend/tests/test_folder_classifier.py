@@ -259,17 +259,22 @@ def test_suggestions_endpoint_maps_matches_and_reports_vector_failure(monkeypatc
 def test_settings_expose_and_update_auto_folder(monkeypatch):
     store: dict[str, bool] = {}
 
-    async def get_bool(_db, key, default):
+    async def get_bool(_db, _user_id, key, default):
         return store.get(key, default)
 
-    async def set_bool(_db, key, value):
+    async def set_bool(_db, _user_id, key, value):
         store[key] = value
 
     monkeypatch.setattr(settings_api, "get_bool", get_bool)
     monkeypatch.setattr(settings_api, "set_bool", set_bool)
 
-    assert asyncio.run(settings_api.get_settings(db=None)).auto_folder_enabled is True
+    async def no_excluded(_db, _user_id):
+        return []
+
+    monkeypatch.setattr(settings_api, "excluded_domains", no_excluded)
+
+    assert asyncio.run(settings_api.get_settings(db=None, user_id="u1")).auto_folder_enabled is True
     body = settings_api.UpdateSettingsRequest(auto_folder_enabled=False)
-    updated = asyncio.run(settings_api.update_settings(body, db=None))
+    updated = asyncio.run(settings_api.update_settings(body, db=None, user_id="u1"))
     assert updated.auto_folder_enabled is False
     assert updated.auto_merge_enabled is False

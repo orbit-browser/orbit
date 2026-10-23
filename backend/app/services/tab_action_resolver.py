@@ -5,6 +5,7 @@ from urllib.parse import unquote, urlsplit
 
 from ..ai.embedding import embed, embed_many
 from ..config import settings
+from .event_filter import ai_safe_path
 from ..schemas.tab_action import (
     OpenTabCandidate,
     TabActionCandidateMatch,
@@ -85,7 +86,7 @@ def _safe_url_parts(raw_url: str) -> tuple[str, str]:
     except ValueError:
         return "", ""
     host = (parsed.hostname or parsed.netloc or "").lower().removeprefix("www.")
-    path = unquote(parsed.path or "").strip("/")
+    path = unquote(ai_safe_path(raw_url)).strip("/")
     return host[:253], path[:500]
 
 

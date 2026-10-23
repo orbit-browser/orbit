@@ -3,6 +3,7 @@ import logging
 from .json_utils import extract_json
 from .llm import chat_completion_light
 from ..schemas.session import TabItemRequest
+from ..services.event_filter import ai_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ _USER_TEMPLATE = """\
 
 def _build_prompt(tabs: list[TabItemRequest]) -> str:
     lines = [
-        f"[{i}] {(tab.title or '')[:_MAX_TITLE]} — {tab.url}"
+        f"[{i}] {(tab.title or '')[:_MAX_TITLE]} — {ai_safe_url(tab.url)}"
         for i, tab in enumerate(tabs[:_MAX_TABS])
     ]
     return _USER_TEMPLATE.format(tab_list="\n".join(lines))

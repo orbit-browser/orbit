@@ -4,6 +4,7 @@
 embedding-passage 임베딩하고, 자연어 질의를 embedding-query로 임베딩한 뒤
 코사인 점수 행렬에서 threshold 후보별 지표를 계산한다. Qdrant의 Cosine 점수와
 동일한 값이므로 별도 컬렉션 없이 `search_score_threshold` 튜닝 근거로 쓸 수 있다.
+현재 골든셋 세션에는 tabs가 없어 페이지 제목·경로 항목은 빠진다.
 
 실행 (backend 디렉터리에서, 실 임베딩 API 호출):
     python -m eval.run_retrieval_eval
@@ -37,7 +38,8 @@ def _passage_text(session: dict) -> str:
         purpose=session["purpose"],
         highlights=session["highlights"],
     )
-    return build_embedding_text(session["title"], summary)
+    # 제품(embed_and_upsert)과 같은 텍스트. 골든셋 세션에 tabs가 있으면 함께 넣는다.
+    return build_embedding_text(session["title"], summary, session.get("tabs", []))
 
 
 async def run() -> dict:

@@ -114,8 +114,10 @@ def test_verify_rejects_when_server_client_id_missing(monkeypatch):
     """설정 누락을 인증 성공으로 넘기면 누구나 로그인할 수 있게 된다."""
     monkeypatch.setattr(settings, "google_client_id", "")
 
-    with pytest.raises(GoogleAuthError):
+    with pytest.raises(GoogleAuthError) as exc_info:
         asyncio.run(verify_access_token("tok"))
+    # 401 본문에 그대로 나가므로 내부 설정 이름을 드러내지 않는다(원인은 서버 로그에만).
+    assert "google_client_id" not in str(exc_info.value).lower()
 
 
 def test_verify_surfaces_google_outage_separately(monkeypatch):

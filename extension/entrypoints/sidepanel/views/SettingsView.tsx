@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { checkHealth } from '../../../lib/api';
 import { useUIStore } from '../store/ui';
 import { useSettingsStore } from '../store/settings';
-import type { OrbitSettings } from '../../../lib/settings';
+import { AI_DISCLOSURE, RECONSENT_NOTICE, type OrbitSettings } from '../../../lib/settings';
+import { useNeedsReconsent } from '../components/timeline/CollectionOptInNotice';
 import { useServerSettings, useUpdateServerSettings } from '../hooks/useServerSettings';
+import { TeamSettingsSection } from '../components/team/TeamSettingsSection';
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -191,6 +193,7 @@ function ThemeRow({
 
 export function SettingsView() {
   const showToast = useUIStore((s) => s.showToast);
+  const reconsent = useNeedsReconsent();
   const {
     data: serverSettings,
     isLoading: serverSettingsLoading,
@@ -307,13 +310,31 @@ export function SettingsView() {
 
       <section className="space-y-2">
         <p className="text-xs font-semibold text-orbit-muted">수집·동기화</p>
+        {reconsent && !collectionEnabled && (
+          <div role="status" className="flex items-center gap-2 rounded-lg border border-orbit-primary/30 bg-orbit-primary-soft px-3 py-2">
+            <p className="min-w-0 flex-1 text-[11px] text-orbit-text">
+              {RECONSENT_NOTICE}
+              <span className="mt-0.5 block text-[10px] leading-snug text-orbit-muted">{AI_DISCLOSURE}</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setCollectionEnabled(true);
+                showToast('바뀐 안내에 동의하고 수집을 다시 켰어요');
+              }}
+              className="shrink-0 cursor-pointer rounded-md bg-orbit-primary px-2 py-1 text-[11px] font-bold text-white transition hover:brightness-95"
+            >
+              동의하고 켜기
+            </button>
+          </div>
+        )}
         <div className="divide-y divide-orbit-border rounded-orbit-card border border-orbit-border bg-orbit-surface">
           <SettingRow
             label="탐색 기록 수집"
             description={
               collectionEnabled
-                ? '방문한 페이지를 시간순으로 기록해요'
-                : '켜면 방문한 페이지를 자동으로 기록해요 (opt-in, 기본 꺼짐)'
+                ? `방문한 페이지를 시간순으로 기록해요. ${AI_DISCLOSURE}`
+                : `켜면 방문한 페이지를 자동으로 기록해요 (opt-in, 계정마다 따로 켜요). ${AI_DISCLOSURE}`
             }
             checked={collectionEnabled}
             onChange={(v) => {
@@ -368,7 +389,7 @@ export function SettingsView() {
 
           <SettingRow
             label="민감 도메인 제외"
-            description="은행·로그인 등 민감 페이지는 수집에서 제외"
+            description="은행·로그인 등 민감 페이지는 본문 없이 방문만 기록"
             checked={excludeSensitive}
             onChange={(v) => {
               setExcludeSensitive(v);
@@ -377,6 +398,8 @@ export function SettingsView() {
           />
         </div>
       </section>
+
+      <TeamSettingsSection />
 
       <section className="space-y-2">
         <p className="text-xs font-semibold text-orbit-muted">계정</p>

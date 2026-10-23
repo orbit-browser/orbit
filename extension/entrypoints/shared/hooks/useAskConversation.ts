@@ -1,9 +1,10 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import { resolveAssistantRoute, resolveOpenTabAction, streamAsk } from '../../../lib/api';
+import { onSessionChange } from '../../../lib/auth';
 import { activateOpenTab, getAllOpenTabs } from '../../../lib/chrome-bridge';
 import { isSensitiveUrl } from '../../../lib/sensitive-domains';
-import { getSettings } from '../../../lib/settings';
+import { getSettings, subscribeSettings } from '../../../lib/settings';
 import {
   findBestOpenTab,
   parseOpenTabNavigationIntent,
@@ -35,8 +36,10 @@ export interface AskTurn {
 interface AskConversationState {
   turns: AskTurn[];
   isStreaming: boolean;
+  workspaceId: string | null;
 }
 
+const EMPTY_TURNS: AskTurn[] = [];
 const MAX_HISTORY_TURNS = 3;
 const TAB_ACTION_MODELS = new Set(['local-tab-action', 'semantic-tab-action']);
 
@@ -63,7 +66,24 @@ const nextTurnId = () => `ask-${Date.now()}-${turnSequence++}`;
 const useAskConversationStore = create<AskConversationState>(() => ({
   turns: [],
   isStreaming: false,
+  workspaceId: null,
 }));
+
+function resetConversation(workspaceId = useAskConversationStore.getState().workspaceId) {
+  activeController?.abort();
+  activeController = null;
+  activeTurnId = null;
+  useAskConversationStore.setState({ turns: [], isStreaming: false, workspaceId });
+}
+
+// 마운트 여부와 무관하게 다른 화면에서 바꾼 계정·범위도 즉시 반영한다.
+// 저장소 이벤트의 이전 값을 비교하므로 초기 조회와 변경 알림 사이의 경합이 없다.
+onSessionChange((session, previous) => {
+  if (session?.user.id !== previous?.user.id) resetConversation();
+});
+subscribeSettings((settings, previous) => {
+  if (settings.activeWorkspaceId !== previous.activeWorkspaceId) resetConversation();
+});
 
 export function getAskConversationSnapshot(): AskConversationState {
   return useAskConversationStore.getState();
@@ -115,42 +135,38 @@ async function runSemanticOpenTabCommand(
   const excludeSensitive = await getSettings()
     .then((settings) => settings.excludeSensitive)
     .catch(() => true);
+  signal.throwIfAborted();
   const semanticCandidates = excludeSensitive
     ? tabs.filter((tab) => !isSensitiveUrl(tab.url))
     : tabs;
   if (semanticCandidates.length === 0) {
-    return {
-      model: 'semantic-tab-action',
-      answer: '민감 페이지 제외 설정 때문에 의미 검색에 사용할 수 있는 탭이 없어요. 탭 이름을 정확히 말하면 로컬에서 이동할 수 있어요.',
-    };
+    return null;
   }
 
   let resolved;
   try {
     resolved = await resolveOpenTabAction(query, semanticCandidates, signal);
   } catch {
+    signal.throwIfAborted();
     return null;
   }
+  signal.throwIfAborted();
   if (resolved.reason === 'non_navigation') return null;
   if (resolved.action !== 'navigate_tab' || !resolved.tabId) {
     const candidateTabs = resolved.candidates
       .map((candidate) => semanticCandidates.find((tab) => tab.id === candidate.tabId))
       .filter((tab): tab is OpenTabItem => tab !== undefined);
+    if (candidateTabs.length < 2) return null;
     return {
       model: 'semantic-tab-action',
-      answer: candidateTabs.length >= 2
-        ? '비슷한 열린 탭이 여러 개 있어요. 이동할 탭을 선택해 주세요.'
-        : '열린 탭에서 확실하게 일치하는 페이지를 찾지 못했어요. 탭 이름이나 사이트를 조금 더 구체적으로 말해 주세요.',
-      tabCandidates: candidateTabs.length >= 2 ? candidateTabs : undefined,
+      answer: '비슷한 열린 탭이 여러 개 있어요. 이동할 탭을 선택해 주세요.',
+      tabCandidates: candidateTabs,
     };
   }
 
   const matchedTab = semanticCandidates.find((tab) => tab.id === resolved.tabId);
   if (!matchedTab) {
-    return {
-      model: 'semantic-tab-action',
-      answer: '찾은 탭이 방금 닫혔어요. 다시 시도해 주세요.',
-    };
+    return null;
   }
 
   await activateOpenTab(matchedTab);
@@ -179,11 +195,9 @@ async function routeAskRequest(
   let tabs: OpenTabItem[] | null = null;
   if (localIntent) {
     tabs = await getAllOpenTabs();
+    signal.throwIfAborted();
     if (tabs.length === 0) {
-      return {
-        intent: 'search_memory',
-        command: { model: 'local-tab-action', answer: '현재 찾을 수 있는 열린 탭이 없어요.' },
-      };
+      return { intent: 'search_memory', command: null };
     }
     const localMatch = findBestOpenTab(tabs, localIntent.target);
     if (localMatch) {
@@ -221,18 +235,18 @@ async function routeAskRequest(
   try {
     route = await resolveAssistantRoute(query, sessionId, signal);
   } catch {
+    signal.throwIfAborted();
     return { command: null, intent: sessionId ? 'search_session' : 'search_memory' };
   }
+  signal.throwIfAborted();
   if (route.intent !== 'navigate_tab') {
     return { command: null, intent: route.intent };
   }
 
   tabs = await getAllOpenTabs();
+  signal.throwIfAborted();
   if (tabs.length === 0) {
-    return {
-      intent: 'search_memory',
-      command: { model: 'local-tab-action', answer: '현재 찾을 수 있는 열린 탭이 없어요.' },
-    };
+    return { intent: 'search_memory', command: null };
   }
   return {
     intent: 'search_memory',
@@ -243,25 +257,40 @@ async function routeAskRequest(
 export function useAskConversation({
   rerank = true,
   sessionId,
-}: { rerank?: boolean; sessionId?: string } = {}) {
-  const turns = useAskConversationStore((state) => state.turns);
-  const isStreaming = useAskConversationStore((state) => state.isStreaming);
+  workspaceId,
+}: {
+  rerank?: boolean;
+  sessionId?: string;
+  /** 주면 그 팀에 공유된 세션만 근거로 답한다. 열린 탭 이동은 범위와 무관하게 내 브라우저에서 한다. */
+  workspaceId?: string;
+} = {}) {
+  const scopeId = workspaceId ?? null;
+  const previousScopeId = useRef(scopeId);
+  // 범위 prop이 바뀐 첫 렌더에서도 이전 범위의 답변을 내보내지 않는다.
+  const turns = useAskConversationStore((state) => state.workspaceId === scopeId ? state.turns : EMPTY_TURNS);
+  const isStreaming = useAskConversationStore((state) => state.workspaceId === scopeId && state.isStreaming);
+
+  useEffect(() => {
+    // 재마운트 직후에는 팀 설정을 읽기 전이라 임시로 개인 범위일 수 있다.
+    if (previousScopeId.current !== scopeId && useAskConversationStore.getState().workspaceId !== scopeId) {
+      resetConversation(scopeId);
+    }
+    previousScopeId.current = scopeId;
+  }, [scopeId]);
 
   const cancel = useCallback(() => {
     cancelActiveTurn();
   }, []);
 
   const startNewConversation = useCallback(() => {
-    activeController?.abort();
-    activeController = null;
-    activeTurnId = null;
-    useAskConversationStore.setState({ turns: [], isStreaming: false });
-  }, []);
+    resetConversation(scopeId);
+  }, [scopeId]);
 
   const ask = useCallback(async (rawQuery: string) => {
     const query = rawQuery.trim();
     if (!query) return;
 
+    if (useAskConversationStore.getState().workspaceId !== scopeId) resetConversation(scopeId);
     if (activeController) cancelActiveTurn();
     const history = buildAskHistory(useAskConversationStore.getState().turns);
     const id = nextTurnId();
@@ -290,6 +319,7 @@ export function useAskConversation({
     let terminalEvent = false;
     try {
       const routed = await routeAskRequest(query, sessionId, controller.signal);
+      if (controller.signal.aborted) return;
       const command = routed.command;
       if (command !== null) {
         terminalEvent = true;
@@ -310,12 +340,16 @@ export function useAskConversation({
         rerank,
         sessionId,
         intent: routed.intent,
+        workspaceId,
         history,
       }, controller.signal)) {
+        if (controller.signal.aborted) return;
         if (event.type === 'sources') {
           updateTurn(id, (turn) => ({ ...turn, sources: event.sessions }));
         } else if (event.type === 'delta' && event.text) {
           updateTurn(id, (turn) => ({ ...turn, answer: turn.answer + event.text }));
+        } else if (event.type === 'replace' && event.text) {
+          updateTurn(id, (turn) => ({ ...turn, answer: event.text }));
         } else if (event.type === 'verification') {
           updateTurn(id, (turn) => ({ ...turn, verificationIssues: event.issues }));
         } else if (event.type === 'done') {
@@ -359,7 +393,7 @@ export function useAskConversation({
         useAskConversationStore.setState({ isStreaming: false });
       }
     }
-  }, [rerank, sessionId]);
+  }, [rerank, sessionId, workspaceId, scopeId]);
 
   const selectTabCandidate = useCallback(async (turnId: string, tabId: string) => {
     updateTurn(turnId, (turn) => ({ ...turn, tabCandidateError: null }));

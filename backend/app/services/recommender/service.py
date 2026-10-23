@@ -35,6 +35,7 @@ from ...db.models import (
 )
 from ...db.session import AsyncSessionLocal
 from ...db.vector import search_similar_with_scores
+from ..event_filter import ai_safe_url
 from .llm_rerank import RecommendationContext, rerank_recommendations
 from .scoring import SessionSignals, pick_top_candidates
 
@@ -119,7 +120,7 @@ async def _collect_signals(
         return []
 
     visit_days = await _distinct_visit_days(db, [s.id for s in sessions])
-    vector_scores = await _vector_scores(user_id, context)
+    vector_scores = await _vector_scores(context, user_id)
 
     signals: list[SessionSignals] = []
     for session in sessions:
@@ -159,23 +160,21 @@ async def _distinct_visit_days(db: AsyncSession, session_ids: list[str]) -> dict
     return {session_id: max(1, count) for session_id, count in result.all()}
 
 
-async def _vector_scores(user_id: str, context: RecommendationContext) -> dict[str, float]:
+async def _vector_scores(context: RecommendationContext, user_id: str) -> dict[str, float]:
     """현재 컨텍스트를 임베딩해 유사 세션 점수를 얻는다.
 
     컨텍스트가 없거나 임베딩/검색이 실패하면 빈 dict — similarity 신호만 빠지고
     나머지 신호로 추천은 계속 나간다.
     """
     text = " ".join(
-        filter(None, [context.query, context.current_title, context.current_url])
+        filter(None, [context.query, context.current_title, ai_safe_url(context.current_url or "")])
     ).strip()
     if not text:
         return {}
 
     try:
         vector = await embed(text)
-        scored = await search_similar_with_scores(
-            vector, user_id=user_id, limit=_CANDIDATE_LIMIT
-        )
+        scored = await search_similar_with_scores(vector, limit=_CANDIDATE_LIMIT, user_id=user_id)
     except Exception as exc:
         logger.warning("[recommend] 컨텍스트 유사도 계산 실패(%s) — similarity 신호 없이 진행", exc)
         return {}

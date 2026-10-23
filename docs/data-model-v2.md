@@ -257,3 +257,118 @@ ALTER TABLE sessions ADD COLUMN folder_assigned_by VARCHAR(10);  -- user | auto 
 자동 분류와 제안은 `folder_id`와 `folder_assigned_by`가 모두 NULL인 세션만 다룬다. 사용자가 뺀 세션은
 `folder_id=NULL, folder_assigned_by='user'`로 남아 다시 들어가지 않는다. 자동 배정 세션은 다른 세션을
 분류하는 근거에서 빠진다 — 잘못 넣은 세션이 다음 판단을 끌고 가지 않게 한다.
+
+
+## 10. 팀 워크스페이스 (신규 테이블 3개)
+
+1단계는 세션 공유형이다. 기존 테이블에는 컬럼을 추가하지 않고, 공유를 원본 세션에 대한 관계 행으로
+표현한다(라이브 참조). 신규 테이블이라 `create_all`이 생성한다.
+
+```sql
+CREATE TABLE workspaces (
+  id                VARCHAR(36) PRIMARY KEY,
+  name              VARCHAR(60) NOT NULL,
+  hue               VARCHAR(20) NOT NULL,
+  invite_code_hash  VARCHAR(64),          -- 초대 코드 SHA-256. 재발급하면 바뀐다
+  invite_expires_at TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL,
+  updated_at        TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX ix_workspaces_invite_code_hash ON workspaces (invite_code_hash);
+
+CREATE TABLE workspace_members (
+  workspace_id VARCHAR(36) NOT NULL REFERENCES workspaces(id),
+  user_id      VARCHAR(64) NOT NULL,
+  role         VARCHAR(20) NOT NULL,     -- 'owner' | 'member'
+  joined_at    TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (workspace_id, user_id)
+);
+CREATE INDEX ix_workspace_members_user_id ON workspace_members (user_id);
+
+CREATE TABLE workspace_sessions (
+  workspace_id VARCHAR(36) NOT NULL REFERENCES workspaces(id),
+  session_id   VARCHAR(36) NOT NULL REFERENCES sessions(id),
+  shared_by    VARCHAR(64) NOT NULL,     -- 공유는 소유자만 하므로 곧 세션 소유자
+  shared_at    TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (workspace_id, session_id)
+);
+CREATE INDEX ix_workspace_sessions_session_id ON workspace_sessions (session_id);
+```
+
+### 10.1 정리 규칙
+
+FK에 ON DELETE가 없다(`session_events`와 같다). 정리를 빠뜨리면 조용한 고아 행 대신 삭제 오류로
+드러나게 하려는 것이다. 애플리케이션이 같은 트랜잭션에서 먼저 지운다.
+
+- 세션 삭제: 그 세션의 `workspace_sessions`를 먼저 지운다.
+- 팀 삭제: `workspace_sessions` → `workspace_members` → `workspaces` 순.
+- 탈퇴·내보내기: 그 사람이 그 팀에 건 `workspace_sessions`(`shared_by`)와 멤버십을 지운다.
+  개인 세션은 남는다. 내보내기는 `invite_code_hash`·`invite_expires_at`도 비운다.
+- 읽는 쪽은 `workspace_members`를 `(workspace_id, shared_by)`로 조인해 **공유한 사람이 아직 멤버인
+  공유만** 센다. 탈퇴와 같은 순간 들어온 공유 행이 남아도 팀에 보이지 않는다.
+
+### 10.2 병합과의 관계
+
+공유된 세션이 흡수되면(`status='merged'`) 팀 목록·팀 검색·팀원의 단건 조회에서 빠지고 공유 행은
+남겨 둔다 — 되돌리면 그대로 다시 보인다. 흡수한 생존 세션은 자동으로 공유하지 않는다. 자동병합은 공유 중인 세션을
+건너뛴다. 사용자 모르게 팀에 보이는 범위가 바뀌지 않게 하기 위해서다.
+
+### 10.3 팀 수집 모드 (2단계, `docs/team-collect-mode.md` §4)
+
+기존 표에 열 4개(멱등 러너 `_TABLE_COLUMNS`), 신규 표 1개(create_all), 인덱스 3개(러너 `_INDEXES`, `pg_indexes` 확인 후 생성).
+
+```sql
+ALTER TABLE exploration_events ADD COLUMN workspace_id VARCHAR(36);       -- 서버 판정을 통과한 팀 수집 방문. NULL=개인
+ALTER TABLE exploration_events ADD COLUMN collect_window_id VARCHAR(36);  -- 판정에 쓴 수집 창(빼기·되돌리기 기준)
+ALTER TABLE sessions ADD COLUMN collect_workspace_id VARCHAR(36);         -- 팀 수집 스트림. NULL=개인
+ALTER TABLE workspaces ADD COLUMN collect_allowed BOOLEAN NOT NULL DEFAULT false;
+
+CREATE TABLE workspace_collect_windows (
+  id VARCHAR(36) PRIMARY KEY, workspace_id VARCHAR(36) NOT NULL REFERENCES workspaces(id),
+  user_id VARCHAR(64) NOT NULL, device_id VARCHAR(64) NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ NOT NULL,   -- 최대 8시간
+  ended_at TIMESTAMPTZ, ended_reason VARCHAR(20), withdrawn_at TIMESTAMPTZ
+);
+CREATE INDEX ix_collect_windows_lookup ON workspace_collect_windows (workspace_id, user_id, device_id, started_at);
+CREATE UNIQUE INDEX ux_collect_windows_open ON workspace_collect_windows (user_id, device_id) WHERE ended_at IS NULL;
+CREATE INDEX ix_exploration_events_stream ON exploration_events (user_id, workspace_id, sync_status, visited_at);
+CREATE INDEX ix_exploration_events_collect_window ON exploration_events (collect_window_id) WHERE collect_window_id IS NOT NULL;
+CREATE INDEX ix_sessions_collect_workspace_id ON sessions (collect_workspace_id) WHERE collect_workspace_id IS NOT NULL;
+```
+
+- 공유 행(`workspace_sessions`)은 "팀에 보이는가", `collect_workspace_id`는 "어느 스트림의 방문을 받는가"다. 수동 공유한 개인 세션은
+  팀에 보여도 개인 스트림이다. 배치는 claim·후보·반영 세 곳에서 같은 스트림만 다룬다.
+- 열에 FK가 없다. 팀 삭제·탈퇴 정리가 같은 트랜잭션에서 창을 먼저 잠가 닫고 → 방문 표시 → 세션 스트림 → 공유 행 → (팀 삭제면) 창·멤버·팀 순으로 지운다.
+- 배치 반영 직전 재판정은 멤버십·가입 시각·방문 표시만 다시 본다. `collect_allowed`는 인제스트 판정 조건이라 반영 때 다시 보지 않는다
+  (허용을 끄기 전 창 안에서 받은 방문은 팀 기록으로 남는다).
+- 세션 주인은 owner가 공유를 푼 수집 세션도 되돌리기(`restore`)로 다시 공유할 수 있다(1단계 재공유와 같은 권한, CTO 결정 2026-10-23).
+- 데이터 이관 없음: 기존 행은 NULL = 개인, 기존 팀은 허용 꺼짐. 되돌리기: 열은 남아도 옛 코드는 읽지 않는다.
+- Qdrant payload에 `collect_workspace_id`(keyword index)를 싣는다. 개인 세션은 필드가 없다(백필 불필요). 배치 후보의 recall 필터일 뿐 경계는 SQL이다.
+- `user_settings` 키: `team_collect_excluded_domains`(문자열 배열), `team_collect_consented`(`{workspace_id: {version, at}}`).
+
+## 11. `user_settings` — 사용자별 설정 (신규 테이블)
+
+```sql
+CREATE TABLE user_settings (
+  user_id    VARCHAR(64) NOT NULL,
+  key        VARCHAR(64) NOT NULL,       -- 'auto_merge_enabled', 'auto_folder_enabled'
+  value      JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
+```
+
+단일 사용자 시절의 전역 `app_settings` 테이블을 대체한다. 그 테이블은 DB에 남지만 코드가 더는 읽지
+않는다 — 그 값은 누군가의 opt-in이라 다른 사용자에게 물려주면 파괴적 기능인 자동병합이 동의 없이
+켜진다. 기존에 자동병합을 켜 둔 사용자는 한 번 다시 켜야 한다.
+
+## 12. Qdrant payload `user_id`
+
+세션 포인트 payload에 `user_id`를 싣고 keyword index를 둔다. 개인 검색·배치 후보·병합 제안·추천은
+이 payload로 Qdrant 단계에서 범위를 좁히고(recall), 팀 검색은 공유 세션 id 목록(`HasIdCondition`)으로
+좁힌다. **보안 경계는 그대로 SQL 조건**이다.
+
+기동 시 `user_id`가 없는 기존 포인트를 세션 테이블에서 찾아 채운다(멱등, 실패 시 다음 기동에 재시도).
+두 갈래가 따로 만든 백필 두 개가 차례로 돈다. 앞(`embedding_sync.backfill_owner_payload`)은 소유자를 채우고,
+뒤(`vector.backfill_user_ids`)는 그래도 남은 DB에 없는 세션의 고아 포인트를 지운다. Ask 후보 검색(점수 포함)도
+팀 범위에서는 공유 세션 id로만 좁힌다 — user 필터를 같이 걸면 다른 멤버가 공유한 세션이 빠진다.

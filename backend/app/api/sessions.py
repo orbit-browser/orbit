@@ -13,6 +13,7 @@ from ..db.models import (
     SessionEvent,
     SessionVersion,
     SyncBatch,
+    WorkspaceSession,
     session_display_title,
 )
 from ..db.session import AsyncSessionLocal, get_db
@@ -37,6 +38,8 @@ _MERGE_ERROR_STATUS = {"not_found": 404, "invalid": 400, "conflict": 409}
 from ..services.embedding_sync import build_embedding_text as _build_embedding_text
 from ..services.embedding_sync import embed_and_upsert as _embed_and_upsert
 from ..services.session_updater import record_version, refresh_session_ai
+from ..services.event_filter import is_sensitive_url, teammate_url
+from ..services.workspaces import is_shared_with, shared_workspaces
 from ..services.summarizer import generate_summary, rule_based_title
 
 logger = logging.getLogger(__name__)
@@ -53,12 +56,19 @@ def _finish_recovery_task(task: asyncio.Task[None]) -> None:
         logger.error("기동 복구 작업 실패: %s", exc)
 
 
-def _to_detail(session: SessionModel) -> SessionDetail:
+def _to_detail(
+    session: SessionModel,
+    shared_workspace_ids: list[str] | None = None,
+    *,
+    include_private: bool = True,
+) -> SessionDetail:
+    """include_private=False 면 소유자 개인 정보(폴더·폴더 배정 주체, 공유된 팀, 수집 스트림)를 빼고
+    페이지 주소의 쿼리를 지운다 — 팀원(팀 범위)에게 주는 응답용(docs/team-collect-mode.md §7.3)."""
     tabs = [
         TabItemResponse(
             id=t.get("tab_id", ""),
             title=t.get("title", ""),
-            url=t.get("url", ""),
+            url=t.get("url", "") if include_private else teammate_url(t.get("url", "")),
             fav_icon_url=t.get("fav_icon_url"),
         )
         for t in (session.tabs or [])
@@ -85,8 +95,10 @@ def _to_detail(session: SessionModel) -> SessionDetail:
         last_activity_at=(
             session.last_activity_at.isoformat() if session.last_activity_at else None
         ),
-        folder_id=session.folder_id,
-        folder_assigned_by=session.folder_assigned_by,
+        folder_id=session.folder_id if include_private else None,
+        folder_assigned_by=session.folder_assigned_by if include_private else None,
+        shared_workspace_ids=(shared_workspace_ids or []) if include_private else [],
+        collect_workspace_id=session.collect_workspace_id if include_private else None,
     )
 
 
@@ -133,6 +145,32 @@ async def _owned_session(db: AsyncSession, session_id: str, user_id: str) -> Ses
     return session
 
 
+async def _readable_session(db: AsyncSession, session_id: str, user_id: str) -> SessionModel:
+    """읽기 전용 접근 — 소유자, 또는 그 세션이 공유된 팀의 멤버.
+
+    쓰기 경로(수정·삭제·병합·재요약)는 이 함수를 쓰지 않고 `_owned_session` 만 쓴다.
+    병합으로 흡수된 세션은 팀 목록·검색에서 빠지므로 팀원은 id 로도 읽지 못한다.
+    """
+    session = await db.get(SessionModel, session_id)
+    if session and (
+        session.user_id == user_id
+        or (session.status != "merged" and await is_shared_with(db, session_id, user_id))
+    ):
+        return session
+    raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+
+
+def _without_sensitive_text(tabs: list[TabItemRequest]) -> list[TabItemRequest]:
+    """민감 URL 탭의 본문을 비운다 — 자동 수집 인제스트(api/events.py)와 같은 is_sensitive_url 규칙.
+
+    URL·제목은 복원에 필요해 남긴다. 저장과 AI 입력(클러스터링·요약) 모두 이 결과만 쓴다.
+    """
+    return [
+        tab.model_copy(update={"text_content": "", "excerpt": None}) if is_sensitive_url(tab.url) else tab
+        for tab in tabs
+    ]
+
+
 @router.post("", response_model=SessionDetail, status_code=201)
 async def create_session(
     body: SaveSessionRequest,
@@ -140,18 +178,19 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> SessionDetail:
+    tabs = _without_sensitive_text(body.tabs)
     # 규칙 기반 타이틀/요약으로 즉시 저장 → 클라이언트에 빠르게 응답
-    title = rule_based_title(body.tabs)
+    title = rule_based_title(tabs)
     summary = SessionSummary(
-        overview=f"{len(body.tabs)}개 탭 세션",
-        highlights=[t.title for t in body.tabs[:3]],
+        overview=f"{len(tabs)}개 탭 세션",
+        highlights=[t.title for t in tabs[:3]],
     )
 
     session = SessionModel(
         title=title,
-        tabs=[t.model_dump() for t in body.tabs],
+        tabs=[t.model_dump() for t in tabs],
         summary=summary.model_dump(),
-        tab_count=len(body.tabs),
+        tab_count=len(tabs),
         user_id=user_id,
     )
     db.add(session)
@@ -159,7 +198,7 @@ async def create_session(
     await db.refresh(session)
 
     # AI 요약 + Qdrant는 응답 후 백그라운드에서 처리
-    background_tasks.add_task(_ai_update, session.id, [t.model_dump() for t in body.tabs])
+    background_tasks.add_task(_ai_update, session.id, [t.model_dump() for t in tabs])
 
     return _to_detail(session)
 
@@ -172,7 +211,7 @@ async def create_sessions_clustered(
     user_id: str = Depends(current_user_id),
 ) -> list[SessionDetail]:
     """탭을 주제별로 클러스터링 후 세션 N개 생성. 클러스터링 실패 시 단일 세션 fallback."""
-    groups = await cluster_tabs(body.tabs)
+    groups = await cluster_tabs(_without_sensitive_text(body.tabs))
 
     session_groups: list[tuple[SessionModel, list[TabItemRequest]]] = []
     for group in groups:
@@ -217,7 +256,9 @@ async def list_sessions(
             func.coalesce(SessionModel.last_activity_at, SessionModel.created_at).desc()
         )
     )
-    return [_to_detail(s) for s in result.scalars().all()]
+    sessions = list(result.scalars().all())
+    shared = await shared_workspaces(db, [s.id for s in sessions])
+    return [_to_detail(s, shared.get(s.id)) for s in sessions]
 
 
 @router.get("/merge-suggestions", response_model=list[MergeSuggestion])
@@ -239,8 +280,12 @@ async def get_session(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> SessionDetail:
-    session = await _owned_session(db, session_id, user_id)
-    return _to_detail(session)
+    session = await _readable_session(db, session_id, user_id)
+    if session.user_id != user_id:
+        # 팀원에게는 소유자의 폴더나 그 세션이 다른 어느 팀에 공유됐는지 알려 주지 않는다.
+        return _to_detail(session, include_private=False)
+    shared = await shared_workspaces(db, [session.id])
+    return _to_detail(session, shared.get(session.id))
 
 
 @router.get("/{session_id}/events", response_model=list[SessionEventItem])
@@ -251,9 +296,12 @@ async def get_session_events(
 ) -> list[SessionEventItem]:
     """Session Timeline (docs/api-design-v2.md §6) — sequence_order 순.
 
-    세션이 없거나 내 것이 아니면 404. origin='snapshot' 세션(session_events 연결 없음)은 빈 배열.
+    세션이 없거나 읽을 수 없으면(내 것도, 내 팀에 공유된 것도 아니면) 404.
+    origin='snapshot' 세션(session_events 연결 없음)은 빈 배열.
     """
-    await _owned_session(db, session_id, user_id)
+    session = await _readable_session(db, session_id, user_id)
+    # 팀원에게는 쿼리를 지운 주소만 준다. 이전 페이지(referrer)는 누구에게도 싣지 않는다(불변 조건 7).
+    to_url = (lambda url: url) if session.user_id == user_id else teammate_url
 
     result = await db.execute(
         select(SessionEvent, ExplorationEvent)
@@ -264,7 +312,7 @@ async def get_session_events(
     return [
         SessionEventItem(
             event_id=event.id,
-            url=event.url,
+            url=to_url(event.url),
             title=event.title,
             domain=event.domain,
             visited_at=event.visited_at.isoformat(),
@@ -282,8 +330,8 @@ async def get_session_versions(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(current_user_id),
 ) -> list[SessionVersionItem]:
-    """요약 이력 (docs/api-design-v2.md §7) — version 내림차순. 세션 없으면 404."""
-    await _owned_session(db, session_id, user_id)
+    """요약 이력 (docs/api-design-v2.md §7) — version 내림차순. 세션 없거나 읽을 수 없으면 404."""
+    await _readable_session(db, session_id, user_id)
 
     result = await db.execute(
         select(SessionVersion)
@@ -335,6 +383,7 @@ async def delete_session(
     # session_versions는 요약이 한 번이라도 성공한 모든 세션에 존재)
     await db.execute(delete(SessionEvent).where(SessionEvent.session_id == session_id))
     await db.execute(delete(SessionVersion).where(SessionVersion.session_id == session_id))
+    await db.execute(delete(WorkspaceSession).where(WorkspaceSession.session_id == session_id))
     await db.delete(session)
     await db.commit()
     await delete_point(session_id)  # Qdrant에서도 제거

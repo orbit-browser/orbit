@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { LoginGate } from './components/LoginGate';
 import { OnboardingPrototype } from './components/onboarding/OnboardingPrototype';
 import { TopNavBar } from './components/TopNavBar';
+import { TeamCollectBar } from './components/team/TeamCollectBar';
 import { AskDock } from './components/AskDock';
 import { Toast } from './components/Toast';
 import { isAskDockView, useUIStore } from './store/ui';
@@ -13,6 +14,7 @@ import { AskView } from './views/AskView';
 import { SessionDetailView } from './views/SessionDetailView';
 import { SettingsView } from './views/SettingsView';
 import { useOnboarding } from '../../lib/useOnboarding';
+import { onTeamAccessLost, teamLabel, useActiveWorkspace } from '../../lib/useWorkspaces';
 
 function CurrentView() {
   const view = useUIStore((s) => s.activeView);
@@ -32,8 +34,21 @@ function CurrentView() {
 
 function SignedInPanel() {
   const activeView = useUIStore((s) => s.activeView);
+  const setView = useUIStore((s) => s.setView);
+  const showToast = useUIStore((s) => s.showToast);
   const showAsk = isAskDockView(activeView);
   const { state, loading } = useOnboarding();
+  const { scopeId } = useActiveWorkspace();
+
+  // 팀 화면에는 타임라인 탭이 없다 — 팀을 보던 채로 열었거나 방금 팀으로 바꿨으면 세션으로 옮긴다.
+  useEffect(() => {
+    if (scopeId && activeView === 'timeline') setView('sessions');
+  }, [scopeId, activeView, setView]);
+
+  useEffect(
+    () => onTeamAccessLost((name) => showToast(`${teamLabel(name)}에 더 이상 접근할 수 없어요. 내 Orbit으로 돌아왔어요.`)),
+    [showToast],
+  );
 
   if (loading) return <div className="h-full w-full bg-orbit-bg" />;
   if (state.status !== 'complete') return <OnboardingPrototype initialStep={state.step} />;
@@ -41,6 +56,7 @@ function SignedInPanel() {
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-orbit-bg text-orbit-text">
       <TopNavBar />
+      <TeamCollectBar />
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <CurrentView />
         {showAsk && <AskView />}

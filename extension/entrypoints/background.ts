@@ -1,6 +1,8 @@
 import { handlePageContentReady, initCollector } from '../lib/events/collector';
 import { openOnboardingForInstall } from '../lib/onboarding';
 import { initTriggers } from '../lib/sync/triggers';
+import { initTabCapture } from '../lib/tab-capture';
+import { initTeamCollect } from '../lib/team-collect';
 import type { PageContent } from '../lib/types';
 
 // 탭 ID → 추출된 페이지 콘텐츠 캐시 (서비스 워커 생존 동안 유지)
@@ -10,6 +12,8 @@ export default defineBackground(() => {
   // 컴포지션 루트 — 상시 수집기와 동기화 엔진의 리스너를 SW 최초 tick에 동기적으로 등록한다.
   initCollector();
   initTriggers();
+  initTeamCollect();
+  initTabCapture();
 
   chrome.sidePanel
     ?.setPanelBehavior({ openPanelOnActionClick: true })

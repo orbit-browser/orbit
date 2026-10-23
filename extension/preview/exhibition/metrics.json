@@ -1,0 +1,150 @@
+{
+  "status": "ef256 실측 완료 · 합성 시나리오",
+  "updated": "2026-10-20",
+  "source": "benchmarks/exhibition-2026/ef256-rerun/summary.json; run-20261020-ef256[-holdout]/requests.jsonl",
+  "metrics": [
+    {
+      "code": "A",
+      "title": "Vector Retrieval Latency",
+      "ko": "벡터 검색 지연",
+      "scope": "Qdrant 호출 왕복 · 질의 임베딩·SQL 제외",
+      "values": [
+        {
+          "label": "p50",
+          "value": 20.0,
+          "unit": "ms",
+          "digits": 1,
+          "status": "measured"
+        },
+        {
+          "label": "p95",
+          "value": 43.6,
+          "unit": "ms",
+          "digits": 1,
+          "status": "measured"
+        }
+      ],
+      "note": "1만 합성 세션 · 긍정 6질문×10회 · warm/off · Qdrant 왕복만"
+    },
+    {
+      "code": "B",
+      "title": "Backend Search Latency",
+      "ko": "서버 검색 응답 시간",
+      "scope": "질의 임베딩·Qdrant·SQL 포함 · HTTP·인증·화면 표시 제외",
+      "values": [
+        {
+          "label": "p50",
+          "value": 262.2,
+          "unit": "ms",
+          "digits": 0,
+          "status": "measured"
+        },
+        {
+          "label": "p95",
+          "value": 403.4,
+          "unit": "ms",
+          "digits": 0,
+          "status": "measured"
+        }
+      ],
+      "note": "1만 합성 세션 · 6질문×10회 · warm · 리랭킹 끔 · 질의 임베딩·Qdrant·SQL 포함 · HTTP·인증·UI 제외"
+    },
+    {
+      "code": "C",
+      "title": "Long-History Accuracy",
+      "ko": "기록이 1만 개 쌓여도",
+      "scope": "공개 URL 26개로 만든 합성 세션 1만 개 · 골든 질문",
+      "values": [
+        {
+          "label": "정답 세션이 1위",
+          "value": 100,
+          "unit": "%",
+          "digits": 0,
+          "status": "measured"
+        },
+        {
+          "label": "없는 기록은 없다고",
+          "value": 100,
+          "unit": "%",
+          "digits": 0,
+          "status": "measured"
+        }
+      ],
+      "note": "합성 세션 1만 개 · 골든 6질문×10회 모두 1위 · 없는 기록 질문 40번 모두 거절 · warm · 리랭킹 끔·켬 모두"
+    },
+    {
+      "code": "D",
+      "title": "Retrieval Quality",
+      "ko": "골든셋과 holdout 검색 품질",
+      "scope": "1만 합성 세션 · 골든 긍정 6질문·holdout 긍정 3질문 · warm",
+      "values": [
+        {
+          "label": "골든 Top-1",
+          "value": 100.0,
+          "unit": "%",
+          "digits": 0,
+          "status": "measured"
+        },
+        {
+          "label": "holdout 끔 Top-1",
+          "value": 66.7,
+          "unit": "%",
+          "digits": 1,
+          "status": "measured"
+        },
+        {
+          "label": "holdout 켬 Top-1",
+          "value": 40.0,
+          "unit": "%",
+          "digits": 1,
+          "status": "measured"
+        }
+      ],
+      "note": "1만 · warm · 골든 60회/모드 · holdout 30회/모드 · 음성 거절 끔 7/10·켬 3/10 · holdout 전체 88회 중 공급자 429 오류 22회 포함"
+    }
+  ],
+  "scaling": [
+    {
+      "sessions": 100,
+      "p50": 540.774,
+      "p95": 1637.3831,
+      "status": "measured"
+    },
+    {
+      "sessions": 1000,
+      "p50": 407.1555,
+      "p95": 1028.208,
+      "status": "measured"
+    },
+    {
+      "sessions": 5000,
+      "p50": 341.2058,
+      "p95": 1147.2105,
+      "status": "measured"
+    },
+    {
+      "sessions": 10000,
+      "p50": 262.2384,
+      "p95": 403.4301,
+      "status": "measured"
+    }
+  ],
+  "method": [
+    {
+      "label": "데이터셋",
+      "value": "공개 URL 26개 · 합성 세션 · 골든 6+2질문 · holdout 3+1질문"
+    },
+    {
+      "label": "측정 환경",
+      "value": "macOS 27.0.1 · RAM 16GiB · 로컬 DB/Qdrant · 외부 임베딩"
+    },
+    {
+      "label": "테스트 조건",
+      "value": "hnsw_ef 256 · 임계 0.28 · 직렬 · warm 10회 · E2E 미측정"
+    },
+    {
+      "label": "측정 날짜",
+      "value": "2026-10-20 · client-cold 별도 표 · 일반 정확도 보장 아님"
+    }
+  ]
+}

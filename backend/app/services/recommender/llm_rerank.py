@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from ...ai.json_utils import extract_json
 from ...ai.llm import chat_completion
+from ..event_filter import ai_safe_url
 from .scoring import RecommendationKind, ScoredSession, classify_kind
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ class RecommendationContext:
     def to_prompt_block(self) -> str:
         parts = []
         if self.current_title or self.current_url:
-            label = self.current_title or self.current_url
+            label = self.current_title or ai_safe_url(self.current_url or "")
             parts.append(f"현재 보고 있는 페이지: {label}")
         if self.query:
             parts.append(f"현재 검색어: {self.query}")

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
-import type { OrbitScene, OrbitTrack } from './data';
+import type { OrbitPoint, OrbitScene, OrbitTrack } from './data';
+import type { RailGroup } from './AtlasRail';
+import { AtlasGallery } from './AtlasGallery';
+import { AtlasRail } from './AtlasRail';
 import {
   alignOffset,
   formatMinutes,
@@ -14,7 +17,27 @@ import {
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
+interface Frozen {
+  points: OrbitPoint[];
+  selectedPointId: string | null;
+  sharerName: string | null;
+  shots: Record<string, string>;
+}
+
+/** 갤러리 층 하나 — 들어오는 중·머무는 중·미끄러져 나가는 중 */
+interface GalleryLayer {
+  id: number;
+  key: string;
+  sessionId: string;
+  leaving: boolean;
+  motion: 'appear' | 'from-below' | 'from-above' | 'to-above' | 'to-below';
+  /** 나가는 층이 붙들고 있는 마지막 내용 */
+  frozen: Frozen | null;
+}
+
 const HINT_STORAGE_KEY = 'orbit.atlas.hint-dismissed';
+/** 세션 씬 위쪽 일자 막대(예전 궤도)가 차지하는 높이. 갤러리는 그 아래에 선다. */
+const RAIL_H = 128;
 /** 궤도 타원의 세로/가로 비 — 위에서 비스듬히 내려다본 느낌 */
 const RATIO = 0.8;
 const PLANET_Y_MIN = 118;
@@ -107,6 +130,18 @@ interface AtlasCanvasProps {
   onClearSelection: () => void;
   bottomInset: number;
   emptyMessage?: string;
+  /** 빈 캔버스 아래 둘 다음 행동(세션이 하나도 없을 때) */
+  emptyActions?: React.ReactNode;
+  /** 지금 세션의 그룹 — 막대가 이 그룹의 세션만 쌓는다. 이웃 그룹 이름은 그룹 이동 단추에 쓴다. */
+  railGroup?: RailGroup | null;
+  /** 모든 세션의 네비게이터 순서 — 세션이 바뀔 때 갤러리가 위·아래 어느 쪽으로 미끄러질지 정한다. */
+  sessionOrder?: string[];
+  onSelectSession?: (sessionId: string) => void;
+  onStepGroup?: (direction: 1 | -1) => void;
+  /** 팀 화면에서 지금 세션을 공유한 사람 — 갤러리 카드마다 이름을 붙인다. */
+  sharerName?: string | null;
+  /** 지금 세션의 페이지 화면(이 기기에서 찍은 것). 남의 팀 세션이면 비워서 넘긴다. */
+  shots?: Record<string, string>;
 }
 
 export function AtlasCanvas({
@@ -118,6 +153,13 @@ export function AtlasCanvas({
   onClearSelection,
   bottomInset,
   emptyMessage,
+  emptyActions,
+  railGroup,
+  sessionOrder,
+  onSelectSession,
+  onStepGroup,
+  sharerName,
+  shots,
 }: AtlasCanvasProps) {
   /*
    * 씬이 통째로 바뀔 때(폴더 → 세션)는 그리는 씬을 한 박자 늦춘다.
@@ -190,6 +232,8 @@ export function AtlasCanvas({
   const insetRef = useRef<Motion>({ value: bottomInset, target: bottomInset });
   const frameRef = useRef<number | null>(null);
   const [, drawFrame] = useReducer((tick: number) => tick + 1, 0);
+  /** 갤러리가 프레임마다 알려 주는 연속 위치를 막대의 점에 그대로 옮기는 통로 */
+  const railPositionRef = useRef<(position: number) => void>(() => {});
 
   const runSpin = useCallback(() => {
     if (frameRef.current !== null) return;
@@ -500,9 +544,125 @@ export function AtlasCanvas({
 
   const totalPoints = tracks.reduce((sum, track) => sum + track.points.length, 0);
 
+  /*
+   * 세션 하나를 보고 있으면(세션 씬, 또는 폴더 안에서 펼친 세션) 위에 일자 막대, 그 아래에
+   * 레퍼런스(원근 갤러리) 그대로의 페이지 화면 카드를 그린다. 폴더만 보고 있으면 아래의 호
+   * 그림(세션 궤도들)을 그대로 쓴다.
+   *
+   * 갤러리는 늦춰 둔 scene 이 아니라 지금 씬(nextScene)을 바로 따른다 — 세션을 옮기면 화면이
+   * 옅어졌다 짙어지는 대신, 나가는 갤러리와 들어오는 갤러리가 함께 위아래로 미끄러진다.
+   */
+  const galleryTrackOf = (target: OrbitScene | null) => {
+    const track =
+      target?.kind === 'folder'
+        ? target.tracks.find((candidate) => candidate.id === activeTrackId)
+        : target?.tracks[0];
+    return track && track.points.length > 0 ? track : null;
+  };
+  const liveTrack = galleryTrackOf(nextScene);
+  const live =
+    nextScene && liveTrack
+      ? {
+          key: `${nextScene.id}-${liveTrack.id}`,
+          track: liveTrack,
+          title: nextScene.kind === 'folder' ? liveTrack.label : nextScene.title,
+          sessionId: liveTrack.sessionId ?? nextScene.id,
+        }
+      : null;
+
+  /** 갤러리 층 — 마지막 층이 지금 갤러리, 앞의 층들은 미끄러져 나가는 중이다. */
+  const [layers, setLayers] = useState<GalleryLayer[]>([]);
+  const layerSeq = useRef(0);
+  /** 바로 앞 렌더의 갤러리 내용. 나가는 층은 이것을 붙들고 미끄러져 나간다. */
+  const committedRef = useRef<Frozen | null>(null);
+  useLayoutEffect(() => {
+    setLayers((previous) => {
+      const current = previous.find((layer) => !layer.leaving);
+      if ((current?.key ?? null) === (live?.key ?? null)) return previous;
+      const order = sessionOrder ?? [];
+      const from = current ? order.indexOf(current.sessionId) : -1;
+      const to = live ? order.indexOf(live.sessionId) : -1;
+      // 아래 세션으로 가면 새 갤러리가 아래에서 올라오고 지금 갤러리는 위로 밀려난다. 위로 가면 반대.
+      const downward = from < 0 || to < 0 || to > from;
+      const next = previous.filter((layer) => layer.leaving);
+      if (current) {
+        next.push({
+          ...current,
+          leaving: true,
+          motion: downward ? 'to-above' : 'to-below',
+          frozen: committedRef.current ?? { points: [], selectedPointId: null, sharerName: null, shots: {} },
+        });
+      }
+      if (live) {
+        layerSeq.current += 1;
+        next.push({
+          id: layerSeq.current,
+          key: live.key,
+          sessionId: live.sessionId,
+          leaving: false,
+          motion: current ? (downward ? 'from-below' : 'from-above') : 'appear',
+          frozen: null,
+        });
+      }
+      return next;
+    });
+    // 지금 갤러리가 바뀔 때만 층을 다시 짠다.
+  }, [live?.key]);
+  // 위의 효과가 앞 렌더의 내용을 쓴 다음에 지금 내용으로 갈아 둔다(같은 렌더 안에서 순서대로 돈다).
+  useLayoutEffect(() => {
+    committedRef.current = live
+      ? { points: live.track.points, selectedPointId, sharerName: sharerName ?? null, shots: shots ?? {} }
+      : null;
+  });
+
   return (
     <div className="atlas-stage" ref={stageRef}>
-      {scene && (
+      {live && (
+        <AtlasRail
+          title={live.title}
+          hue={live.track.hue}
+          points={live.track.points}
+          selectedPointId={selectedPointId}
+          onSelectPoint={(pointId) => onSelectPoint(pointId, live.track.sessionId)}
+          group={railGroup ?? null}
+          currentSessionId={live.sessionId}
+          onSelectSession={(sessionId) => onSelectSession?.(sessionId)}
+          onStepGroup={(direction) => onStepGroup?.(direction)}
+          positionRef={railPositionRef}
+        />
+      )}
+
+      {layers.length > 0 && (
+        <div className="atlas-gallery-band" style={{ top: RAIL_H, bottom: inset }}>
+          {layers.map((layer) => {
+            const current = !layer.leaving && live?.key === layer.key ? live : null;
+            return (
+              <div
+                key={layer.id}
+                className={cx('atlas-gallery-layer', `atlas-gallery-layer--${layer.motion}`)}
+                aria-hidden={layer.leaving || undefined}
+                onAnimationEnd={(event) => {
+                  if (!layer.leaving || event.target !== event.currentTarget) return;
+                  setLayers((list) => list.filter((item) => item !== layer));
+                }}
+              >
+                <AtlasGallery
+                  points={current ? current.track.points : layer.frozen?.points ?? []}
+                  selectedPointId={current ? selectedPointId : layer.frozen?.selectedPointId ?? null}
+                  onSelectPoint={(pointId) => {
+                    if (current) onSelectPoint(pointId, current.track.sessionId);
+                  }}
+                  onFrame={current ? (position) => railPositionRef.current(position) : undefined}
+                  sharerName={current ? sharerName ?? null : layer.frozen?.sharerName ?? null}
+                  shots={current ? shots : layer.frozen?.shots}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {scene && !live && !galleryTrackOf(scene) && (
         <div className={cx('atlas-stage__scaler', leaving && 'atlas-stage__scaler--leaving')}>
           <svg className="atlas-stage__svg" width={size.w} height={size.h} aria-hidden>
             <g
@@ -766,6 +926,7 @@ export function AtlasCanvas({
         <div className="atlas-stage__empty">
           <i className="ph ph-planet" />
           <p>{emptyMessage ?? '왼쪽 네비게이터에서 세션을 선택하세요'}</p>
+          {emptyActions}
         </div>
       )}
 
@@ -796,9 +957,11 @@ export function AtlasCanvas({
           }
         >
           <span>
-            {isFolder
-              ? '궤도나 레이블을 클릭하면 세션이 펼쳐집니다 · ↑↓ 폴더·세션 이동, ←→ 페이지 이동'
-              : '페이지는 방문 순서대로 배치됩니다 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'}
+            {live
+              ? '카드를 끌어 넘겨 보세요 · ←→ 페이지 · ↑↓ 그룹 안 세션 · Shift+↑↓ 그룹 이동'
+              : isFolder
+                ? '궤도나 레이블을 클릭하면 세션이 펼쳐집니다 · ↑↓ 폴더·세션 이동, ←→ 페이지 이동'
+                : '페이지는 방문 순서대로 배치됩니다 · ←→ 페이지 이동, ↑↓ 폴더·세션 이동'}
           </span>
           <span
             className="atlas-stage__hint-actions"

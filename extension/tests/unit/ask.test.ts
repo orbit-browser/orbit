@@ -22,6 +22,81 @@ afterEach(async () => {
 });
 
 describe('Ask AI request', () => {
+  it.each(['empty', 'low_score', 'missing_target', 'sensitive_only'])('열린 대상이 없으면 저장 기록을 검색한다: %s', async (scenario) => {
+    const activateTab = vi.fn();
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({
+        'orbit:auth': {
+          token: 'test-token', expiresAt: '2099-01-01T00:00:00.000Z',
+          user: { id: 'u1', email: 'test@example.com', name: '테스트', picture: null },
+        },
+      })) } },
+      tabs: {
+        query: vi.fn(async () => scenario === 'empty' ? [] : [{
+          id: 42, windowId: 7, index: 0, active: false,
+          title: scenario === 'sensitive_only' ? 'PayPal' : 'News',
+          url: scenario === 'sensitive_only' ? 'https://www.paypal.com/login' : 'https://example.com/news',
+        }]),
+        update: activateTab,
+      },
+    });
+    let askBody: Record<string, unknown> | null = null;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/assistant/route')) {
+        return new Response(JSON.stringify({ intent: 'navigate_tab', confidence: 0.4, margin: 0.1, reason: 'semantic' }));
+      }
+      if (String(input).includes('/tab-actions/resolve')) {
+        return new Response(JSON.stringify(scenario === 'missing_target'
+          ? { action: 'navigate_tab', tab_id: '99', reason: 'matched', score: 0.5, margin: 0.1 }
+          : { action: 'ask', reason: 'low_confidence', score: 0.1, margin: 0.01, candidates: [] }));
+      }
+      expect(String(input)).toContain('/ask/stream');
+      askBody = JSON.parse(String(init?.body));
+      return new Response('event: sources\ndata: {"sessions":[]}\n\nevent: delta\ndata: {"text":"저장 기록 검색 결과"}\n\nevent: done\ndata: {"model":null}\n\n');
+    }));
+    let conversation: ReturnType<typeof useAskConversation> | undefined;
+    function Probe() { conversation = useAskConversation(); return null; }
+    renderToString(createElement(Probe));
+    conversation!.startNewConversation();
+    await conversation!.ask('두 입력창이 따로 바뀌는 문제 때문에 같은 값을 공유하도록 고치던 문서 찾아줘.');
+    expect(askBody).toMatchObject({ intent: 'search_memory' });
+    expect(getAskConversationSnapshot().turns[0].answer).toBe('저장 기록 검색 결과');
+    expect(activateTab).not.toHaveBeenCalled();
+    conversation!.startNewConversation();
+  });
+
+  it('스트리밍한 본문을 서버 replace 이벤트로 통째로 바꾼다', async () => {
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: vi.fn(async () => ({
+        'orbit:auth': {
+          token: 'test-token', expiresAt: '2099-01-01T00:00:00.000Z',
+          user: { id: 'u1', email: 'test@example.com', name: '테스트', picture: null },
+        },
+      })) } },
+      tabs: { query: vi.fn(async () => []), update: vi.fn() },
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/assistant/route')) {
+        return new Response(JSON.stringify({ intent: 'search_memory', confidence: 0.4, margin: 0.1, reason: 'semantic' }));
+      }
+      return new Response([
+        'event: sources\ndata: {"sessions":[]}\n\n',
+        'event: delta\ndata: {"text":"그 페이지는 "}\n\n',
+        'event: delta\ndata: {"text":"기록에 없습니다."}\n\n',
+        'event: replace\ndata: {"text":"답변을 확인하지 못해 관련 방문 기록을 대신 표시했어요."}\n\n',
+        'event: done\ndata: {"model":"m"}\n\n',
+      ].join(''));
+    }));
+    let conversation: ReturnType<typeof useAskConversation> | undefined;
+    function Probe() { conversation = useAskConversation(); return null; }
+    renderToString(createElement(Probe));
+    conversation!.startNewConversation();
+    await conversation!.ask('그래픽카드 렌더링 성능 비교 페이지 어디였지?');
+    expect(getAskConversationSnapshot().turns[0].answer).toBe('답변을 확인하지 못해 관련 방문 기록을 대신 표시했어요.');
+    expect(getAskConversationSnapshot().turns[0].status).toBe('done');
+    conversation!.startNewConversation();
+  });
+
   it('최근 대화를 snake_case history로 보내고, 없으면 빈 배열을 보낸다', async () => {
     let requestBody = '';
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -42,6 +117,7 @@ describe('Ask AI request', () => {
       session_id: null,
       rerank: false,
       intent: 'search_memory',
+      workspace_id: null,
       history: [],
     });
 
@@ -234,6 +310,24 @@ describe('Ask AI request', () => {
       ['답변 2', 'done', null],
     ]);
     conversation!.startNewConversation();
+  });
+
+  it('팀을 보고 있으면 workspace_id 를 함께 보내 팀 공유 세션만 근거로 쓴다', async () => {
+    let requestBody = '';
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = String(init?.body ?? '');
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      }), { status: 200 });
+    }));
+
+    for await (const _event of streamAsk({ query: '팀 질문', workspaceId: 'ws-1' })) {
+      // 빈 스트림
+    }
+
+    expect(JSON.parse(requestBody).workspace_id).toBe('ws-1');
   });
 
   it('컴포넌트가 다시 마운트돼도 누적 답변을 유지하고 새 대화에서만 비운다', async () => {

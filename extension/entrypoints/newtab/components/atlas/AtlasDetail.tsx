@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { RotateCw } from 'lucide-react';
 import { setSessionAlias } from '../../../../lib/api';
 import { broadcastSessionChange } from '../../../../lib/session-events';
 import { restoreSession, type RestoreTarget } from '../../lib/restore';
@@ -9,6 +10,7 @@ import {
   folderTopDomains,
   folderTotals,
   formatMinutes,
+  sharerLabel,
   largestSession,
   mostRevisitedPage,
   representativePage,
@@ -23,6 +25,10 @@ interface AtlasDetailProps {
   page: PageNode | null;
   onSelectPage: (pageId: string) => void;
   onSelectSession: (sessionId: string) => void;
+  /** 팀 화면 — 공유받은 세션이라 이름을 고칠 수 없다. */
+  readOnly?: boolean;
+  /** 보여 줄 세션이 하나도 없다 — "왼쪽에서 고르라"는 안내가 가리킬 목록이 없다. */
+  empty?: boolean;
 }
 
 interface Stat {
@@ -36,6 +42,8 @@ export function AtlasDetail({
   page,
   onSelectPage,
   onSelectSession,
+  readOnly = false,
+  empty = false,
 }: AtlasDetailProps) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -54,7 +62,7 @@ export function AtlasDetail({
   }, [editing]);
 
   const startEditing = () => {
-    if (!session) return;
+    if (!session || readOnly) return;
     setDraftTitle(session.title);
     setActionError(null);
     setEditing(true);
@@ -98,7 +106,7 @@ export function AtlasDetail({
     level === 'page'
       ? `${page!.domain} · ${page!.minutes}분 체류`
       : level === 'session'
-      ? `${session!.date} · ${formatMinutes(session!.minutes)}`
+      ? [session!.date, formatMinutes(session!.minutes), sharerLabel(session!)].filter(Boolean).join(' · ')
       : level === 'folder'
       ? `폴더 · 세션 ${totals!.sessionCount}개`
       : '세션을 선택해 주세요';
@@ -143,6 +151,11 @@ export function AtlasDetail({
         largest ? ` 가장 큰 탐색은 “${largest.title}”(${largest.pages.length}p) 입니다.` : ''
       }`;
     }
+    if (empty) {
+      return readOnly
+        ? '아직 이 팀에 공유된 세션이 없어요. 세션이 공유되면 요약과 다시 열기가 여기에 나타납니다.'
+        : '아직 저장된 세션이 없어요. 사이드패널에서 수집을 켜면 탐색이 세션으로 묶여 여기에 나타납니다.';
+    }
     return '왼쪽에서 세션을 고르면 탐색 기록 요약이 여기에 표시됩니다.';
   })();
 
@@ -152,7 +165,7 @@ export function AtlasDetail({
         <div className="atlas-detail__head-top">
           <span className="atlas-detail__heading">세부 정보</span>
           {/* 이름 편집은 세션에만 있다. 폴더 이름은 왼쪽 네비게이터에서 고친다. */}
-          {session && (
+          {session && !readOnly && (
             <div className="atlas-detail__head-actions">
               <button
                 type="button"
@@ -238,7 +251,7 @@ export function AtlasDetail({
                 <div
                   className="atlas-detail__topic-title"
                   onDoubleClick={startEditing}
-                  title={session ? '더블클릭해 이름 변경' : undefined}
+                  title={session && !readOnly ? '더블클릭해 이름 변경' : undefined}
                 >
                   {title}
                 </div>
@@ -258,6 +271,42 @@ export function AtlasDetail({
             </div>
           )}
         </div>
+
+        {/* 폴더만 보고 있을 때의 다음 행동 — 가장 최근 세션을 펼쳐 이어서 본다. */}
+        {level === 'folder' && folder && folder.sessions.length > 0 && (
+          <button
+            type="button"
+            className="btn-primary atlas-detail__restore"
+            onClick={() => onSelectSession(folder.sessions[0].id)}
+          >
+            <i className="ph ph-arrow-right" aria-hidden></i>
+            <span>최근 세션 펼치기</span>
+          </button>
+        )}
+
+        {/* 세션을 보고 있을 때의 주 행동 — 스크롤하지 않아도 보이게 머리에 둔다. */}
+        {session && (
+          <>
+            <div className="restore-group atlas-detail__restore">
+              <button type="button" className="restore-group__alt" onClick={() => void openAllTabs('new-window')}>
+                새 창에서 복원
+              </button>
+              <button
+                type="button"
+                className="btn-primary restore-group__main"
+                onClick={() => void openAllTabs('current')}
+              >
+                <RotateCw size={15} />
+                <span>세션 복원</span>
+              </button>
+            </div>
+            {actionError && (
+              <p className="atlas-detail__action-error" role="alert">
+                {actionError}
+              </p>
+            )}
+          </>
+        )}
       </div>
 
       <div className="atlas-detail__scroll">
@@ -374,45 +423,7 @@ export function AtlasDetail({
             </button>
           </section>
         )}
-
-        {/* 열 세션이 없으면 작업 자체가 없다 — 비활성 버튼만 남기지 않는다. */}
-        {session && (
-          <section>
-            <div className="atlas-detail__section-title">작업</div>
-            {/* 마우스를 올리면 "새 창으로" 가 함께 드러난다 — 기본 동작은 현재 창에 열기 */}
-            <div className="atlas-detail__actions atlas-detail__actions--open">
-              <button
-                type="button"
-                className="atlas-detail__action"
-                onClick={() => void openAllTabs('current')}
-              >
-                <span className="atlas-detail__action-left">
-                  <i className="ph ph-arrow-square-out"></i>
-                  세션 탭 모두 열기
-                </span>
-                <i className="ph ph-caret-right"></i>
-              </button>
-              <button
-                type="button"
-                className="atlas-detail__action atlas-detail__action--alt"
-                onClick={() => void openAllTabs('new-window')}
-              >
-                <span className="atlas-detail__action-left">
-                  <i className="ph ph-arrow-square-out"></i>
-                  새 창으로 모두 열기
-                </span>
-                <i className="ph ph-caret-right"></i>
-              </button>
-            </div>
-            {actionError && (
-              <p className="atlas-detail__action-error" role="alert">
-                {actionError}
-              </p>
-            )}
-          </section>
-        )}
       </div>
-
     </aside>
   );
 }

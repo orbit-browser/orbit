@@ -12,13 +12,20 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import ExplorationEvent, Session as SessionModel, SessionEvent, SessionVersion
+from ..db.models import (
+    ExplorationEvent,
+    Session as SessionModel,
+    SessionEvent,
+    SessionVersion,
+    WorkspaceSession,
+)
 from ..db.session import AsyncSessionLocal
 from ..schemas.session import TabItemRequest
 from .embedding_sync import embed_and_upsert
 from .intent_analyzer import Assignment
 from .noise_filter import is_short_stray
 from .summarizer import generate_summary
+from .team_collect import confirm_team_events, strip_labels
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +167,9 @@ async def _create_session(
     sorted_events = sorted(events, key=lambda e: e["visited_at"])
     session_title = ((title or "").strip()[:_TITLE_MAX_CHARS]) or _fallback_title(sorted_events)
     total_duration = sum(e.get("active_duration_ms") or 0 for e in sorted_events)
+    # 스트림은 이벤트가 들고 온다(apply_assignments가 재판정 실패 시 None으로 내린다).
+    stream = sorted_events[0].get("workspace_id")
+    owner = sorted_events[0]["user_id"]
 
     session = SessionModel(
         title=session_title,
@@ -182,10 +192,14 @@ async def _create_session(
         event_count=len(sorted_events),
         # 세션 소유자 = 이 세션을 이루는 이벤트의 소유자.
         # 배치는 한 사용자 이벤트만 다루므로(sync_pipeline._claim_pending_events) 첫 이벤트로 충분하다.
-        user_id=sorted_events[0]["user_id"],
+        user_id=owner,
+        collect_workspace_id=stream,
     )
     db.add(session)
     await db.flush()
+    if stream:
+        # 팀 수집 세션은 만들 때 그 팀에 자동 공유한다(1단계 공유 행, 라이브 참조). 공유자 = 방문한 사람.
+        db.add(WorkspaceSession(workspace_id=stream, session_id=session.id, shared_by=owner))
 
     await _insert_session_events(
         db,
@@ -210,10 +224,20 @@ async def _append_to_session(
     events: list[dict],
     relevance: float,
 ) -> str:
-    session = await db.get(SessionModel, session_id)
+    # 후보는 LLM 대기 전에 골랐다. 그새 스트림이 바뀌었을 수 있어(공유 해제·되돌리기·탈퇴 정리) 잠그고 다시 본다.
+    session = await db.scalar(
+        select(SessionModel)
+        .where(SessionModel.id == session_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    stream = events[0].get("workspace_id") if events else None
     if session is None:
         # 대상 세션이 사라진 경우(동시성/삭제) — 방어적으로 새 세션 생성
         logger.warning("append 대상 세션을 찾을 수 없음(session_id=%s) — create로 대체", session_id)
+        return await _create_session(db, events, None, None, relevance)
+    if session.collect_workspace_id != stream or session.user_id != events[0]["user_id"]:
+        logger.info("Append target is in another stream; creating a separate session (target=%s)", session_id)
         return await _create_session(db, events, None, None, relevance)
 
     sorted_events = sorted(events, key=lambda e: e["visited_at"])
@@ -261,8 +285,20 @@ async def apply_assignments(
     assignments: list[Assignment],
     batch_id: str,
 ) -> set[str]:
-    """의도 분석 결과를 세션 생성/갱신/보류/폐기로 반영하고, 갱신된 session_id 집합을 반환한다."""
+    """의도 분석 결과를 세션 생성/갱신/보류/폐기로 반영하고, 갱신된 session_id 집합을 반환한다.
+
+    팀 스트림 그룹이면 먼저 이 트랜잭션에서 다시 판정한다(docs/team-collect-mode.md §6.4). 멤버십·가입 시각·
+    방문 표시 중 하나라도 어긋나면 그룹 전체를 개인 스트림으로 내려 반영한다(실패 시 닫힘).
+    """
     touched: set[str] = set()
+
+    stream = group[0].get("workspace_id") if group else None
+    if stream is not None and not await confirm_team_events(db, group[0]["user_id"], stream, group):
+        logger.info("Team labels no longer valid; applying the group as personal (workspace=%s)", stream)
+        await strip_labels(db, [e["id"] for e in group])
+        for event in group:
+            event["workspace_id"] = None
+            event["collect_window_id"] = None
 
     for assignment in assignments:
         events = [group[i] for i in assignment.event_indices if 0 <= i < len(group)]

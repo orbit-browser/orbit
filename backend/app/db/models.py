@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, REAL, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, REAL, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -71,6 +71,11 @@ class Session(Base):
     # 거기에 실으면 저장된 벡터와 어긋나고 배치가 덮어쓴다.
     alias: Mapped[str | None] = mapped_column(String(100), default=None)
 
+    # 팀 수집 스트림(docs/team-collect-mode.md §3.3, §4.1). 이 팀의 수집 창 방문으로 만들어진 세션이면 그 팀 id,
+    # 개인 스트림이면 NULL. 배치는 같은 스트림의 세션에만 이어 붙인다 — 공유 행(WorkspaceSession)과는 다른 값이다.
+    # 수동 공유한 개인 세션은 팀에 보여도 개인 스트림이다. FK 없음(팀 삭제 정리가 먼저 비운다).
+    collect_workspace_id: Mapped[str | None] = mapped_column(String(36), default=None)
+
 
 def session_display_title(session: Session) -> str:
     """사용자에게 보여 줄 세션 이름. **응답 경계에서만** 쓴다.
@@ -118,6 +123,10 @@ class ExplorationEvent(Base):
     sync_status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     hold_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    # 팀 수집(docs/team-collect-mode.md §2.2). 서버 인제스트 판정을 통과한 방문만 채워진다. 둘 다 NULL이면 개인 스트림.
+    # collect_window_id 는 판정에 쓴 수집 창 — 빼기(withdraw)와 되돌리기(restore)가 이 값으로 고른다. FK 없음.
+    workspace_id: Mapped[str | None] = mapped_column(String(36), default=None)
+    collect_window_id: Mapped[str | None] = mapped_column(String(36), default=None)
 
 
 class SyncBatch(Base):
@@ -176,14 +185,17 @@ class SessionEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
-class AppSetting(Base):
-    """앱 전역 설정(단일 사용자 개인앱) — key-value. 런타임에 사용자가 토글하는 선호값을 저장한다.
+class UserSetting(Base):
+    """사용자별 설정 — key-value. 런타임에 사용자가 토글하는 선호값을 저장한다.
 
     env(config)는 기본값, 이 테이블 값이 있으면 우선. 신규 테이블이라 create_all이 생성한다.
+    단일 사용자 시절의 전역 `app_settings` 테이블은 읽지 않는다 — 그 값은 누군가의 opt-in이라
+    다른 사용자에게 물려주면 자동병합 같은 파괴적 기능이 동의 없이 켜진다.
     """
 
-    __tablename__ = "app_settings"
+    __tablename__ = "user_settings"
 
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[object] = mapped_column(JSONB, default=dict)
     updated_at: Mapped[datetime] = mapped_column(
@@ -270,3 +282,93 @@ class RecommendationCache(Base):
     #: [{session_id, title, kind, reason, score}, ...]
     items: Mapped[list] = mapped_column(JSONB, default=list)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Workspace(Base):
+    """팀 워크스페이스. 팀원이 서로의 세션을 공유해 함께 보는 공간이다.
+
+    소유자는 `WorkspaceMember.role='owner'` 로만 표현한다 — 여기 컬럼으로 중복해 두지 않는다.
+    초대 코드는 평문을 저장하지 않고 해시만 둔다(DB가 새도 코드가 드러나지 않게). 재발급하면
+    해시가 바뀌어 이전 코드가 무효가 된다.
+    """
+
+    __tablename__ = "workspaces"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    name: Mapped[str] = mapped_column(String(60))
+    hue: Mapped[str] = mapped_column(String(20))
+    invite_code_hash: Mapped[str | None] = mapped_column(String(64), default=None, index=True)
+    invite_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # owner 가 켜는 팀 수집 허용(docs/team-collect-mode.md §1.1). 끄면 그 팀의 열린 수집 창이 모두 끝난다.
+    collect_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
+class WorkspaceMember(Base):
+    """워크스페이스 멤버십. role 은 'owner' | 'member'."""
+
+    __tablename__ = "workspace_members"
+
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class WorkspaceSession(Base):
+    """세션 공유 — 원본 세션을 가리키는 라이브 참조다.
+
+    사본을 만들지 않으므로 공유 뒤 Auto Session이 붙인 페이지도 팀에 보인다. 공유는 세션 소유자만
+    할 수 있어 `shared_by` 는 곧 세션 소유자다. FK에 ON DELETE가 없어 세션·워크스페이스를 지울 때
+    이 행을 먼저 지운다.
+    """
+
+    __tablename__ = "workspace_sessions"
+
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), primary_key=True
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("sessions.id"), primary_key=True, index=True
+    )
+    shared_by: Mapped[str] = mapped_column(String(64))
+    shared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class WorkspaceCollectWindow(Base):
+    """팀 수집 창 — 한 사람이 한 기기에서 팀 수집을 켠 구간(docs/team-collect-mode.md §1.2, §4.1).
+
+    현재 상태 열이 아니라 이력 행인 이유: 로컬 큐는 오프라인이면 몇 시간 뒤에 보내므로, 늦게 도착한 방문도
+    "그때 켜져 있었는가"로 판정해야 한다. 활성 = ended_at IS NULL 이고 expires_at 이 지나지 않음.
+    한 사람·한 기기에 끝나지 않은 창은 하나뿐이다(부분 유니크) — 시작 요청이 경합해도 둘이 생기지 않는다.
+    """
+
+    __tablename__ = "workspace_collect_windows"
+    __table_args__ = (
+        Index("ix_collect_windows_lookup", "workspace_id", "user_id", "device_id", "started_at"),
+        Index(
+            "ux_collect_windows_open",
+            "user_id",
+            "device_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL"),
+            sqlite_where=text("ended_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"))
+    user_id: Mapped[str] = mapped_column(String(64))
+    device_id: Mapped[str] = mapped_column(String(64))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # stop|pause|switch|expired|browser_restart|account_switch|left|removed|disallowed|team_deleted
+    ended_reason: Mapped[str | None] = mapped_column(String(20), default=None)
+    # 돌아보기의 "남은 방문 모두 빼기". 이후 이 창을 가리키는 방문은 팀으로 받지 않는다.
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

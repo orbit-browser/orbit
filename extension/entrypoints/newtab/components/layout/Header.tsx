@@ -1,4 +1,5 @@
 import { UserMenu } from './UserMenu';
+import { TeamCollectChip } from '../team/TeamCollect';
 import { SidebarToggle } from './SidebarToggle';
 
 /**
@@ -14,6 +15,7 @@ export function Header({ navOpen, onToggleNav }: HeaderProps) {
   return (
     <header className="app-bar">
       <SidebarToggle open={navOpen} onToggle={onToggleNav} />
+      <TeamCollectChip />
       <UserMenu />
     </header>
   );

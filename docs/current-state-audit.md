@@ -121,7 +121,7 @@ Qdrant(`db/vector.py`): 컬렉션 `orbit_sessions`, 벡터 차원 4096, distance
 | `ai/embedding.py:5-19` | `embed` | `embedding_query`(기본) / `embedding_passage`(저장용, 비대칭 임베딩) | 없음 — 호출부(`api/search.py`, `_embed_and_upsert`)에서 예외 처리 | httpx 클라이언트 30초 |
 | `services/summarizer.py:44-64` | `generate_summary` | `chat_completion` 사용(A.X-K1→solar-pro3) | `overview` 공백/누락 시 `ValueError`로 실패 처리(더미 요약 금지) | 상위에 위임 |
 
-**A.X-K1 3 RPS 제한**: 코드 레벨의 전역 레이트리미터는 없다. `chat_completion`은 `RateLimitError` 발생 시에만 1초 대기 후 폴백(`llm.py:95-97`)하는 반응적 처리이며, 계획서가 요구하는 "전역 최소 간격(~500ms) 리미터"는 아직 구현되어 있지 않다 — B-4의 `llm.py` 수정 대상.
+**A.X-K1 3 RPS 제한**(당시 A.X-K1 안내값. 2026-10-23 A.X-K2 측정은 짧은 요청 1→6 RPS 단계별 10초, 160회 모두 성공·429 없음 — `backend/eval/probe_rate_limit.py`): 코드 레벨의 전역 레이트리미터는 없다. `chat_completion`은 `RateLimitError` 발생 시에만 1초 대기 후 폴백(`llm.py:95-97`)하는 반응적 처리이며, 계획서가 요구하는 "전역 최소 간격(~500ms) 리미터"는 아직 구현되어 있지 않다 — B-4의 `llm.py` 수정 대상.
 
 파싱: `ai/json_utils.py:extract_json()`이 코드펜스 유무와 관계없이 JSON 객체를 추출한다(정규식 2단계: 코드펜스 우선, 없으면 `{...}` 패턴 탐색). `clusterer.py`는 이 위에 추가로 인덱스 유효성 검증과 누락 탭 복구를 수행한다.
 
@@ -168,5 +168,5 @@ Qdrant(`db/vector.py`): 컬렉션 `orbit_sessions`, 벡터 차원 4096, distance
 - **Alembic 부재**: `init_db()`는 `Base.metadata.create_all`만 실행하므로 기존 테이블에 컬럼을 추가하거나 새 테이블을 만들 때 자동 마이그레이션이 없다. 계획서 결정에 따라 이번엔 1회 `docker compose down -v` 리셋 + `create_all` + 멱등 ALTER 러너(`app/db/migrations.py`)로 대응하며, Alembic 도입은 대회 이후로 미룬다(`migration-plan.md` 참고).
 - **`lib/api.ts:3`의 사이드패널 store import**: 위 8.2 참고. Auto Session의 이벤트 전송 경로가 SW에서 실행되려면 이 import를 제거하고 설정 접근 방식을 chrome.storage 기반으로 바꿔야 한다.
 - **MV3 서비스 워커 수명**: 현재 `background.ts`의 `pageContentCache`(`Map<number, PageContent | null>`)는 모듈 스코프 변수라 SW가 유휴 종료되면 즉시 유실된다(재요청 시 content script에 온디맨드 재추출을 요청하는 방식으로만 완화되어 있음, `background.ts:43-56`). 체류시간 세그먼트처럼 SW 종료 사이에도 이어져야 하는 상태는 `chrome.storage.session`처럼 SW 재시작에도 살아남는 저장소가 필요하다 — 계획서가 `chrome.storage.session`을 지정한 이유.
-- **A.X-K1 3 RPS**: 배치 파이프라인에서 그룹별로 LLM(의도 분석)을 순차 호출해야 하며, 현재 `chat_completion`에는 사전적(proactive) 레이트리밋이 없어(§6) 배치가 커질수록 429가 반복 발생할 위험이 있다. 계획서는 전역 최소 간격(~500ms) 리미터 추가와 순차 처리로 대응한다.
+- **A.X-K1 3 RPS**(당시 안내값. 2026-10-23 A.X-K2 측정은 짧은 요청·단계당 10초로 6 RPS까지 429 없음): 배치 파이프라인에서 그룹별로 LLM(의도 분석)을 순차 호출해야 하며, 현재 `chat_completion`에는 사전적(proactive) 레이트리밋이 없어(§6) 배치가 커질수록 429가 반복 발생할 위험이 있다. 계획서는 전역 최소 간격(~500ms) 리미터 추가와 순차 처리로 대응한다.
 - **테스트 회귀 범위**: 현재 백엔드 테스트는 7개 파일에 걸쳐 총 28개(2026-07-12 개선 리포트 기준, `docs/improvement-report.md` §2)이며 전부 `monkeypatch` 기반으로 DB/네트워크를 타지 않는다. 신규 모듈(`event_filter`/`grouper`/`intent_analyzer`/`sync_pipeline`/`session_updater` 등) 추가 시 이 컨벤션을 유지해야 실제 키/DB 없이 CI가 가능하다.
