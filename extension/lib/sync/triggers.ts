@@ -8,7 +8,7 @@ import {
   hasCurrentConsent,
   getSettings,
   subscribeSettings,
-  updateSettings,
+  syncCollectionSwitch,
   type OrbitSettings,
 } from '../settings';
 import { finalizeOrphanOpenEvents } from '../events/collector';
@@ -80,7 +80,7 @@ export async function applyAccountConsent(migrationOwner?: string): Promise<void
   const session = await getSession();
   const enabled = session ? hasCurrentConsent(consent, session.user.id) : false;
   if ((await getSettings()).collectionEnabled !== enabled) {
-    await updateSettings({ collectionEnabled: enabled });
+    await syncCollectionSwitch(enabled);
   }
 }
 

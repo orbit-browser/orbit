@@ -466,6 +466,7 @@ async function handleTabRemoved(tabId: number): Promise<void> {
 export async function handlePageContentReady(
   tabId: number,
   content: PageContent | null,
+  sourceUrl?: string,
 ): Promise<void> {
   if (!content?.textContent) return;
 
@@ -475,10 +476,19 @@ export async function handlePageContentReady(
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (tab?.incognito) return;
   if (tab?.url && settings.excludeSensitive && isSensitiveUrl(tab.url)) return;
+  if (sourceUrl && settings.excludeSensitive && isSensitiveUrl(sourceUrl)) return;
 
   const states = await getTabStates();
   const openEventId = states[tabId]?.openEventId;
   if (!openEventId) return;
+
+  // 본문은 보낸 문서의 방문에만 붙인다. 추출 메시지가 다음 탐색의 커밋보다 늦게 처리되면 이전 페이지
+  // (예: 팀 수집에서 빠진 메일) 본문이 지금 방문에 붙는다.
+  if (sourceUrl) {
+    const event = await getEvent(openEventId);
+    const source = withoutHash(sourceUrl);
+    if (source !== withoutHash(event?.url) && source !== withoutHash(tab?.url)) return;
+  }
 
   try {
     await attachContent(openEventId, content.textContent);
@@ -486,6 +496,10 @@ export async function handlePageContentReady(
   } catch (err) {
     console.error('[Orbit] attachContent(PAGE_CONTENT_READY) 실패', err);
   }
+}
+
+function withoutHash(url: string | undefined): string | undefined {
+  return url?.split('#')[0];
 }
 
 // ── 계정 전환 ───────────────────────────────────────────────────────

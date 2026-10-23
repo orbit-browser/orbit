@@ -548,6 +548,20 @@ describe('수집기 — 팀 표시', () => {
     expect((await allEvents())[0].title).toBe('진짜 제목');
   });
 
+  it('늦게 온 이전 페이지(메일) 본문은 지금 팀 방문에 붙이지 않는다', async () => {
+    await startCollector();
+    await seedActive();
+    vi.spyOn(chrome.tabs, 'get').mockResolvedValue(tab('https://example.com/a', 'A') as never);
+    await fakeBrowser.webNavigation.onCommitted.trigger(navDetails('https://example.com/a'));
+    await settle();
+
+    await handlePageContentReady(TAB_ID, { textContent: '개인 메일 본문' } as never, 'https://mail.google.com/mail/u/0/#inbox');
+    expect((await allEvents())[0].contentExcerpt ?? '').toBe('');
+
+    await handlePageContentReady(TAB_ID, { textContent: '팀 페이지 본문' } as never, 'https://example.com/a#top');
+    expect((await allEvents())[0].contentExcerpt).toBe('팀 페이지 본문');
+  });
+
   it('팀 방문의 제목 변경도 주소가 같을 때만 반영한다', async () => {
     await startCollector();
     await seedActive();

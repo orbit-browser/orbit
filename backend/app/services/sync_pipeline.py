@@ -41,6 +41,8 @@ _MAX_GROUP_SIZE = 25
 # 공급자 리미터(llm._throttle)가 RPS를 따로 지키므로 여기서는 동시에 기다리는 호출 수만 묶는다.
 _INTENT_CONCURRENCY = 2
 _SUMMARY_CONCURRENCY = 2
+# 한 트리거가 이어서 돌리는 후속 배치 상한(스트림·사용자가 섞인 업로드용). 실패가 번갈아 도는 일을 막는다.
+_MAX_CHAINED_BATCHES = 3
 _CANDIDATE_VECTOR_LIMIT = 3
 _CANDIDATE_RECENT_LIMIT = 5
 _CANDIDATE_RECENT_HOURS = 24
@@ -568,7 +570,7 @@ async def _run_auto_merge(user_id: str) -> set[str]:
     return {survivor_id for survivor_id, _ in merged_pairs}
 
 
-async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> None:
+async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> bool:
     try:
         kept, discarded_ids = dedupe_events(claimed)
         if discarded_ids:
@@ -612,25 +614,61 @@ async def _process_batch(batch_id: str, claimed: list[dict], user_id: str) -> No
         await invalidate_recommendations(user_id)
 
         await _complete_batch(batch_id, event_count=len(claimed), model=_summarize_models(model_counts))
+        return True
     except Exception as exc:
         logger.error("배치 실행 실패(batch_id=%s): %s", batch_id, exc)
         await _fail_batch(batch_id, exc)
+        return False
 
 
-def _on_batch_task_done(task: asyncio.Task) -> None:
+def _on_batch_task_done(
+    task: asyncio.Task, trigger_type: str = "manual", claimed_ids: tuple[str, ...] = (), depth: int = 0
+) -> None:
     _background_tasks.discard(task)
+    failed = task.cancelled() or task.exception() is not None
     if not task.cancelled() and (exc := task.exception()):
         logger.error("배치 백그라운드 작업에서 처리되지 않은 예외: %s", exc)
     _batch_lock.release()
+    if failed or task.result() is not True or depth >= _MAX_CHAINED_BATCHES:
+        return
+    follow = asyncio.get_running_loop().create_task(_run_followup_batch(trigger_type, claimed_ids, depth + 1))
+    _background_tasks.add(follow)
+    follow.add_done_callback(_background_tasks.discard)
 
 
-async def run_batch(trigger_type: str) -> str | None:
+async def _pending_outside(event_ids: tuple[str, ...]) -> int:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(func.count())
+            .select_from(ExplorationEvent)
+            .where(ExplorationEvent.sync_status == "pending", ExplorationEvent.id.not_in(event_ids))
+        ) or 0
+
+
+async def _run_followup_batch(trigger_type: str, previous_ids: tuple[str, ...], depth: int) -> None:
+    """한 배치는 한 사용자·한 스트림만 처리하므로, 같은 업로드에 섞여 온 다른 스트림(또는 배치 중에 도착한
+    방문)이 남았으면 바로 이어서 처리한다. 확장은 로컬 큐가 비면 /sync를 다시 부르지 않아 기다릴 곳이 없다.
+    방금 배치에서 pending으로 되돌아간 이벤트(그룹 실패)는 세지 않는다 — 실패를 곧바로 되풀이하지 않도록.
+    """
+    if not await _pending_outside(previous_ids):
+        return
+    try:
+        await run_batch(trigger_type, depth=depth)
+    except SyncBatchRunningError:
+        pass  # 다른 배치가 이미 돈다 — 그 배치가 끝나면 다시 이어 본다
+    except Exception as exc:
+        logger.error("후속 배치 실행 실패: %s", exc)
+
+
+async def run_batch(trigger_type: str, depth: int = 0) -> str | None:
     """동기화 배치 1회를 트리거한다.
 
     - 이미 실행 중이면 SyncBatchRunningError(현재 batch_id 포함)를 던진다(호출측 409 처리용).
     - pending 이벤트가 없으면 배치를 completed(event_count=0)로 기록하고 None을 반환한다.
     - 있으면 claim까지 동기적으로 마친 뒤 나머지 처리(그룹화/LLM/반영)는 백그라운드로
       넘기고 batch_id를 즉시 반환한다(POST /sync가 202로 바로 응답할 수 있도록).
+    - 배치가 성공한 뒤 다른 사용자·스트림의 pending이 남았으면 같은 트리거로 후속 배치를
+      최대 _MAX_CHAINED_BATCHES번 이어 돈다(_run_followup_batch).
     """
     if _batch_lock.locked():
         raise SyncBatchRunningError(await _get_running_batch_id())
@@ -657,7 +695,8 @@ async def run_batch(trigger_type: str) -> str | None:
 
     task = asyncio.create_task(_process_batch(batch_id, claimed, user_id))
     _background_tasks.add(task)
-    task.add_done_callback(_on_batch_task_done)
+    claimed_ids = tuple(e["id"] for e in claimed)
+    task.add_done_callback(lambda t: _on_batch_task_done(t, trigger_type, claimed_ids, depth))
     return batch_id
 
 

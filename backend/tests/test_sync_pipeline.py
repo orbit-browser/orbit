@@ -904,3 +904,52 @@ def test_summarize_models_keeps_fallback_models_ahead_of_subject_split_labels():
     assert summary.startswith("A.X-K2:12,")
     assert "kt:1" in summary and "exaone:1" in summary
     assert len(summary) <= 50
+
+
+def _chain_scenario(monkeypatch, *, processed_ok: bool, waiting: list[int]) -> list[str]:
+    """claim이 불린 배치 id 목록을 돌려준다. waiting은 후속 배치 확인 때마다 남은 pending 수."""
+    claims: list[str] = []
+    counter = iter(range(1, 100))
+
+    async def fake_create_batch_row(_trigger_type):
+        return f"batch-{next(counter)}"
+
+    async def fake_claim(batch_id):
+        claims.append(batch_id)
+        return [{"id": f"e-{batch_id}"}], "u1"
+
+    async def fake_process_batch(_batch_id, _claimed, _user_id):
+        return processed_ok
+
+    remaining = iter(waiting)
+
+    async def fake_pending_outside(_ids):
+        return next(remaining, 0)
+
+    monkeypatch.setattr(sync_pipeline, "_create_batch_row", fake_create_batch_row)
+    monkeypatch.setattr(sync_pipeline, "_claim_pending_events", fake_claim)
+    monkeypatch.setattr(sync_pipeline, "_process_batch", fake_process_batch)
+    monkeypatch.setattr(sync_pipeline, "_pending_outside", fake_pending_outside)
+
+    async def scenario():
+        await sync_pipeline.run_batch("manual")
+        for _ in range(300):
+            await asyncio.sleep(0.01)
+            if not sync_pipeline.is_running() and not sync_pipeline._background_tasks:
+                break
+
+    asyncio.run(scenario())
+    return claims
+
+
+def test_batch_chains_when_another_stream_is_still_pending(monkeypatch):
+    # 개인·팀 스트림이 한 업로드에 섞여 오면 첫 배치는 한 스트림만 가져간다 — 남은 스트림을 바로 이어 처리한다.
+    assert _chain_scenario(monkeypatch, processed_ok=True, waiting=[3, 0]) == ["batch-1", "batch-2"]
+
+
+def test_batch_chain_is_bounded(monkeypatch):
+    assert len(_chain_scenario(monkeypatch, processed_ok=True, waiting=[1] * 10)) == 1 + sync_pipeline._MAX_CHAINED_BATCHES
+
+
+def test_failed_batch_does_not_chain(monkeypatch):
+    assert _chain_scenario(monkeypatch, processed_ok=False, waiting=[5]) == ["batch-1"]

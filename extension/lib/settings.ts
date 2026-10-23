@@ -149,6 +149,21 @@ export function updateSettings(partial: Partial<OrbitSettings>): Promise<OrbitSe
   return next;
 }
 
+/**
+ * 수집 스위치만 지금 계정의 동의 상태에 맞춘다 — 동의 기록은 건드리지 않는다. 시작·계정 전환 때의
+ * 경로다. 여기서 동의를 쓰면 옛 문구 동의가 `false`로 덮여 재동의 안내가 사라지고, 전환 도중이면
+ * 읽은 계정과 다른(동의하지 않은) 계정에 동의가 기록된다. 동의는 사용자가 스위치를 켤 때만 쓴다.
+ */
+export function syncCollectionSwitch(enabled: boolean): Promise<OrbitSettings> {
+  const next = writeQueue.then(async () => {
+    const merged = { ...(await getSettings()), collectionEnabled: enabled };
+    await chrome.storage.local.set({ [STORAGE_KEY]: merged });
+    return merged;
+  });
+  writeQueue = next.catch(() => {});
+  return next;
+}
+
 /** chrome.storage.onChanged을 래핑 — 다른 컨텍스트(SW ↔ 사이드패널)의 설정 변경을 구독한다. */
 export function subscribeSettings(
   cb: (settings: OrbitSettings, previous: OrbitSettings) => void,
