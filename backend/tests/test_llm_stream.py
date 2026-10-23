@@ -1,4 +1,4 @@
-"""Ask 답변 스트림 — K-EXAONE 우선, 첫 토큰 전 실패 시 A.X-K2 (DecisionLog 2026-10-23)."""
+"""Ask 답변 스트림 — A.X-K2 우선, 첫 토큰 전 실패 시 K-EXAONE (DecisionLog 2026-10-23 A/B)."""
 
 import asyncio
 
@@ -41,41 +41,41 @@ def _setup(monkeypatch, provider) -> list[dict]:
     return calls
 
 
-def test_stream_uses_exaone_first_without_thinking(monkeypatch):
+def test_stream_uses_ax_first(monkeypatch):
     async def ok(model):
         yield f"from {model}"
 
     calls = _setup(monkeypatch, ok)
 
-    assert asyncio.run(_collect_stream()) == [("from K-EXAONE", "exaone/K-EXAONE")]
-    assert [(c["client"], c["model"]) for c in calls] == [("friendli", "K-EXAONE")]
-    assert calls[0]["extra_body"] == _NO_THINKING
+    assert asyncio.run(_collect_stream()) == [("from A.X-K2", "A.X-K2")]
+    assert [(c["client"], c["model"]) for c in calls] == [("ax", "A.X-K2")]
+    assert calls[0].get("extra_body") is None
 
 
-def test_stream_falls_back_to_ax_before_first_token(monkeypatch):
-    async def exaone_fails(model):
-        if model == "K-EXAONE":
+def test_stream_falls_back_to_exaone_without_thinking_before_first_token(monkeypatch):
+    async def ax_fails(model):
+        if model == "A.X-K2":
             raise ValueError("primary failed")
         yield f"from {model}"
 
-    calls = _setup(monkeypatch, exaone_fails)
+    calls = _setup(monkeypatch, ax_fails)
 
-    assert asyncio.run(_collect_stream()) == [("from A.X-K2", "A.X-K2")]
-    assert [(c["client"], c["model"]) for c in calls] == [("friendli", "K-EXAONE"), ("ax", "A.X-K2")]
-    assert calls[1].get("extra_body") is None
+    assert asyncio.run(_collect_stream()) == [("from K-EXAONE", "exaone/K-EXAONE")]
+    assert [(c["client"], c["model"]) for c in calls] == [("ax", "A.X-K2"), ("friendli", "K-EXAONE")]
+    assert calls[1]["extra_body"] == _NO_THINKING
 
 
-def test_stream_falls_back_to_ax_on_empty_exaone_stream(monkeypatch):
-    async def exaone_empty(model):
-        if model != "K-EXAONE":
+def test_stream_falls_back_to_exaone_on_empty_ax_stream(monkeypatch):
+    async def ax_empty(model):
+        if model != "A.X-K2":
             yield f"from {model}"
 
-    _setup(monkeypatch, exaone_empty)
+    _setup(monkeypatch, ax_empty)
 
-    assert asyncio.run(_collect_stream()) == [("from A.X-K2", "A.X-K2")]
+    assert asyncio.run(_collect_stream()) == [("from K-EXAONE", "exaone/K-EXAONE")]
 
 
-def test_stream_falls_back_when_exaone_client_cannot_be_created(monkeypatch):
+def test_stream_falls_back_when_ax_client_cannot_be_created(monkeypatch):
     async def ok(model):
         yield f"from {model}"
 
@@ -84,9 +84,9 @@ def test_stream_falls_back_when_exaone_client_cannot_be_created(monkeypatch):
     def missing_key():
         raise OpenAIError("missing api key")
 
-    monkeypatch.setattr(llm, "_friendli_client", missing_key)
+    monkeypatch.setattr(llm, "_ax_client", missing_key)
 
-    assert asyncio.run(_collect_stream()) == [("from A.X-K2", "A.X-K2")]
+    assert asyncio.run(_collect_stream()) == [("from K-EXAONE", "exaone/K-EXAONE")]
 
 
 def test_stream_does_not_fallback_after_first_token(monkeypatch):
@@ -99,13 +99,13 @@ def test_stream_does_not_fallback_after_first_token(monkeypatch):
     async def scenario():
         stream = llm.chat_completion_stream_with_meta("system", "user")
         first = await anext(stream)
-        assert first == ("partial", "exaone/K-EXAONE")
+        assert first == ("partial", "A.X-K2")
         with pytest.raises(llm.StreamInterruptedError) as info:
             await anext(stream)
-        assert info.value.model == "exaone/K-EXAONE"
+        assert info.value.model == "A.X-K2"
 
     asyncio.run(scenario())
-    assert [c["model"] for c in calls] == ["K-EXAONE"]
+    assert [c["model"] for c in calls] == ["A.X-K2"]
 
 
 @pytest.mark.parametrize(
@@ -117,7 +117,7 @@ def test_stream_does_not_fallback_after_first_token(monkeypatch):
     ids=["connection", "timeout"],
 )
 def test_stream_does_not_fallback_on_network_error_after_first_token(monkeypatch, error):
-    # 연결·timeout은 첫 토큰 전이면 A.X로 넘기는 오류다. 첫 토큰 뒤에는 넘기지 않고 끊김으로 올린다.
+    # 연결·timeout은 첫 토큰 전이면 EXAONE으로 넘기는 오류다. 첫 토큰 뒤에는 넘기지 않고 끊김으로 올린다.
     async def cut(model):
         yield "partial"
         raise error()
@@ -126,17 +126,17 @@ def test_stream_does_not_fallback_on_network_error_after_first_token(monkeypatch
 
     async def scenario():
         stream = llm.chat_completion_stream_with_meta("system", "user")
-        assert await anext(stream) == ("partial", "exaone/K-EXAONE")
+        assert await anext(stream) == ("partial", "A.X-K2")
         with pytest.raises(llm.StreamInterruptedError):
             await anext(stream)
 
     asyncio.run(scenario())
-    assert [c["model"] for c in calls] == ["K-EXAONE"]
+    assert [c["model"] for c in calls] == ["A.X-K2"]
 
 
-def test_stream_raises_interrupted_when_ax_fallback_breaks_after_first_token(monkeypatch):
+def test_stream_raises_interrupted_when_exaone_fallback_breaks_after_first_token(monkeypatch):
     async def both_break(model):
-        if model == "K-EXAONE":
+        if model == "A.X-K2":
             raise ValueError("primary failed")
         yield "partial"
         raise RuntimeError("disconnected")
@@ -145,10 +145,10 @@ def test_stream_raises_interrupted_when_ax_fallback_breaks_after_first_token(mon
 
     async def scenario():
         stream = llm.chat_completion_stream_with_meta("system", "user")
-        assert await anext(stream) == ("partial", "A.X-K2")
+        assert await anext(stream) == ("partial", "exaone/K-EXAONE")
         with pytest.raises(llm.StreamInterruptedError) as info:
             await anext(stream)
-        assert info.value.model == "A.X-K2"
+        assert info.value.model == "exaone/K-EXAONE"
 
     asyncio.run(scenario())
 
@@ -156,14 +156,14 @@ def test_stream_raises_interrupted_when_ax_fallback_breaks_after_first_token(mon
 @pytest.mark.parametrize("status", [401, 403])
 def test_stream_falls_back_when_primary_key_is_rejected(monkeypatch, status):
     async def rejected(model):
-        if model == "K-EXAONE":
+        if model == "A.X-K2":
             response = httpx.Response(status, request=httpx.Request("POST", "https://llm.test"))
             raise APIStatusError("rejected", response=response, body=None)
         yield f"from {model}"
 
     _setup(monkeypatch, rejected)
 
-    assert asyncio.run(_collect_stream()) == [("from A.X-K2", "A.X-K2")]
+    assert asyncio.run(_collect_stream()) == [("from K-EXAONE", "exaone/K-EXAONE")]
 
 
 def test_stream_keeps_client_errors_loud(monkeypatch):
@@ -176,7 +176,7 @@ def test_stream_keeps_client_errors_loud(monkeypatch):
 
     with pytest.raises(APIStatusError):
         asyncio.run(_collect_stream())
-    assert [c["model"] for c in calls] == ["K-EXAONE"]
+    assert [c["model"] for c in calls] == ["A.X-K2"]
 
 
 def test_should_fallback_keeps_client_errors_loud():

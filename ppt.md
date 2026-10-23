@@ -201,7 +201,7 @@ Orbit이 만들어내는 세션 예시:
 
 - **EXAONE을 "보통"에서 의도 분석 primary로 올렸다.** 튜닝한 프롬프트에서 A.X-K1과 품질이 대등했고, 노이즈 이벤트를 discard하는 판단은 EXAONE이 더 나았다. 대신 요약·리랭킹은 A.X-K1이 우세해 단계별로 primary를 갈랐다.
 - **A.X-K2가 나온 뒤 역할별로 다시 쟀다(2026-10-22).** 공개 페이지로 만든 평가셋에서 의도 분석은 A.X-K2가 정확도 87.6% 대 78.8%, JSON 유효율 100% 대 87.4%로 앞섰고, 요약·리랭킹·Ask에서는 EXAONE이 비열등을 보이지 못했다. 그래서 모든 LLM 단계의 primary를 A.X-K2로, fallback을 K-EXAONE으로 모았다.
-- **GitHub main 통합본으로 KT 믿:음까지 넣어 다시 쟀다(2026-10-23).** 의도 분석은 KT가 정확도 88.3%·JSON 유효율 100%로 K2(87.6%)와 대등했지만 응답이 느려(warm p95 2,471ms 대 1,088ms) fallback으로 두었다. EXAONE은 JSON 유효율 79.3%로 의도 분석 fallback에서도 뺐다. Ask 답변은 맹검 심판에서 EXAONE이 근거 일치 144/144로 K2와 차이가 없고 첫 글자가 480ms 빨라 primary로 올렸다. KT는 Ask 근거 일치가 22.9%p 낮아 Ask에는 쓰지 않는다.
+- **GitHub main 통합본으로 KT 믿:음까지 넣어 다시 쟀다(2026-10-23).** 의도 분석은 KT가 정확도 88.3%·JSON 유효율 100%로 K2(87.6%)와 대등했지만 응답이 느려(warm p95 2,471ms 대 1,088ms) fallback으로 두었다. EXAONE은 JSON 유효율 79.3%로 의도 분석 fallback에서도 뺐다. Ask 답변은 맹검 심판에서 EXAONE이 근거 일치 144/144로 K2와 차이가 없고 첫 글자가 480ms 빨라 primary로 올렸지만, 같은 코드·데이터 A/B(실제 탐색 문항)에서 K2가 정답 포함 68/81 대 63/81, 16/18 대 14~15/18로 앞서고 범위 밖 인용이 없어 K2로 되돌렸다. KT는 Ask 근거 일치가 22.9%p 낮아 Ask에는 쓰지 않는다.
 - **Solar Pro 3는 LLM 경로에서 빼고 Upstage는 임베딩 전용으로 두었다.** LLM 2종을 A.X-K1과 EXAONE으로 확정하면서 두 모델을 서로의 폴백으로 묶는 편이 공급자 장애에 더 강했다.
 
 | 파이프라인 단계 | Primary | Fallback |
@@ -209,7 +209,7 @@ Orbit이 만들어내는 세션 예시:
 | 세션 의도 분석 | SKT A.X-K2 | KT 믿:음 |
 | 탭 클러스터링(스냅샷) | SKT A.X-K2 | KT 믿:음 |
 | 세션 요약·제목 생성 | SKT A.X-K2 | LG K-EXAONE |
-| Ask AI 답변 스트리밍 | LG K-EXAONE | SKT A.X-K2 |
+| Ask AI 답변 스트리밍 | SKT A.X-K2 | LG K-EXAONE |
 | 검색·추천 리랭킹 | SKT A.X-K2 | LG K-EXAONE |
 | 저장 임베딩 | Upstage `embedding-passage` | — |
 | 검색 임베딩 | Upstage `embedding-query` | — |

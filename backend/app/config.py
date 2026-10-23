@@ -23,13 +23,13 @@ def parse_cors_origins(raw: str) -> list[str]:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
-    # A.X (SKT, 기본 A.X-K2) — Ask 답변을 뺀 모든 LLM 역할 primary, Ask 답변 fallback (DecisionLog 2026-10-23).
+    # A.X (SKT, 기본 A.X-K2) — 모든 LLM 역할 primary (DecisionLog 2026-10-23 Ask A/B).
     # 발급 키는 A.X-K2만 서빙 권한이 있다 — A.X-K1은 401(DecisionLog 2026-10-19).
     axk1_api_key: str = ""
     axk1_base_url: str = "https://awf-gw.adot.ai/v1"
     axk1_model: str = "A.X-K2"
 
-    # LG K-EXAONE (FriendliAI dedicated endpoint, OpenAI 호환) — Ask 답변 primary, 요약·리랭크 fallback.
+    # LG K-EXAONE (FriendliAI dedicated endpoint, OpenAI 호환) — Ask 답변·요약·리랭크 fallback.
     # serverless는 2026-08-20 K-EXAONE 제공 종료. model 자리에 팀 endpoint ID를 넣는다(DecisionLog 2026-10-19).
     friendli_api_key: str = ""
     friendli_base_url: str = "https://api.friendli.ai/dedicated/v1"

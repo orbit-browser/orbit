@@ -95,11 +95,11 @@ def _spy_throttle(monkeypatch) -> list[str]:
     return calls
 
 
-def _stream_fakes(monkeypatch, exaone_error):
+def _stream_fakes(monkeypatch, ax_error):
     async def provider(_client, *, model, **_kwargs):
-        if model == "K-EXAONE":
-            raise exaone_error
-        yield "from ax"
+        if model == "A.X-K2":
+            raise ax_error
+        yield "from exaone"
 
     monkeypatch.setattr(llm, "_stream_provider", provider)
     monkeypatch.setattr(llm, "_ax_client", lambda: "ax")
@@ -112,18 +112,18 @@ async def _collect_stream():
     return [item async for item in llm.chat_completion_stream_with_meta("s", "u")]
 
 
-def test_ask_stream_fallback_to_ax_waits_on_the_ax_limiter(clock, monkeypatch):
-    # Ask 폴백 A.X도 배치와 같은 A.X 리미터를 거쳐야 A.X 4 RPS를 넘지 않는다.
+def test_ask_stream_waits_on_the_ax_limiter_before_exaone_fallback(clock, monkeypatch):
+    # Ask 1순위 A.X도 배치와 같은 A.X 리미터를 거쳐야 A.X 4 RPS를 넘지 않는다. 폴백은 EXAONE 리미터를 쓴다.
     calls = _spy_throttle(monkeypatch)
-    _stream_fakes(monkeypatch, ValueError("EXAONE empty stream"))
+    _stream_fakes(monkeypatch, ValueError("A.X empty stream"))
     llm._next_call_at["ax"] = clock.now + 0.2  # 배치가 방금 A.X를 불렀다
 
-    assert asyncio.run(_collect_stream()) == [("from ax", "A.X-K2")]
-    assert calls == ["exaone", "ax"]
+    assert asyncio.run(_collect_stream()) == [("from exaone", "exaone/K-EXAONE")]
+    assert calls == ["ax", "exaone"]
     assert clock.sleeps == [0.2]
 
 
-def test_ask_stream_exaone_rate_limit_backs_off_exaone_only(clock, monkeypatch):
+def test_ask_stream_ax_rate_limit_backs_off_ax_only(clock, monkeypatch):
     request = httpx.Request("POST", "https://llm.test")
     _stream_fakes(
         monkeypatch, RateLimitError("429", response=httpx.Response(429, request=request), body=None)
@@ -132,14 +132,14 @@ def test_ask_stream_exaone_rate_limit_backs_off_exaone_only(clock, monkeypatch):
     async def scenario():
         answer = await _collect_stream()
         start = clock.now
-        await llm._throttle("exaone")
+        await llm._throttle("ax")
         return answer, clock.now - start
 
-    answer, exaone_wait = asyncio.run(scenario())
+    answer, ax_wait = asyncio.run(scenario())
 
-    assert answer == [("from ax", "A.X-K2")]
-    assert exaone_wait == pytest.approx(1.0)
-    assert llm._next_call_at["ax"] < clock.now + 0.5  # A.X는 늦추지 않았다(보통 간격만)
+    assert answer == [("from exaone", "exaone/K-EXAONE")]
+    assert ax_wait == pytest.approx(1.0)
+    assert llm._next_call_at["exaone"] < clock.now + 0.6  # EXAONE은 늦추지 않았다(보통 간격만)
 
 
 def test_kt_fallback_uses_the_kt_limiter(clock, monkeypatch):
