@@ -139,9 +139,9 @@ describe('검증된 숫자 — 100%·0건만 앞면에', () => {
   it('앞면은 100%·0건만, 표본과 조건은 숫자 밑과 각주에 남긴다', () => {
     const html = renderToStaticMarkup(createElement(TechBanner));
     const text = html.replace(/<[^>]*>/g, '');
-    expect(text).toContain('100%기록에 없는 건 없다고 답했습니다');
+    expect(text).toContain('100%기록에 없으면 없다고 답했습니다');
     expect(text).toContain('같은 조건 시험 2번 중 2번');
-    expect(text).toContain('100%다시 열었을 때 엉뚱한 탭은 없었습니다');
+    expect(text).toContain('100%다시 연 탭은 모두 그 작업 페이지였습니다');
     expect(text).toContain('Comet은 연 26개 중 3개(12%)');
     expect(text).toContain('0건공유 안 한 세션이 팀원에게 보인 경우');
     expect(text).toContain('화면·API 12가지 경로, 응답 18개에서 0건');

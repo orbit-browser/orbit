@@ -8,10 +8,11 @@ import { StrictMode, useEffect, useLayoutEffect, useRef, useState, type RefObjec
 import { createRoot } from 'react-dom/client';
 import { BOOTH, PANELS, WALLS, type PanelDef } from './booth';
 import { GALLERY_SESSION_IDS, loadShots } from './content';
+import { Chapters, STEPS } from './frame';
 import { EdgeBanner } from './panel-edge';
 import { ChaosBanner } from './panel-chaos';
 import { OrbitBanner } from './panel-orbit';
-import { SpanBanner } from './panel-span';
+import { SPAN_CHAPTERS, SpanBanner } from './panel-span';
 import { TeamBanner } from './panel-team';
 import { TechBanner } from './panel-tech';
 import { UseBanner } from './panel-use';
@@ -116,7 +117,7 @@ function Panel({ panel, options, set, interactive, scaleRef }: PanelProps) {
     case 'tech':
       return <TechBanner />;
     case 'team':
-      return <TeamBanner />;
+      return <TeamBanner latency={options.variant === 'span'} />;
     case 'edge-right':
       return <EdgeBanner side="right" />;
   }
@@ -188,20 +189,22 @@ function Viewer() {
       </header>
       <main className="ex-viewport" ref={viewportRef}>
         <div className="ex-canvas" style={{ width: contentWidth * scale + pad * 2, height: contentHeight * scale + pad * 2 }}>
-          <div className="ex-board" style={{ transform: `scale(${scale})`, gap: booth ? BOOTH.corner : options.gap, left: pad, top: pad }}>
-            {booth
-              ? walls.map((wall) => (
-                  <section key={wall.wall} className="ex-wall" aria-label={wall.label}>
-                    <span className="ex-wall__label">
-                      {wall.label} · {wall.panels.map((panel) => panel.width).join(' + ')}mm
-                    </span>
-                    <div className="ex-wall__row" style={{ gap: options.gap }}>
-                      {wall.panels.map(render)}
-                    </div>
-                  </section>
-                ))
-              : panels.map(render)}
-          </div>
+          <Chapters.Provider value={options.variant === 'span' ? SPAN_CHAPTERS : STEPS}>
+            <div className="ex-board" style={{ transform: `scale(${scale})`, gap: booth ? BOOTH.corner : options.gap, left: pad, top: pad }}>
+              {booth
+                ? walls.map((wall) => (
+                    <section key={wall.wall} className="ex-wall" aria-label={wall.label}>
+                      <span className="ex-wall__label">
+                        {wall.label} · {wall.panels.map((panel) => panel.width).join(' + ')}mm
+                      </span>
+                      <div className="ex-wall__row" style={{ gap: options.gap }}>
+                        {wall.panels.map(render)}
+                      </div>
+                    </section>
+                  ))
+                : panels.map(render)}
+            </div>
+          </Chapters.Provider>
         </div>
       </main>
     </div>
@@ -236,13 +239,15 @@ function PrintSheet() {
   const picked = panel === 'all' ? PANELS : panel.split(',').map((value) => PANELS[Number(value) - 1]).filter(Boolean);
   const scaleRef = useRef(1);
   return (
-    <div className="ex-print">
-      {picked.map((def) => (
-        <div className={`ex-print__page${def.width === 455 ? ' ex-print__page--narrow' : ''}`} key={def.id}>
-          <Panel panel={def} options={initial} set={() => {}} interactive={false} scaleRef={scaleRef} />
-        </div>
-      ))}
-    </div>
+    <Chapters.Provider value={initial.variant === 'span' ? SPAN_CHAPTERS : STEPS}>
+      <div className="ex-print">
+        {picked.map((def) => (
+          <div className={`ex-print__page${def.width === 455 ? ' ex-print__page--narrow' : ''}`} key={def.id}>
+            <Panel panel={def} options={initial} set={() => {}} interactive={false} scaleRef={scaleRef} />
+          </div>
+        ))}
+      </div>
+    </Chapters.Provider>
   );
 }
 

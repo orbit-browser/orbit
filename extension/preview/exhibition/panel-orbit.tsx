@@ -29,7 +29,7 @@ export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, intera
         <h1 className="ex-orbit__word">
           Orbit<span>.</span>
         </h1>
-        <p className="ex-orbit__sub">본 페이지를 대신 기억해 둬요.</p>
+        <p className="ex-orbit__sub">봤던 페이지, 대신 기억해 둘게요.</p>
         <p className="ex-orbit__en">Personal Exploration Memory</p>
       </section>
 
@@ -86,7 +86,7 @@ export function OrbitBanner({ sessionIndex, pageIndex, onSession, onPage, intera
 const FEATURES = [
   {
     en: ['Automatic Session', 'Organization'],
-    ko: '정리는 하지 않아도 됩니다',
+    ko: '따로 정리하지 않아도 묶여 있습니다',
     // backend/app/services/sync_pipeline.py · intent_analyzer.py · summarizer.py
     text: '방문을 시간과 주제로 나눈 뒤, AI가 기존 세션에 이어 붙일지 새로 만들지 판단하고 제목과 요약을 씁니다.',
   },

@@ -2,6 +2,7 @@
 //   pnpm preview:ui --port 5203                         (다른 터미널에서 먼저)
 //   node preview/exhibition/export.mjs                  장마다 PNG(100dpi)와 PDF, 그리고 모아 본 PDF 하나
 //   node preview/exhibition/export.mjs --dpi 150 --panels 4,7 --no-pdf
+//   node preview/exhibition/export.mjs --variant span    실제 화면 시안(가운데 벽 3·4·5번) — out/variant-span/ 에 따로
 // 결과는 preview/exhibition/out/(git 에 올리지 않는다). 크롬 경로는 CHROME=<경로> 로 바꿀 수 있다.
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, closeSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -40,10 +41,18 @@ const picked = option('panels', PANELS.map((_, index) => index + 1).join(','))
   .map(Number)
   .filter((n) => n >= 1 && n <= PANELS.length);
 const wantPng = !args.includes('--no-png');
+// 실제 화면 시안은 지금 인쇄판과 섞이지 않게 하위 폴더에 낸다
+const variant = option('variant', '');
+const variantQuery = variant ? `&variant=${variant}` : '';
+const OUT_DIR = variant ? join(OUT, `variant-${variant}`) : OUT;
 const wantPdf = !args.includes('--no-pdf');
 
 if (!Number.isFinite(dpi) || dpi < 20 || dpi > 300) {
   console.error('--dpi must be between 20 and 300');
+  process.exit(2);
+}
+if (variant && variant !== 'span') {
+  console.error('--variant must be span');
   process.exit(2);
 }
 if (picked.length === 0) {
@@ -61,7 +70,7 @@ try {
   process.exit(1);
 }
 
-mkdirSync(OUT, { recursive: true });
+mkdirSync(OUT_DIR, { recursive: true });
 
 const run = (extra, url) =>
   new Promise((resolve) => {
@@ -167,11 +176,11 @@ if (wantPng) {
   const scale = dpi / 25.4;
   for (const n of picked) {
     const { width } = PANELS[n - 1];
-    const file = join(OUT, `${name(n)}-${dpi}dpi.png`);
+    const file = join(OUT_DIR, `${name(n)}-${dpi}dpi.png`);
     const error = await run(
       // 원근 카드 하나하나가 합성 레이어라 고해상도에서는 GPU 메모리 기본 한도를 넘어 일부가 빠진다 — 한도를 올린다.
       [`--window-size=${width},${HEIGHT_MM}`, `--force-device-scale-factor=${scale.toFixed(4)}`, '--force-gpu-mem-available-mb=16384', `--screenshot=${file}`],
-      `${base}?print=1&panel=${n}`,
+      `${base}?print=1&panel=${n}${variantQuery}`,
     );
     if (error || !existsSync(file)) {
       fail(`png ${n}`, error?.message ?? 'no output');
@@ -188,12 +197,12 @@ if (wantPng) {
 }
 
 if (wantPdf) {
-  const jobs = picked.map((n) => ({ file: join(OUT, `${name(n)}.pdf`), panels: [PANELS[n - 1]], query: String(n) }));
+  const jobs = picked.map((n) => ({ file: join(OUT_DIR, `${name(n)}.pdf`), panels: [PANELS[n - 1]], query: String(n) }));
   const verified = [];
   for (const job of jobs) {
     // macOS 헤드리스 GPU가 3D 카드를 PDF로 그린 뒤 종료 중 멈추는 경우가 있다.
     // PNG 합성은 유지하고 PDF만 소프트웨어 렌더링으로 출력한다.
-    const error = await run(['--disable-gpu', '--no-pdf-header-footer', `--print-to-pdf=${job.file}`], `${base}?print=1&panel=${job.query}`);
+    const error = await run(['--disable-gpu', '--no-pdf-header-footer', `--print-to-pdf=${job.file}`], `${base}?print=1&panel=${job.query}${variantQuery}`);
     if (error || !existsSync(job.file)) {
       fail(`pdf ${job.query}`, error?.message ?? 'no output');
       continue;
@@ -216,7 +225,7 @@ if (wantPdf) {
   // 폭이 다른 CSS 페이지를 한 번에 인쇄하면 Chrome이 내용만 75%로 줄인다.
   // MediaBox 검사로는 잡히지 않으므로 검증된 개별 PDF를 다시 그리지 않고 합친다.
   if (verified.length === jobs.length) {
-    const file = join(OUT, 'orbit-banners.pdf');
+    const file = join(OUT_DIR, 'orbit-banners.pdf');
     const script = [
       'import sys',
       'from pypdf import PdfWriter',

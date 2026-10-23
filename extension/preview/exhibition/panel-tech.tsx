@@ -60,12 +60,12 @@ export const PIPELINE = [
   {
     en: 'Retrieve',
     ko: '찾기',
-    where: '검색 · Ask · 복원',
+    where: '검색 · AI 질문 · 복원',
     // backend/app/api/search.py · services/ask_service.py · newtab/lib/restore.ts
     items: [
       ['의미 검색', '질문 벡터로 Qdrant 코사인 검색(임계 0.28) · 선택적 리랭킹'],
       ['권한 확인', '개인·팀 범위를 읽는 SQL 안에서 다시 판정'],
-      ['답과 복원', `Ask 근거 답변(스트리밍, ${MODELS.exaone}) · 탭으로 세션 복원`],
+      ['답과 복원', `AI 질문 근거 답변(스트리밍, ${MODELS.exaone}) · 탭으로 세션 복원`],
     ],
   },
 ];
@@ -75,13 +75,13 @@ export const PROVEN_STATS = [
   {
     value: PROVEN.refusal.orbit.percent,
     unit: '%',
-    title: '기록에 없는 건 없다고 답했습니다',
+    title: '기록에 없으면 없다고 답했습니다',
     detail: keepDots(`같은 조건 시험 ${PROVEN.refusal.orbit.total}번 중 ${PROVEN.refusal.orbit.hit}번 · Comet ${PROVEN.refusal.comet.percent}%`),
   },
   {
     value: PROVEN.restorePrecision.orbit.percent,
     unit: '%',
-    title: '다시 열었을 때 엉뚱한 탭은 없었습니다',
+    title: '다시 연 탭은 모두 그 작업 페이지였습니다',
     detail: keepDots(`목표 9개 중 ${PROVEN.restorePrecision.orbit.total}개를 열었고 열린 페이지는 모두 그 작업 · Comet은 연 ${PROVEN.restorePrecision.comet.total}개 중 ${PROVEN.restorePrecision.comet.hit}개(${PROVEN.restorePrecision.comet.percent}%)`),
   },
   {

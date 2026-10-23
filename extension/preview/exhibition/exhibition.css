@@ -1740,6 +1740,15 @@ body {
   color: var(--text-secondary);
 }
 
+/* 실제 화면 시안의 검색 지연 한 줄 — 두 칸을 다 쓴다. 그 한 줄만큼 측정 구역을 올려 바닥글 선에 닿지 않게 한다 */
+.ex-method .ex-method__wide {
+  grid-column: 1 / -1;
+}
+
+.ex-measure:has(.ex-method__wide) {
+  top: 1590px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ex-motion-on .ex-chaos-card__float,
   .ex-orbit__gallery {
@@ -2750,10 +2759,10 @@ body {
 
 .ex-span__question {
   position: absolute;
-  top: 168px;
+  top: 160px;
   left: 46px;
   z-index: 60;
-  font: 800 116px/1.1 var(--kr);
+  font: 800 100px/1.12 var(--kr);
   letter-spacing: -0.055em;
 }
 
@@ -2767,7 +2776,7 @@ body {
 }
 
 .ex-span__word {
-  font: 640 250px/0.86 'Inter', var(--sans);
+  font: 640 210px/0.86 'Inter', var(--sans);
   font-optical-sizing: auto;
   letter-spacing: -0.058em;
 }
@@ -2777,14 +2786,14 @@ body {
 }
 
 .ex-span__promise {
-  margin: 26px 0 0 6px !important;
-  font: 700 54px/1.2 var(--kr);
+  margin: 18px 0 0 6px !important;
+  font: 700 52px/1.2 var(--kr);
   letter-spacing: -0.045em;
 }
 
 .ex-span__real h1 {
   margin-left: 6px !important;
-  font: 800 84px/1.16 var(--kr);
+  font: 800 80px/1.16 var(--kr);
   letter-spacing: -0.05em;
 }
 
@@ -2847,6 +2856,13 @@ body {
   overflow: visible;
 }
 
+/* 돋보기 테두리 위·아래, 단추 바로 옆에 붙는 ③·④ 번호 */
+.ex-span__no--on {
+  position: absolute;
+  z-index: 48;
+  box-shadow: 0 0 0 5px var(--bg-page);
+}
+
 .ex-span__label {
   position: absolute;
   z-index: 50;
@@ -2882,9 +2898,9 @@ body {
 }
 
 /* 아래 숫자 — 기술 현수막의 시험 숫자를 장마다 하나씩 크게 */
+/* 위끝은 창 바로 아래(PROOF_TOP, panel-span.tsx) — 띠가 허리 위에 온다 */
 .ex-span__proof {
   position: absolute;
-  top: 1850px;
   left: 50px;
   right: 50px;
   z-index: 30;
@@ -2900,11 +2916,11 @@ body {
 
 .ex-span__proof .ex-proven__stat > strong {
   grid-row: span 2;
-  font-size: 150px;
+  font-size: 116px;
 }
 
 .ex-span__proof .ex-proven__stat > strong small {
-  font-size: 58px;
+  font-size: 46px;
 }
 
 .ex-span__proof .ex-proven__stat > h3 {
@@ -2917,11 +2933,8 @@ body {
   font-size: 19px;
 }
 
-.ex-span__fineprint {
-  position: absolute;
-  left: 50px;
-  right: 50px;
-  bottom: 134px;
+.ex-span__proof .ex-fineprint {
+  margin-top: 18px !important;
 }
 
 @media print {

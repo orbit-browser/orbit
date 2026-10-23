@@ -28,7 +28,7 @@ export function EdgeBanner({ side }: { side: 'left' | 'right' }) {
             <b>
               지금 써 보세요
               <br />
-              시연은 가운데 화면에서
+              시연은 가운데 노트북에서
             </b>
             <span>설치 QR은 오른쪽 끝에</span>
           </p>
@@ -51,13 +51,13 @@ export function EdgeBanner({ side }: { side: 'left' | 'right' }) {
               <i />
             </div>
           </div>
-          <p className="ex-edge__hint">시연은 가운데 화면에서</p>
+          <p className="ex-edge__hint">시연은 가운데 노트북에서</p>
           <p className="ex-edge__team">TEAM {BOOTH.team}</p>
         </div>
       )}
       {/* 브랜드 마크는 아래에 서명처럼 — 위에 두면 마침표와 주황 원 둘이 맞붙는다 */}
       <img className="ex-edge__mark" src="/orbit-mark.png" alt="" />
-      <p className="ex-edge__foot">{side === 'left' ? 'PERSONAL EXPLORATION MEMORY' : 'FROM CHAOS TO MEMORY'}</p>
+      <p className="ex-edge__foot">PERSONAL EXPLORATION MEMORY</p>
       <SafeGuide />
     </article>
   );

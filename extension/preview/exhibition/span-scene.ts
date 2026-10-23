@@ -5,6 +5,9 @@
  *   새 탭    네비게이터를 열고(폭을 사이드패널과 같게), 바로가기를 접고, AI에게 질문 모드로 QUERY 를 묻는다
  *   사이드패널  세션 탭에서 SESSION 을 펼친다. ?share=1 이면 "팀에 공유" 창까지 연다
  *
+ * 두 화면의 글자는 현수막 글꼴(Inter·Noto Sans KR)로 고정한다 — 제품 글꼴 설정은 웹 글꼴이 없으면 시스템 글꼴로
+ * 떨어져(맥은 Apple SD Gothic Neo·SF) 인쇄 PDF 에 묻히고, 컴퓨터마다 글줄이 달라진다. 화면 구성·문구는 그대로다.
+ *
  * 끝나면 강조 표시가 붙을 요소의 자리(장면 px)를 부모에게 보낸다(SpanTargets). 실패하면 'error' 를 보낸다.
  */
 import '../../entrypoints/newtab/styles/phosphor.css';
@@ -61,6 +64,28 @@ function load(frame: HTMLIFrameElement, src: string): Promise<Document> {
   });
 }
 
+const BANNER_FONTS =
+  'https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+KR:wght@300..900&display=swap';
+
+/** iframe 문서에 현수막 글꼴을 넣고 글자 전체에 건다(아이콘 글꼴 Phosphor .ph 는 빼고). 인쇄가 흔들리지 않게 움직임도 끈다. */
+async function pinBannerFonts(doc: Document) {
+  const link = doc.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = BANNER_FONTS;
+  const loaded = new Promise((resolve) => ['load', 'error'].forEach((type) => link.addEventListener(type, resolve, { once: true })));
+  doc.head.append(link);
+  const style = doc.createElement('style');
+  style.textContent = [
+    "body, body *:not(.ph):not([class^='ph-']):not([class*=' ph-']) { font-family: 'Inter', 'Noto Sans KR', sans-serif !important; }",
+    "code, kbd, pre, samp { font-family: 'JetBrains Mono', monospace !important; }",
+    // 움직임은 끈다 — 인쇄(export.mjs 의 가상 시간)는 떠오르는 애니메이션이 끝나기 전 모습을 찍어 답 칸이 비었다(2026-10-23)
+    '*, *::before, *::after { animation: none !important; transition: none !important; }',
+  ].join('\n');
+  doc.head.append(style);
+  await loaded;
+  await Promise.all([doc.fonts.load('400 16px "Noto Sans KR"', '가나다'), doc.fonts.load('600 16px "Noto Sans KR"', '가나다'), doc.fonts.load('500 16px Inter', 'Orbit')]);
+}
+
 const buttonByText = (doc: Document, text: string) =>
   [...doc.querySelectorAll('button')].find((button) => button.textContent?.trim() === text) ?? null;
 
@@ -109,6 +134,19 @@ async function prepareNewTab(doc: Document) {
   await sleep(100);
   input.form!.requestSubmit();
   await until('answer with sources', () => doc.querySelector('.ask-source') && !doc.querySelector('.ask-turn__cursor'));
+}
+
+/**
+ * 답이 끝나면 홈이 대화 끝으로 부드럽게 스크롤한다(AskConversationPanel). 그 자리에서는 위의 행성 그림이 반쯤 잘려 보여,
+ * 그림이 다 지나간 자리로 맞춘다 — 사람이 답을 보려고 내린 화면과 같다. 창이 짧아야 그만큼 내려간다(panel-span SPAN.height).
+ */
+async function scrollPastOrbit(doc: Document) {
+  await sleep(900);
+  const orbit = doc.querySelector('.signature-orbit svg');
+  if (!orbit) return;
+  const scroller = doc.scrollingElement!;
+  scroller.scrollTop = orbit.getBoundingClientRect().bottom + scroller.scrollTop + 4;
+  await until('scroll past the orbit', () => orbit.getBoundingClientRect().bottom <= 0);
 }
 
 async function prepareSidePanel(doc: Document) {
@@ -182,8 +220,10 @@ function publish(message: SpanMessage) {
 
 try {
   const [tab, side] = await Promise.all([load(newtab, '../newtab.html?theme=light'), load(sidepanel, '../sidepanel.html?theme=light')]);
+  await Promise.all([pinBannerFonts(tab), pinBannerFonts(side), document.fonts.load('500 13px Inter', 'Orbit'), document.fonts.load('500 13px "Noto Sans KR"', '새 탭')]);
   await Promise.all([prepareNewTab(tab), prepareSidePanel(side)]);
   await Promise.all([imagesSettled(tab), imagesSettled(side), tab.fonts.ready, side.fonts.ready]);
+  await scrollPastOrbit(tab);
   // 깜빡이는 입력 커서가 찍히지 않게 초점을 푼다
   for (const doc of [tab, side]) (doc.activeElement as HTMLElement | null)?.blur();
   // 답변 카드가 떠오르는 움직임(home-rise 0.45s)이 끝난 자리를 잰다

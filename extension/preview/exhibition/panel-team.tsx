@@ -8,7 +8,7 @@
  */
 import { printable, sessionById } from './content';
 import { BannerFrame, Favicon, PageShot } from './frame';
-import { METRICS } from './metrics';
+import { displayMeasure, METRICS } from './metrics';
 
 /** 팀 화면 시연 — 사람 이름 대신 Orbit 말장난 별칭을 쓴다(실존 인물로 읽히지 않게). */
 const DEMO_TEAM = {
@@ -26,7 +26,7 @@ const POINTS = [
   // TeamSettingsSection · backend api/workspaces.py invite-code
   ['팀원은 초대 코드로 들어옵니다', '코드를 새로 만들면 이전 코드는 더 이상 쓸 수 없습니다.'],
   // backend api/search.py · api/ask.py workspace_id
-  ['팀에서 찾으면 공유된 세션만 나옵니다', '검색도 Ask도 그 팀에 공유된 세션 안에서만 답합니다.'],
+  ['팀에서 찾으면 공유된 세션만 나옵니다', '검색도 AI 질문도 그 팀에 공유된 세션 안에서만 답합니다.'],
   // newtab 아틀라스 팀 범위 — 페이지마다 공유한 사람 이름
   ['누가 공유했는지 보입니다', '페이지 카드마다 공유한 사람의 이름이 붙습니다.'],
 ];
@@ -35,7 +35,7 @@ const POINTS = [
 const HARNESS = [
   ['세션 묶기', '골든 시나리오 11개', 'append · create · hold · discard 판단'],
   ['검색', '세션 10개 · 질문 19개', '기록 있는 질문 14 · 없는 질문 5'],
-  ['Ask 의도 나누기', '질문 42개', '탭 이동 · 세션 찾기 · 기록 내용 찾기'],
+  ['질문 의도 나누기', '질문 42개', '탭 이동 · 세션 찾기 · 기록 내용 찾기'],
   ['열린 탭 찾기', '질문 21개', '열린 탭 후보 11개'],
 ];
 
@@ -46,7 +46,16 @@ const THRESHOLDS = [
   ['0.52', '병합 제안', '실사용 18세션 153쌍에서 정답 최저 0.533과 오답 최고 0.44 사이(2026-08-07)'],
 ];
 
-export function TeamBanner() {
+/**
+ * 검색 지연 한 줄 — 실제 화면 시안은 기술 현수막이 빠져 지연 숫자를 여기 측정 구역에 한 줄로 남긴다(CTO 2026-10-23).
+ * 실측일 때만 숫자를 쓰는 규칙(displayMeasure)을 그대로 따른다.
+ */
+const LATENCY = METRICS.metrics
+  .filter((metric) => ['A', 'B'].includes(metric.code))
+  .map((metric) => `${metric.code === 'A' ? '벡터' : '서버'} ${metric.values.map((value) => `${value.label} ${displayMeasure(value).text}${displayMeasure(value).unit}`).join('·')}`)
+  .join(' · ');
+
+export function TeamBanner({ latency = false }: { latency?: boolean }) {
   return (
     <BannerFrame step={4} label="현수막 — TEAM">
       <section className="ex-team__intro">
@@ -55,7 +64,7 @@ export function TeamBanner() {
           <br />
           누가 올렸더라?
         </h1>
-        <p className="ex-team__sub">팀에 공유한 세션은 팀원 누구나 찾고, 누가 공유했는지도 보입니다. 내가&nbsp;고른 세션만 공유되고 나머지는 나만&nbsp;봅니다.</p>
+        <p className="ex-team__sub">카드마다 올린 사람 이름이 붙어 있습니다. 팀에는 내가 고른 세션만 올라가고, 나머지는 나만&nbsp;봅니다.</p>
       </section>
 
       <section className="ex-team__stage" aria-label="팀 화면">
@@ -87,6 +96,12 @@ export function TeamBanner() {
                 <b>{row.value ?? 'TBD'}</b>
               </div>
             ))}
+            {latency && (
+              <div className="ex-method__wide">
+                <span>검색 지연</span>
+                <b>{`${LATENCY} (1만 합성 세션, 서버는 HTTP·인증·화면 제외)`}</b>
+              </div>
+            )}
           </div>
         </div>
         <div className="ex-measure__grid">
@@ -101,7 +116,7 @@ export function TeamBanner() {
             ))}
           </div>
           <div>
-            <h3>기준값과 근거</h3>
+            <h3>기준값은 이렇게 정했습니다</h3>
             {THRESHOLDS.map(([value, name, detail]) => (
               <div key={name} className="ex-measure__row ex-measure__row--value">
                 <em>{value}</em>

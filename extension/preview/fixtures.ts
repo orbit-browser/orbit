@@ -33,6 +33,8 @@ export interface PreviewSession {
   last_activity_at: string;
   folder_id: string | null;
   events: PreviewEvent[];
+  /** 미리보기 대역의 AI 질문 답(해요체 한 말투). 없으면 요약에서 만든다(api-mock.ts). 백엔드 세션에는 없는 칸이다. */
+  answer?: string;
 }
 
 export interface PreviewFolder {
@@ -84,6 +86,7 @@ interface SessionSeed {
   highlights: string[];
   todos?: string[];
   next?: string[];
+  answer?: string;
   pages: PageSeed[];
   status?: 'pending' | 'done' | 'failed';
 }
@@ -100,6 +103,8 @@ const SESSIONS: SessionSeed[] = [
     highlights: ['김포→제주 오전 편이 왕복 9만 원대로 가장 저렴', '렌터카는 완전자차 포함 3일 14만 원', '서귀포 숙소 2곳 후보'],
     todos: ['숙소 1곳 확정', '렌터카 예약'],
     next: ['애월 카페 동선 확인', '우도 배편 시간표 보기'],
+    // 결선 현수막 실제 화면 시안이 크게 짚는 답 — 요약(평서체)을 이어 붙이면 말투가 셋 섞여 따로 둔다(디자인팀장 검토 2026-10-23)
+    answer: '항공권·렌터카·숙소를 비교하고 동선을 정리한 세션이에요. 김포→제주 오전 편이 왕복 9만 원대로 가장 쌌어요.',
     pages: [
       ['제주 항공권 최저가 - 네이버 항공권', 'https://flight.naver.com/flights/domestic/GMP-CJU', 6],
       ['제주 렌터카 가격비교 | 카모아', 'https://carmore.kr/home/', 4],
@@ -332,6 +337,7 @@ function buildSession(seed: SessionSeed): PreviewSession {
     last_activity_at: iso(seed.hoursAgo),
     folder_id: seed.folder,
     events,
+    ...(seed.answer ? { answer: seed.answer } : {}),
   };
 }
 

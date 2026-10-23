@@ -18,12 +18,12 @@ const STEPS = [
   },
   {
     title: '평소처럼 웹을 봅니다',
-    text: '본 페이지는 먼저 내 브라우저에 쌓였다가, 정해 둔 때에 한꺼번에 정리됩니다. 페이지마다 AI를 부르지 않습니다.',
+    text: '봤던 페이지는 먼저 내 브라우저에 쌓였다가, 정해 둔 때에 한꺼번에 정리됩니다. 페이지마다 AI를 부르지 않습니다.',
     ui: <TimelineMini />,
   },
   {
-    title: 'AI가 세션으로 묶습니다',
-    text: '같은 일을 하며 본 페이지를 한데 모으고, 제목과 요약, 다음 할 일까지 씁니다.',
+    title: 'AI가 하던 일별로 묶어 둡니다',
+    text: '묶은 세션마다 제목과 요약, 다음 할 일까지 씁니다.',
     ui: <SessionCard />,
   },
   {
@@ -35,7 +35,7 @@ const STEPS = [
 
 const PRINCIPLES = [
   // lib/settings.ts collectionEnabled: false
-  ['내가 켜야 시작합니다', '설치한 뒤에도 꺼져 있고, 켠 뒤에도 언제든 끌 수 있습니다.'],
+  ['내가 켜야 시작합니다', '설치만 해서는 아무것도 모으지 않습니다. 켠 다음에도 언제든 끌 수 있습니다.'],
   // lib/sensitive-domains.ts · backend app/api/events.py is_sensitive_url
   ['민감한 페이지는 본문을 남기지 않습니다', '은행·로그인 같은 페이지는 제목과 주소만 남깁니다. 확장과 서버가 두 번 거릅니다.'],
   // lib/events/queue.ts (IndexedDB) · lib/sync/engine.ts
@@ -58,11 +58,11 @@ export function UseBanner() {
           <br />
           찾을 수 있어요.
         </h1>
-        <p className="ex-use__sub">수집을 한 번 켜 두면, 평소처럼 웹을 보는 동안 본 페이지가 알아서 세션으로 정리됩니다.</p>
+        <p className="ex-use__sub">수집을 한 번 켜 두면, 평소처럼 웹을 보는 동안 열어 본 페이지가 알아서 세션으로 정리됩니다.</p>
         {/* 행동 유도 — 두 앞 띠와 같은 말 */}
         <p className="ex-cta">
           <i className="ph ph-arrow-right" />
-          지금 써 보세요 · 시연은 가운데 화면에서 · 설치 QR은 오른쪽 끝에
+          지금 써 보세요 · 시연은 가운데 노트북에서 · 설치 QR은 오른쪽 끝에
         </p>
       </section>
 

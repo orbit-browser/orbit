@@ -1,11 +1,15 @@
 /**
  * 실제 화면 시안(?variant=span, 대표 2026-10-23) — 가운데 벽 세 장(3·4·5번)에 실제 새 탭과 사이드패널을 크롬 창 하나로
  * 이어 건다. 화면은 span-scene.html 을 iframe 으로 띄운 실제 컴포넌트(미리보기 대역의 합성 데이터)라 인쇄 PDF 에서도
- * 글자가 벡터로 나간다. 강조 표시(상자·원·화살표·돋보기·라벨)는 장면이 보내 준 요소 자리에 붙인다.
+ * 글자가 벡터로 나간다. 강조 표시(상자·화살표·돋보기·번호 라벨)는 장면이 보내 준 요소 자리에 붙인다.
  *
  * 세 장은 같은 장면을 하나씩 띄워 자기 몫만 보인다(벽 좌표 − 장의 자리). 장 사이 기둥(40mm)에 걸리는 몫은 가려진다.
  * 홈 대화 칸(920px)이 4번 장 안에 들어가게 크기를 잡았고, 네비게이터와 사이드패널 폭을 같게 둬서 장 경계가
  * 빈 바탕에 떨어진다. 핵심 문구(제목·라벨·숫자)는 장마다 안전 여백 안에만 둔다.
+ *
+ * 높이(디자인팀장 검토 2026-10-23): 현수막은 바닥에 세우고 눈높이는 바닥에서 1.5~1.65m(위에서 730~880mm)다.
+ * 창 높이를 줄이면 홈의 빈 위쪽이 줄어 질문·답이 눈높이로 올라온다 — ① 상자 위끝이 바닥에서 약 1.5m, 숫자 띠는
+ * 허리(바닥에서 1m) 위에 온다. 아래쪽은 가운데 벽 앞 시연 탁자 높이라 비워 둔다.
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { BOOTH } from './booth';
@@ -17,18 +21,25 @@ import type { SpanMessage, SpanRect, SpanTargets } from './span-scene';
 const SPAN = {
   scale: 0.96,
   width: 2948,
-  height: 1240,
+  height: 740,
   side: 380,
   nav: 380,
   left: 50,
-  top: 600,
+  top: 495,
 };
 
+/** 숫자 띠의 위끝(벽 mm) — 창 바로 아래. 띠 아래끝이 바닥에서 1m(위에서 1,380mm)를 넘지 않게 시험이 지킨다. */
+export const PROOF_TOP = Math.round(SPAN.top + SPAN.height * SPAN.scale + 14);
+
 /**
- * 돋보기 — 사이드패널의 열기·공유 단추를 zoom 배 더 키워 5번 장 빈 바탕에 보인다. 단추보다 dy 만큼 아래에 둬서
- * 위 라벨이 창의 탭 줄에 걸리지 않게 한다.
+ * 돋보기 — 사이드패널의 열기·공유 단추 줄만 zoom 배로 키워 5번 장 빈 바탕에 보인다(알약 모양). 단추 줄 위아래의 목록 글자와
+ * 파비콘은 담지 않는다(마케팅·디자인팀장 검토 2026-10-23). x 는 돋보기 가운데(벽 mm), pad 는 단추 둘레 여백(장면 px),
+ * lift 는 실제 단추 줄보다 올려 두는 높이(mm) — 아래 라벨(④)이 창 안에 들어오게.
  */
-const LENS = { x: 2272, dy: 150, radius: 230, zoom: 2 };
+const LENS = { x: 2268, zoom: 2, padX: 10, padY: 8, lift: 46 };
+
+/** 시안의 장 목록 — 가운데 벽 세 장이 한 장(ORBIT)이다. 머리글 번호와 바닥 진행 표시가 이 목록을 따른다(frame.tsx Chapters). */
+export const SPAN_CHAPTERS = ['USE', 'ORBIT', 'TEAM'] as const;
 
 const STEP = 950 + BOOTH.post;
 const SCENE_URL = `./span-scene.html?w=${SPAN.width}&h=${SPAN.height}&side=${SPAN.side}&nav=${SPAN.nav}`;
@@ -60,32 +71,18 @@ interface Callout {
   to: [number, number];
 }
 
-interface Circle {
-  x: number;
-  y: number;
-  r: number;
-}
-
 interface Layout {
   boxes: Box[];
-  ring: Circle;
-  lens: Circle & { focus: { x: number; y: number } };
-  /** 돋보기와 단추 원을 잇는 바깥 접선 두 개 */
+  /** 돋보기(벽 mm)와 그 안에 보일 장면 범위(장면 px) */
+  lens: Box & { source: SpanRect };
+  /** 사이드패널의 실제 단추 줄을 두른 알약 — 위아래 목록 글자에 닿지 않는다 */
+  marker: Box;
+  /** 돋보기와 실제 단추 줄을 잇는 두 줄 */
   ties: [number, number, number, number][];
+  /** 돋보기 안에서 단추 묶음을 두른 알약과 그 위·아래에 붙는 번호(③ 열기, ④ 공유) */
   pills: Box[];
+  badges: { no: number; x: number; y: number }[];
   callouts: Callout[];
-}
-
-/** 두 원의 바깥 접선(두 원을 함께 감싸는 줄). 원 a 가 원 b 보다 크다. */
-function outerTangents(a: Circle, b: Circle): [number, number, number, number][] {
-  const angle = Math.atan2(b.y - a.y, b.x - a.x);
-  const spread = Math.acos((a.r - b.r) / Math.hypot(b.x - a.x, b.y - a.y));
-  return [angle + spread, angle - spread].map((t) => [
-    a.x + a.r * Math.cos(t),
-    a.y + a.r * Math.sin(t),
-    b.x + b.r * Math.cos(t),
-    b.y + b.r * Math.sin(t),
-  ]);
 }
 
 /** 장면이 잰 요소 자리로 강조 표시를 놓는다. 라벨은 3번 장(①②)과 5번 장(③④)의 빈 바탕, 안전 여백 안에 둔다. */
@@ -95,63 +92,73 @@ export function layoutFor(targets: SpanTargets): Layout | null {
   const ask = toWall(unionRect(question, answer), 14);
   const card = toWall(source, 10);
   const buttons = unionRect(reopen, share);
-  const focus = { x: buttons.x + buttons.width / 2, y: buttons.y + buttons.height / 2 };
-  const target = toWall({ x: focus.x, y: focus.y, width: 0, height: 0 });
-  const lens = { x: LENS.x, y: target.y + LENS.dy, r: LENS.radius, focus };
-  const ring = { x: target.x, y: target.y, r: (buttons.width / 2) * SPAN.scale + 22 };
+  const scene = { x: buttons.x - LENS.padX, y: buttons.y - LENS.padY, width: buttons.width + LENS.padX * 2, height: buttons.height + LENS.padY * 2 };
   const zoom = SPAN.scale * LENS.zoom;
-  // 돋보기 안의 단추 자리 — 초점에서 떨어진 만큼 zoom 배로. 두 단추가 2px 붙어 있어 마주 보는 쪽은 줄여 테두리를 띄운다
+  const lensW = scene.width * zoom;
+  const lensH = scene.height * zoom;
+  const marker = toWall(buttons, 3);
+  const lens = { x: LENS.x - lensW / 2, y: marker.y + marker.h / 2 - lensH / 2 - LENS.lift, w: lensW, h: lensH, source: scene };
+  // 돋보기 안의 자리 — 장면 범위 왼쪽 위에서 떨어진 만큼 zoom 배로. 두 단추가 2px 붙어 있어 마주 보는 쪽은 줄여 테두리를 띄운다
   const inLens = (rect: SpanRect, left: number, right: number): Box => ({
-    x: lens.x + (rect.x - left - focus.x) * zoom,
-    y: lens.y + (rect.y - 5 - focus.y) * zoom,
+    x: lens.x + (rect.x - left - scene.x) * zoom,
+    y: lens.y + (rect.y - 4 - scene.y) * zoom,
     w: (rect.width + left + right) * zoom,
-    h: (rect.height + 10) * zoom,
+    h: (rect.height + 8) * zoom,
   });
-  const pills = [inLens(reopen, 6, -2), inLens(share, -2, 6)];
-  // 라벨 화살표는 돋보기 테두리에서 멈춘다(돋보기가 위에 덮인다) — 단추 바로 위·아래의 테두리 점
-  const rim = (x: number, side: -1 | 1) => lens.y + side * (Math.sqrt(lens.r ** 2 - (x - lens.x) ** 2) + 10);
+  const pills = [inLens(reopen, 4, -2), inLens(share, -2, 4)];
   const [reopenX, shareX] = pills.map((pill) => pill.x + pill.w / 2);
+  const badges = [
+    { no: 3, x: reopenX, y: lens.y },
+    { no: 4, x: shareX, y: lens.y + lens.h },
+  ];
   const labelW = 420;
   const leftX = 470;
   const rightX = 2040;
+  const labelGap = 52;
   return {
     boxes: [ask, card],
-    ring,
     lens,
-    ties: outerTangents(lens, ring),
+    marker,
+    ties: [
+      [lens.x + lens.w - lens.h / 2, lens.y, marker.x + marker.h / 2, marker.y],
+      [lens.x + lens.w - lens.h / 2, lens.y + lens.h, marker.x + marker.h / 2, marker.y + marker.h],
+    ],
     pills,
+    badges,
     callouts: [
       {
         no: 1,
-        title: '생각나는 대로 물어도 찾아 줍니다',
-        text: '제목을 몰라도, 그때 하던 일을 적으면 그\u00a0세션을 찾아 답합니다.',
-        at: { x: leftX, y: ask.y + ask.h / 2 - 96, w: labelW },
+        title: '생각나는 대로 물어도 찾아 줘요',
+        text: '제목을 몰라도, 그때 하던 일을 적으면 그 세션을 찾아 답해요.',
+        at: { x: leftX, y: ask.y + ask.h / 2 - 84, w: labelW },
         from: [leftX + labelW + 6, ask.y + ask.h / 2],
         to: [ask.x - 6, ask.y + ask.h / 2],
       },
       {
         no: 2,
-        title: '본 페이지는 세션 하나로 묶여 있습니다',
-        text: 'AI가 같은 일로 본 페이지를 묶고 제목과 요약을 붙여 둡니다.',
-        at: { x: leftX, y: card.y - 8, w: labelW },
+        title: '같은 일로 본 페이지는 한데 묶여 있어요',
+        text: 'AI가 알아서 묶고 제목과 요약까지 붙여 둬요.',
+        at: { x: leftX, y: card.y - 14, w: labelW },
         from: [leftX + labelW + 6, card.y + card.h / 2],
         to: [card.x - 6, card.y + card.h / 2],
       },
       {
+        // 라벨은 돋보기 위 — 화살표는 위 테두리의 ③ 번호까지
         no: 3,
-        title: '누르면 그때 페이지가 다시 열립니다',
-        text: '새 창으로도, 지금 창에도 한 번에 엽니다.',
-        at: { x: rightX, y: lens.y - lens.r - 230, w: labelW },
-        from: [reopenX, lens.y - lens.r - 52],
-        to: [reopenX, rim(reopenX, -1)],
+        title: '누르면 그때 페이지가 다시 열려요',
+        text: '새 창으로도, 지금 창에도 한 번에 열어요.',
+        at: { x: rightX, y: lens.y - labelGap - 150, w: labelW },
+        from: [reopenX, lens.y - labelGap + 8],
+        to: [reopenX, lens.y - 34],
       },
       {
+        // 라벨은 돋보기 아래 — 화살표는 아래 테두리의 ④ 번호까지
         no: 4,
-        title: '팀에는 고른 세션만 공유됩니다',
-        text: '팀원은 공유된 세션 안에서만 찾고 묻습니다.',
-        at: { x: rightX, y: lens.y + lens.r + 60, w: labelW },
-        from: [shareX, lens.y + lens.r + 56],
-        to: [shareX, rim(shareX, 1)],
+        title: '팀에는 내가 고른 세션만 올라가요',
+        text: '팀원은 올라온 세션 안에서만 찾고 물어봐요.',
+        at: { x: rightX, y: lens.y + lens.h + labelGap, w: labelW },
+        from: [shareX, lens.y + lens.h + labelGap - 8],
+        to: [shareX, lens.y + lens.h + 34],
       },
     ],
   };
@@ -192,11 +199,11 @@ export function SpanBanner({ part }: { part: 0 | 1 | 2 }) {
   }, []);
 
   const layout = message?.kind === 'orbit-span:ready' ? layoutFor(message.targets) : null;
-  const step = part + 1;
   const label = ['현수막 — 실제 화면 시안 왼쪽', '현수막 — 실제 화면 시안 가운데', '현수막 — 실제 화면 시안 오른쪽'][part];
 
   return (
-    <BannerFrame step={step} label={label}>
+    // 세 장 모두 ORBIT 장(STEPS 의 2) — 번호는 시안의 장 목록(SPAN_CHAPTERS)에서 02 가 된다
+    <BannerFrame step={2} label={label}>
       <div className="ex-span__window" style={{ left: SPAN.left - x0, top: SPAN.top, width: SPAN.width * SPAN.scale, height: SPAN.height * SPAN.scale }}>
         <Scene frameRef={frameRef} style={{ transform: `scale(${SPAN.scale})` }} />
         {message?.kind === 'orbit-span:error' && (
@@ -210,8 +217,7 @@ export function SpanBanner({ part }: { part: 0 | 1 | 2 }) {
 
       {part === 0 && (
         <h1 className="ex-span__question">
-          어제 봤던
-          <br />그 페이지,
+          어제 봤던 그 페이지,
           <br />
           어디 갔지?
         </h1>
@@ -221,7 +227,7 @@ export function SpanBanner({ part }: { part: 0 | 1 | 2 }) {
           <h1 className="ex-span__word">
             Orbit<span>.</span>
           </h1>
-          <p className="ex-span__promise">본 페이지를 대신 기억해 둬요.</p>
+          <p className="ex-span__promise">봤던 페이지, 대신 기억해 둘게요.</p>
         </section>
       )}
       {part === 2 && (
@@ -231,79 +237,74 @@ export function SpanBanner({ part }: { part: 0 | 1 | 2 }) {
             <br />
             실제 Orbit 화면이에요.
           </h1>
-          {/* 행동 유도 — 두 앞 띠·USE 와 같은 말 */}
+          {/* 행동 유도 — 두 앞 띠·USE 와 같은 말. 가운데 벽이 화면이 되므로 시연 기기는 이름(노트북)으로 부른다 */}
           <p className="ex-cta">
             <i className="ph ph-arrow-right" />
-            지금 써 보세요 · 시연은 가운데 화면에서
+            지금 써 보세요 · 시연은 가운데 노트북에서
           </p>
         </section>
       )}
 
-      <section className="ex-span__proof" aria-label="시험으로 확인한 숫자">
+      <section className="ex-span__proof" style={{ top: PROOF_TOP }} aria-label="시험으로 확인한 숫자">
         <ProvenStat stat={PROVEN_STATS[part]} />
+        <p className="ex-fineprint">
+          {part === 2
+            ? PROVEN_NOTE
+            : '화면: 실제 Orbit 새 탭(왼쪽 네비게이터를 연 홈, AI에게 질문)과 사이드패널(세션) · 세션과 방문은 시연용 합성 데이터 · 글꼴만 현수막 글꼴로 맞춤'}
+        </p>
       </section>
-      <p className="ex-fineprint ex-span__fineprint">
-        {part === 2
-          ? PROVEN_NOTE
-          : '화면: 실제 Orbit 새 탭(왼쪽 네비게이터를 연 홈, AI에게 질문)과 사이드패널(세션) · 세션과 방문은 시연용 합성 데이터'}
-      </p>
     </BannerFrame>
   );
 }
 
 /** 벽 좌표의 강조 표시 층 — 장마다 같은 층을 자기 자리만큼 옮겨 그린다(나머지는 현수막 밖이라 잘린다). */
 function Marks({ layout, x0, part }: { layout: Layout; x0: number; part: number }) {
-  const { boxes, ring, lens, ties, pills, callouts } = layout;
-  const marker = `ex-span-arrow-${part}`;
+  const { boxes, lens, marker, ties, pills, badges, callouts } = layout;
+  const arrow = `ex-span-arrow-${part}`;
   const zoom = SPAN.scale * LENS.zoom;
-  const lensSide = lens.r * 2;
+  const inPanel = (left: number, right: number) => right > x0 && left < x0 + 950;
   return (
     <>
       <svg className="ex-span__marks" viewBox={`0 0 2930 ${BOOTH.height}`} style={{ left: -x0 }} aria-hidden>
         <defs>
-          <marker id={marker} viewBox="0 0 12 12" refX="10" refY="6" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <marker id={arrow} viewBox="0 0 12 12" refX="10" refY="6" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
             <path d="M0,0 L12,6 L0,12 z" className="ex-span__arrowhead" />
           </marker>
         </defs>
         {boxes.map((box, index) => (
           <rect key={index} x={box.x} y={box.y} width={box.w} height={box.h} rx="14" className="ex-span__box" />
         ))}
-        {/* 돋보기와 사이드패널의 단추를 잇는 두 줄, 단추를 두른 원 */}
+        {/* 돋보기와 사이드패널의 실제 단추 줄을 잇는 두 줄, 단추 줄을 두른 알약 */}
         {ties.map(([x1, y1, x2, y2], index) => (
           <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} className="ex-span__tie" />
         ))}
-        <circle cx={ring.x} cy={ring.y} r={ring.r} className="ex-span__ring" />
+        <rect x={marker.x} y={marker.y} width={marker.w} height={marker.h} rx={marker.h / 2} className="ex-span__ring" />
         {callouts.map((callout) => (
-          <line
-            key={callout.no}
-            x1={callout.from[0]}
-            y1={callout.from[1]}
-            x2={callout.to[0]}
-            y2={callout.to[1]}
-            className="ex-span__leader"
-            markerEnd={`url(#${marker})`}
-          />
+          <line key={callout.no} x1={callout.from[0]} y1={callout.from[1]} x2={callout.to[0]} y2={callout.to[1]} className="ex-span__leader" markerEnd={`url(#${arrow})`} />
         ))}
       </svg>
 
-      {/* 돋보기 — 같은 장면을 한 번 더 띄워 zoom 배로 보인다. 5번 장에만 걸리므로 그 장에서만 띄운다 */}
-      {lens.x + lens.r > x0 && lens.x - lens.r < x0 + 950 && (
-        <div className="ex-span__lens" style={{ left: lens.x - lens.r - x0, top: lens.y - lens.r, width: lensSide, height: lensSide }}>
-          <Scene
-            style={{
-              transform: `translate(${lens.r - lens.focus.x * zoom}px, ${lens.r - lens.focus.y * zoom}px) scale(${zoom})`,
-            }}
-          />
-          <svg viewBox={`${lens.x - lens.r} ${lens.y - lens.r} ${lensSide} ${lensSide}`} aria-hidden>
+      {/* 돋보기 — 같은 장면을 한 번 더 띄워 단추 줄만 zoom 배로 보인다. 5번 장에만 걸리므로 그 장에서만 띄운다 */}
+      {inPanel(lens.x, lens.x + lens.w) && (
+        <div className="ex-span__lens" style={{ left: lens.x - x0, top: lens.y, width: lens.w, height: lens.h, borderRadius: lens.h / 2 }}>
+          <Scene style={{ transform: `translate(${-lens.source.x * zoom}px, ${-lens.source.y * zoom}px) scale(${zoom})` }} />
+          <svg viewBox={`${lens.x} ${lens.y} ${lens.w} ${lens.h}`} aria-hidden>
             {pills.map((pill, index) => (
               <rect key={index} x={pill.x} y={pill.y} width={pill.w} height={pill.h} rx={pill.h / 2} className="ex-span__pill" />
             ))}
           </svg>
         </div>
       )}
+      {badges.map((badge) =>
+        inPanel(badge.x - 28, badge.x + 28) ? (
+          <b key={badge.no} className="ex-span__no ex-span__no--on" style={{ left: badge.x - 28 - x0, top: badge.y - 28 }}>
+            {badge.no}
+          </b>
+        ) : null,
+      )}
 
       {callouts.map((callout) =>
-        callout.at.x + callout.at.w > x0 && callout.at.x < x0 + 950 ? (
+        inPanel(callout.at.x, callout.at.x + callout.at.w) ? (
           <Label key={callout.no} no={callout.no} style={{ left: callout.at.x - x0, top: callout.at.y, width: callout.at.w }}>
             <strong>{callout.title}</strong>
             <span>{callout.text}</span>

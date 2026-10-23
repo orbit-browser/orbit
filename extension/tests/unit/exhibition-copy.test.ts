@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { ChaosBanner } from '../../preview/exhibition/panel-chaos';
 import { EdgeBanner } from '../../preview/exhibition/panel-edge';
 import { OrbitBanner } from '../../preview/exhibition/panel-orbit';
+import { SpanBanner } from '../../preview/exhibition/panel-span';
 import { TeamBanner } from '../../preview/exhibition/panel-team';
 import { TechBanner } from '../../preview/exhibition/panel-tech';
 import { UseBanner } from '../../preview/exhibition/panel-use';
@@ -18,6 +19,7 @@ const ALL_BANNERS = [
   createElement(TechBanner),
   createElement(TeamBanner),
   createElement(EdgeBanner, { side: 'right' }),
+  ...([0, 1, 2] as const).map((part) => createElement(SpanBanner, { part })),
 ].map(text).join('\n');
 
 // 대표가 "AI가 쓴 티"로 짚은 줄(2026-10-23)과 마케팅팀장 목록의 예 — 같은 말이 다시 들어오지 않게 한다.
@@ -28,5 +30,11 @@ describe('exhibition copy', () => {
 
   it('drops the abstract slogans from the marketing lead list', () => {
     for (const phrase of ['탐색의 흔적', '구조화된 기억', '당신의 탐색', '이어가다.']) expect(ALL_BANNERS).not.toContain(phrase);
+  });
+
+  // 두 팀장 검토(2026-10-23): 고치며 새로 생긴 대구, 일곱 장에 되풀이된 "From A to B" 바닥글
+  it('drops the parallel line and the slogan footer the reviewers flagged', () => {
+    expect(ALL_BANNERS).not.toContain('뒤에도 꺼져 있고, 켠 뒤에도');
+    expect(ALL_BANNERS).not.toContain('FROM CHAOS TO MEMORY');
   });
 });
