@@ -4,7 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
 import { initCollector } from '../../lib/events/collector';
 import { listByStatus, setPendingChangeListener } from '../../lib/events/queue';
-import { AI_DISCLOSURE, AI_DISCLOSURE_FORMAL, CONSENT_VERSION, getSettings, updateSettings } from '../../lib/settings';
+import {
+  AI_DISCLOSURE,
+  AI_DISCLOSURE_FORMAL,
+  CONSENT_VERSION,
+  getSettings,
+  needsReconsent,
+  updateSettings,
+} from '../../lib/settings';
+import { applyAccountConsent } from '../../lib/sync/triggers';
 import { initTriggers } from '../../lib/sync/triggers';
 import { clearEvents } from '../helpers';
 
@@ -121,10 +129,27 @@ describe('계정별 수집 동의', () => {
     await signInAs(B);
     startServiceWorker();
 
-    // 옮긴 옛 동의(true)는 지금 버전이 아니라 스위치가 꺼지고, 꺼진 값이 B의 동의로 남는다.
+    // 옮긴 옛 동의(true)는 지금 버전이 아니라 스위치는 꺼지지만, 옛 동의는 남아 재동의 안내가 나온다.
     await vi.waitFor(async () => expect((await getSettings()).collectionEnabled).toBe(false));
     const stored = await chrome.storage.local.get('orbit:collectionConsent');
-    expect(stored['orbit:collectionConsent']).toEqual({ [B]: false });
+    expect(stored['orbit:collectionConsent']).toEqual({ [B]: true });
+    expect(needsReconsent(stored['orbit:collectionConsent'] as Record<string, number | boolean>, B)).toBe(true);
+  });
+});
+
+describe('계정 동의 맞추기', () => {
+  it('스위치만 맞추고 어느 계정의 동의도 기록하지 않는다', async () => {
+    // 동의를 여기서 쓰면, 전환 도중 읽은 계정(B)의 켜짐이 동의하지 않은 계정(C)의 동의로 남을 수 있다.
+    await chrome.storage.local.set({
+      'orbit:collectionConsent': { [B]: CONSENT_VERSION },
+      'orbit:settings': { collectionEnabled: true },
+    });
+    await signInAs(C);
+    await applyAccountConsent();
+
+    expect((await getSettings()).collectionEnabled).toBe(false);
+    const stored = await chrome.storage.local.get('orbit:collectionConsent');
+    expect(stored['orbit:collectionConsent']).toEqual({ [B]: CONSENT_VERSION });
   });
 });
 

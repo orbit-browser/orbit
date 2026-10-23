@@ -56,7 +56,7 @@ export default defineBackground(() => {
     if (message?.type === 'PAGE_CONTENT_READY' && sender.tab?.id != null) {
       const tabId = sender.tab.id;
       pageContentCache.set(tabId, message.content ?? null);
-      handlePageContentReady(tabId, message.content ?? null).catch((err) =>
+      handlePageContentReady(tabId, message.content ?? null, sender.url).catch((err) =>
         console.error('[Orbit] handlePageContentReady 실패', err),
       );
       return false;
